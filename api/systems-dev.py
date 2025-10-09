@@ -7,7 +7,17 @@ from fastapi import HTTPException
 import psycopg
 from pydantic import BaseModel
 from typing import Optional
-from edts.edtslib import system
+try:
+    from .edts.edtslib import system  # type: ignore[attr-defined]
+except ImportError:
+    import sys
+    from pathlib import Path
+    _local_edts = Path(__file__).resolve().parent / "edts"
+    if _local_edts.exists():
+        sys.path.insert(0, str(_local_edts))
+        from edtslib import system  # type: ignore[attr-defined]
+    else:
+        raise
 import asyncio
 from dotenv import load_dotenv
 

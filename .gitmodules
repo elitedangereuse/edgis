@@ -1,0 +1,3 @@
+[submodule "api/edts"]
+	path = api/edts
+	url = https://bitbucket.org/Esvandiary/edts.git
