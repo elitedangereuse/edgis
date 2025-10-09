@@ -21,18 +21,21 @@ except ImportError:
 import asyncio
 from dotenv import load_dotenv
 
+load_dotenv()
+
 NEIGHBORS_CONCURRENCY_LIMIT = 2
 neighbors_semaphore = asyncio.Semaphore(NEIGHBORS_CONCURRENCY_LIMIT)
 app = FastAPI()
 
 # Enable CORS for your app, you can restrict it to specific domains (origins)
-origins = [
-    "https://elitedangereuse.hobeika.fr",
-    "https://elitedangereuse.fr",
-    "https://elitedangereuse.com",
-    "https://cutter.elitedangereuse.fr",
-    "https://beta.elitedangereuse.fr",
-]
+
+def _load_cors_origins() -> list[str]:
+    configured = os.getenv("CORS_ORIGINS", "")
+    if not configured:
+        return []
+    return [origin.strip() for origin in configured.split(",") if origin.strip()]
+
+origins = _load_cors_origins()
 
 app.add_middleware(
     CORSMiddleware,
@@ -43,7 +46,6 @@ app.add_middleware(
 )
 
 # Database connection parameters
-load_dotenv()
 DB_HOST = os.getenv("DB_HOST")
 DB_NAME = os.getenv("DB_NAME")
 DB_USER = os.getenv("DB_USER")
