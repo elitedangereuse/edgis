@@ -1,0 +1,10 @@
+.DS_Store
+*.mo
+*~
+*.psd
+.phpunit.cache/
+.phpunit.result.cache
+*.glb
+/gm/journal_cache/*
+AGENTS.md
+.pnpm-store

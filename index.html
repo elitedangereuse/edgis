@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>EDGIS — Elite Dangerous Galactic Information System</title>
+    <link href="./static/tailwind.css" rel="stylesheet">
+    <link rel="stylesheet" href="./static/milkyway.css">
+    <style>
+     :root{
+       --accent-blue:#1294d6;
+     }
+
+     body::before {
+       content: "";
+       position: fixed;
+       top: 0; left: 0; right: 0; bottom: 0;
+       background-image: url('./static/milkyway.webp');
+       background-size: cover;
+       background-position: center;
+       background-repeat: no-repeat;
+       opacity: .25; /* Subtle visibility */
+       z-index: -2; /* Behind starfield and gradient */
+       pointer-events: none;
+       filter: brightness(1.2) saturate(1.1);
+     }
+
+     body {
+       background: #111;
+       position: relative;
+       margin: 0;
+     }
+
+     a:hover {
+       text-shadow: 0 0 5px #1294d6, 0 0 10px #1294d6, 0 0 15px #80c4e6;
+     }
+
+     #resultPre, #resultTable {
+       max-height: 60vh;
+       overflow-y: auto;
+       scrollbar-width: thin;
+       scrollbar-color: #1294d6 #1a1a1a;
+     }
+
+     #resultPre::-webkit-scrollbar, #resultTable::-webkit-scrollbar {
+       width: 6px;
+     }
+
+     #resultPre::-webkit-scrollbar-track, #resultTable::-webkit-scrollbar-track {
+       background: #111;
+     }
+
+     #resultPre::-webkit-scrollbar-thumb, #resultTable::-webkit-scrollbar-thumb {
+       background-color: #1294d6;
+       border-radius: 3px;
+     }
+     /* Thin grid lines for table columns and rows */
+     #resultTable table {
+       border-collapse: collapse;
+     }
+
+     #resultTable th,
+     #resultTable td {
+       border-left: 1px solid rgba(255, 255, 255, 0.1); /* Subtle vertical lines */
+       padding-left: 5px;
+       padding-right: 5px;
+     }
+
+     #resultTable th:first-child,
+     #resultTable td:first-child {
+       border-left: none; /* Avoid border on far-left edge */
+     }
+
+     #resultTable th {
+       border-bottom: 1px solid rgba(18, 148, 214, 0.3); /* Stronger bottom line for header */
+     }
+
+     @keyframes drift{from{transform:translate3d(0,0,0)}to{transform:translate3d(-400px,-200px,0)}}
+     .glass{background:rgba(255,255,255,0.03);backdrop-filter: blur(6px);border:1px solid rgba(255,255,255,0.10);}
+     .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace}
+
+     .quote {
+       height: 80px;
+     }
+
+     @media only screen and (max-width: 767px) {
+       .quote {
+         height: 95px !important;
+       }
+     }
+
+    </style>
+  </head>
+  <body class="text-gray-200 antialiased">
+    <canvas id="starsCanvas"></canvas>
+    <main class="relative z-10 max-w-3xl mx-auto px-6 py-12">
+      <div class="glass rounded-2xl p-8 shadow-xl">
+        <h1 class="text-5xl sm:text-5xl font-extrabold tracking-tight">
+          <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="display: inline; vertical-align: bottom; color: #1294d6;" version="1.1" id="Layer_2" x="0px" y="0px" width="45px" height="45px" viewBox="0 0 960 960" xml:space="preserve">
+            <circle fill="currentColor" cx="281.739" cy="681.869" r="157.608"/>
+            <circle fill="currentColor" cx="568.74" cy="217.869" r="89.13"/>
+            <circle fill="currentColor" cx="808.739" cy="431.869" r="44.565"/>
+            <polygon fill="currentColor" points="774.75,418.75 604.45,281.867 639.1,248.452 790.36,406.175 "/>
+            <polygon fill="currentColor" points="301.606,690.544 248.797,660.119 513.261,278.609 538.706,290.016 "/>
+          </svg> EDGIS
+        </h1>
+        <h2 class="mt-5"><b>E</b>lite <b>D</b>angerous <b>G</b>alactic <b>I</b>nformation <b>S</b>ystem</h2>
+        <p class="mt-0 text-gray-400">Plotting courses through the galaxy — one pun at a time.</p>
+
+        <!-- rotating quotes -->
+        <div class="mt-6 quote">
+          <div class="flex items-center gap-3">
+            <!-- Texte -->
+            <div class="flex-1">
+              <blockquote id="quote" class="text-lg italic text-gray-100 mono">...</blockquote>
+              <div class="mt-3 text-xs text-gray-400" id="quote-author">—</div>
+            </div>
+          </div>
+        </div>
+        <br>
+        <hr style="border-color: #6b6b6b;">
+
+        <!-- search -->
+        <form id="searchForm" class="mt-6 flex flex-col sm:flex-row gap-4">
+          <input id="q" name="q" required type="search" placeholder="Search a system — e.g. Kamadhenu"
+                 class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-4 py-3 placeholder:text-gray-500 outline-none focus:ring-2 focus:ring-[var(--accent-blue)]" />
+          <button type="submit" class="px-5 py-1 rounded-lg bg-[var(--accent-blue)] text-black font-semibold hover:bg-[#0c6bc9] hover:text-white transition-colors duration-200">
+            <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" fill="currentColor" style="display: inline; vertical-align: text-bottom; margin-right: 5px;" class="bi-search" viewBox="0 0 16 16">   <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/> </svg>
+            Search system
+          </button>
+        </form>
+
+        <!-- advanced form -->
+        <div class="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <!-- Col 1 -->
+          <div class="flex flex-col gap-2">
+            <label class="text-sm">
+              <b>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" style="display: inline; vertical-align: text-bottom; margin-right: 5px; margin-left: 3px; color: #1294d6;" class="bi bi-magic" viewBox="0 0 16 16"><path d="M9.5 2.672a.5.5 0 1 0 1 0V.843a.5.5 0 0 0-1 0zm4.5.035A.5.5 0 0 0 13.293 2L12 3.293a.5.5 0 1 0 .707.707zM7.293 4A.5.5 0 1 0 8 3.293L6.707 2A.5.5 0 0 0 6 2.707zm-.621 2.5a.5.5 0 1 0 0-1H4.843a.5.5 0 1 0 0 1zm8.485 0a.5.5 0 1 0 0-1h-1.829a.5.5 0 0 0 0 1zM13.293 10A.5.5 0 1 0 14 9.293L12.707 8a.5.5 0 1 0-.707.707zM9.5 11.157a.5.5 0 0 0 1 0V9.328a.5.5 0 0 0-1 0zm1.854-5.097a.5.5 0 0 0 0-.706l-.708-.708a.5.5 0 0 0-.707 0L8.646 5.94a.5.5 0 0 0 0 .707l.708.708a.5.5 0 0 0 .707 0l1.293-1.293Zm-3 3a.5.5 0 0 0 0-.706l-.708-.708a.5.5 0 0 0-.707 0L.646 13.94a.5.5 0 0 0 0 .707l.708.708a.5.5 0 0 0 .707 0z"/></svg>
+                Predict system:
+              </b>
+            </label>
+            <input id="predictInput" type="text" placeholder="Swoilz GG-B b5-3"
+                   class="bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500 w-full" />
+            <button id="predictBtn" class="px-4 py-2 rounded bg-[var(--accent-blue)] text-black w-full sm:w-auto hover:bg-[#0c6bc9] hover:text-white transition-colors duration-200"><b>
+              <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" fill="currentColor" style="display: inline; vertical-align: text-bottom; margin-right: 5px;" class="bi-search" viewBox="0 0 16 16">   <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/> </svg>
+              Predict system</b></button>
+          </div>
+
+          <!-- Col 2 -->
+          <div class="flex flex-col gap-2">
+            <label class="text-sm">
+              <b>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" style="display: inline; vertical-align: text-bottom; margin-right: 5px; margin-left: 3px; color: #1294d6;" fill="currentColor" class="bi bi-people" viewBox="0 0 16 16">   <path d="M15 14s1 0 1-1-1-4-5-4-5 3-5 4 1 1 1 1zm-7.978-1L7 12.996c.001-.264.167-1.03.76-1.72C8.312 10.629 9.282 10 11 10c1.717 0 2.687.63 3.24 1.276.593.69.758 1.457.76 1.72l-.008.002-.014.002zM11 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4m3-2a3 3 0 1 1-6 0 3 3 0 0 1 6 0M6.936 9.28a6 6 0 0 0-1.23-.247A7 7 0 0 0 5 9c-4 0-5 3-5 4q0 1 1 1h4.216A2.24 2.24 0 0 1 5 13c0-1.01.377-2.042 1.09-2.904.243-.294.526-.569.846-.816M4.92 10A5.5 5.5 0 0 0 4 13H1c0-.26.164-1.03.76-1.724.545-.636 1.492-1.256 3.16-1.275ZM1.5 5.5a3 3 0 1 1 6 0 3 3 0 0 1-6 0m3-2a2 2 0 1 0 0 4 2 2 0 0 0 0-4"/> </svg>
+                Find neighbors (x,y,z,radius):
+              </b>
+            </label>
+            <input id="neighborsInput" type="text" placeholder="0,0,0,15"
+                   class="bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500 w-full" />
+            <button id="neighborsBtn" class="px-4 py-2 rounded bg-[var(--accent-blue)] text-black w-full sm:w-auto hover:bg-[#0c6bc9] hover:text-white transition-colors duration-200">
+              <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" fill="currentColor" style="display: inline; vertical-align: text-bottom; margin-right: 5px;" class="bi-search" viewBox="0 0 16 16">   <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/> </svg>
+              <b>Find neighbors</b></button>
+          </button>
+          </div>
+        </div>
+        <div id="status" class="mt-4 text-sm text-gray-400"></div>
+        <div class="flex justify-between items-center mt-2 w-full">
+          <div id="resultCount" class="text-sm text-gray-400"></div>
+        </div>
+      </div>
+
+      <div id="result" class="mt-6 glass rounded-2xl p-4" style="display: none;">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+          <div class="text-sm font-medium">Latest API response</div>
+          <div class="text-xs mono break-all" id="api-url">—</div>
+          <div id="ed3ddrawer" style="display:none">
+            <span>
+              <a id="coords" target="_blank" href="https://elitedangereuse.fr/outils/ed3ddrawer.php?x=0&y=0&z=0&r=10" class="flex items-center space-x-1 text-orange-500 text-sm">
+                <span> [Open Map] </span>
+                <svg width="16" height="16" version="1.1" viewBox="0 0 26.724 26.723" xmlns="http://www.w3.org/2000/svg">
+                  <g fill="none" stroke="#1294d6" stroke-width=".3">
+                    <path d="m13.363 0.135a5.0636 13.229 0 0 1 5.0636 13.229 5.0636 13.229 0 0 1-5.0636 13.229m0-26.458a9.3554 13.229 0 0 1 9.3554 13.229 9.3554 13.229 0 0 1-9.3554 13.229m0-26.458a12.223 13.229 0 0 1 12.223 13.229 12.223 13.229 0 0 1-12.223 13.229 13.23 13.229 0 0 1-11.458-6.6146 13.23 13.229 0 0 1 0-13.229 13.23 13.229 0 0 1 11.458-6.6146m0 26.458a12.223 13.229 0 0 1-10.586-6.6146 12.223 13.229 0 0 1 0-13.229 12.223 13.229 0 0 1 10.586-6.6146m0 26.458a9.3554 13.229 0 0 1-8.102-6.6146 9.3554 13.229 0 0 1 0-13.229 9.3554 13.229 0 0 1 8.102-6.6146m0 26.458a5.0636 13.229 0 0 1-4.3852-6.6146 5.0636 13.229 0 0 1 0-13.229 5.0636 13.229 0 0 1 4.3852-6.6146m0 26.458a1e-3 13.229 0 0 1-8.7e-4 -6.6146 1e-3 13.229 0 0 1 0-13.229 1e-3 13.229 0 0 1 8.7e-4 -6.6146"/>
+                    <path d="m17.451 0.782a4.088 1e-3 0 0 1-2.044 8.7e-4 4.088 1e-3 0 0 1-4.088 0 4.088 1e-3 0 0 1-2.044-8.7e-4m11.864 1.879a7.7759 1e-3 0 0 1-3.888 8.7e-4 7.7759 1e-3 0 0 1-7.7759 0 7.7759 1e-3 0 0 1-3.888-8.7e-4m18.479 2.9271a10.703 1e-3 0 0 1-5.3513 8.7e-4 10.703 1e-3 0 0 1-10.703 0 10.703 1e-3 0 0 1-5.3513-8.7e-4m23.285 3.6879a12.582 1e-3 0 0 1-6.2908 8.7e-4 12.582 1e-3 0 0 1-12.582 0 12.582 1e-3 0 0 1-6.2908-8.7e-4m25.811 4.088a13.229 1e-3 0 0 1-6.6146 8.7e-4 13.229 1e-3 0 0 1-13.229 0 13.229 1e-3 0 0 1-6.6146-8.7e-4m25.811 4.088a12.582 1e-3 0 0 1-6.2908 8.7e-4 12.582 1e-3 0 0 1-12.582 0 12.582 1e-3 0 0 1-6.2908-8.7e-4m23.285 3.6879a10.703 1e-3 0 0 1-5.3513 8.7e-4 10.703 1e-3 0 0 1-10.703 0 10.703 1e-3 0 0 1-5.3513-8.7e-4m18.478 2.9271a7.7759 1e-3 0 0 1-3.888 8.7e-4 7.7759 1e-3 0 0 1-7.7759 0 7.7759 1e-3 0 0 1-3.888-8.7e-4m11.864 1.879a4.088 1e-3 0 0 1-2.044 8.7e-4 4.088 1e-3 0 0 1-4.088 0 4.088 1e-3 0 0 1-2.044-8.7e-4"/>
+                    <circle cx="13.363" cy="13.364" r="13.229"/>
+                  </g>
+                </svg>
+              </a>
+            </span>
+          </div>
+          <button id="toggleViewBtn" class="px-4 py-1 rounded bg-[var(--accent-blue)] text-black w-full sm:w-auto hover:bg-[#0c6bc9] hover:text-white transition-colors duration-200">JSON view</button>
+        </div>
+        <div id="resultTable" class="mt-3 text-sm text-gray-100 bg-transparent mono overflow-x-auto" style="display:none;"></div>
+        <div id="resultPreContainer" class="mt-3">
+          <pre id="resultPre" class="text-sm text-gray-100 bg-transparent mono"></pre>
+        </div>
+      </div>
+    </main>
+    <script  src="./static/milkyway.js"></script>
+    <script>
+     function convertEdUrl(u) {
+       const src = new URL(u);
+       const dst = new URL("https://elitedangereuse.fr/outils/ed3ddrawer.php");
+       dst.search = src.search;
+       return dst.toString();
+     }
+     const quotes = [
+       { "author": "Ram Tah", "text": "This is a gem of technology—even the Guardians would be jealous not to have it." },
+       { "author": "The Imperial Herald", "text": "An achievement worthy of the Emperor’s highest praise." },
+       { "author": "Felicity Farseer", "text": "Tuned to perfection—my long-range sensors took notes." },
+       { "author": "Lakon Rep", "text": "More reliable than a Type-9 in a docking bay." },
+       { "author": "Thargoid Scout (translated)", "text": "It is… acceptable." },
+       { "author": "CMDR OptimusKoala", "text": "Now I have a real reason to explore!" },
+       { "author": "Salvation", "text": "I have no idea what this is, but it looks dangerous." },
+       { "author": "Seo Jin Hae", "text": "I can finally find my way home..." },
+       { "author": "Raxxla", "text": "Damn… I'm screwed!" },
+       { "author": "Aisling Duval", "text": "If it had more glitter, I’d endorse it immediately." },
+       { "author": "Professor Palin", "text": "Fascinating… almost as fascinating as my thruster upgrades." },
+       { "author": "Hudson Security Briefing", "text": "Classified… but highly recommended." },
+       { "author": "Zemina Torval", "text": "I suppose it’s useful… for those who can’t afford an assistant." },
+       { "author": "Li Yong-Rui", "text": "Finally, a tool worth investing in." },
+       { "author": "Denton Patreus", "text": "With this, I could control half the galaxy in a week." },
+     ];
+     const quoteEl = document.getElementById('quote');
+     const quoteAuthorEl = document.getElementById('quote-author');
+
+     function showRandomQuote() {
+       const i = Math.floor(Math.random() * quotes.length);
+       const { author, text } = quotes[i];
+       quoteEl.textContent = `"${text}"`;
+       quoteAuthorEl.textContent = `— ${author}`;
+     }
+
+     function cycleQuote() {
+       showRandomQuote();
+     }
+
+     cycleQuote();
+     setInterval(cycleQuote, 5000);
+
+     const result = document.getElementById('result');
+     const ed3ddrawerDiv = document.getElementById('ed3ddrawer');
+     const coordsHref = document.getElementById('coords');
+     let resultPre = document.getElementById('resultPre');
+     const apiUrlEl = document.getElementById('api-url');
+     const statusEl = document.getElementById('status');
+
+     function setStatus(txt){ statusEl.textContent = txt; }
+     function showResult(url, json) {
+       apiUrlEl.innerHTML = `<a href="${url}" target="_blank" class="flex items-center space-x-1 text-orange-500 text-sm"><span>[JSON]</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="#1294d6" class="bi bi-filetype-json" viewBox="0 0 16 16">
+         <path fill-rule="evenodd" d="M14 4.5V11h-1V4.5h-2A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v9H2V2a2 2 0 0 1 2-2h5.5zM4.151 15.29a1.2 1.2 0 0 1-.111-.449h.764a.58.58 0 0 0 .255.384q.105.073.25.114.142.041.319.041.245 0 .413-.07a.56.56 0 0 0 .255-.193.5.5 0 0 0 .084-.29.39.39 0 0 0-.152-.326q-.152-.12-.463-.193l-.618-.143a1.7 1.7 0 0 1-.539-.214 1 1 0 0 1-.352-.367 1.1 1.1 0 0 1-.123-.524q0-.366.19-.639.192-.272.528-.422.337-.15.777-.149.456 0 .779.152.326.153.5.41.18.255.2.566h-.75a.56.56 0 0 0-.12-.258.6.6 0 0 0-.246-.181.9.9 0 0 0-.37-.068q-.324 0-.512.152a.47.47 0 0 0-.185.384q0 .18.144.3a1 1 0 0 0 .404.175l.621.143q.326.075.566.211a1 1 0 0 1 .375.358q.135.222.135.56 0 .37-.188.656a1.2 1.2 0 0 1-.539.439q-.351.158-.858.158-.381 0-.665-.09a1.4 1.4 0 0 1-.478-.252 1.1 1.1 0 0 1-.29-.375m-3.104-.033a1.3 1.3 0 0 1-.082-.466h.764a.6.6 0 0 0 .074.27.5.5 0 0 0 .454.246q.285 0 .422-.164.137-.165.137-.466v-2.745h.791v2.725q0 .66-.357 1.005-.355.345-.985.345a1.6 1.6 0 0 1-.568-.094 1.15 1.15 0 0 1-.407-.266 1.1 1.1 0 0 1-.243-.39m9.091-1.585v.522q0 .384-.117.641a.86.86 0 0 1-.322.387.9.9 0 0 1-.47.126.9.9 0 0 1-.47-.126.87.87 0 0 1-.32-.387 1.55 1.55 0 0 1-.117-.641v-.522q0-.386.117-.641a.87.87 0 0 1 .32-.387.87.87 0 0 1 .47-.129q.265 0 .47.129a.86.86 0 0 1 .322.387q.117.255.117.641m.803.519v-.513q0-.565-.205-.973a1.46 1.46 0 0 0-.59-.63q-.38-.22-.916-.22-.534 0-.92.22a1.44 1.44 0 0 0-.589.628q-.205.407-.205.975v.513q0 .562.205.973.205.407.589.626.386.217.92.217.536 0 .917-.217.384-.22.589-.626.204-.41.205-.973m1.29-.935v2.675h-.746v-3.999h.662l1.752 2.66h.032v-2.66h.75v4h-.656l-1.761-2.676z"/>
+       </svg></a>`;
+       const jsonString = JSON.stringify(json, null, 2);
+
+       // Create a clean <pre> element
+       const cleanPre = document.createElement('pre');
+       cleanPre.className = 'text-sm text-gray-100 bg-transparent mono';
+       cleanPre.textContent = jsonString;
+
+       // Create wrapper div
+       const wrapper = document.createElement('div');
+       wrapper.id = 'resultPreContainer';
+       wrapper.className = 'mt-3 relative';
+       wrapper.appendChild(cleanPre);
+
+       // Create copy button
+       const copyBtn = document.createElement('button');
+       copyBtn.className = 'clipboard-button absolute top-2 right-2 p-1.5 text-white transition text-xs z-20 focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800 rounded';
+       copyBtn.title = 'Copy JSON to clipboard';
+       copyBtn.innerHTML = copyIconSvg;
+
+       copyBtn.onclick = () => {
+         navigator.clipboard.writeText(jsonString).then(() => {
+           copyBtn.innerHTML = `<span class="text-xs text-green-400">Copied!</span>`;
+           setTimeout(() => {
+             copyBtn.innerHTML = copyIconSvg;
+           }, 1500);
+         }).catch(err => {
+           console.error('Copy failed:', err);
+           copyBtn.innerHTML = `<span class="text-xs text-red-400">Fail</span>`;
+           setTimeout(() => {
+             copyBtn.innerHTML = copyIconSvg;
+           }, 1500);
+         });
+       };
+
+       wrapper.appendChild(copyBtn);
+
+       // Replace the old container with the new one
+       const oldContainer = document.getElementById('resultPreContainer');
+       if (oldContainer) {
+         oldContainer.replaceWith(wrapper);
+       } else {
+         // Fallback (shouldn't happen if HTML has initial container)
+         document.getElementById('result').appendChild(wrapper);
+       }
+
+       // Update reference
+       resultPre = cleanPre; // Still useful for other logic?
+       lastJson = json;
+
+       // --- Update count and map link ---
+       const countEl = document.getElementById('resultCount');
+       let count = null;
+       if (Array.isArray(json)) {
+         count = json.length;
+       }
+
+       if (count !== null) {
+         countEl.textContent = `Found ${count} system${count !== 1 ? 's' : ''}.`;
+         ed3ddrawerDiv.style.display = 'block';
+         coordsHref.href = convertEdUrl(url);
+       } else {
+         countEl.textContent = '';
+         ed3ddrawerDiv.style.display = 'block';
+         if (json.coords) {
+           coordsHref.href = convertEdUrl(`https://elitedangereuse.fr/outils/ed3ddrawer.php?x=${json.coords.x}&y=${json.coords.y}&z=${json.coords.z}&radius=10`);
+         }
+       }
+
+       result.style.display = 'block';
+
+       // --- Update table if visible ---
+       if (tableVisible) {
+         resultTable.style.display = 'block';
+         resultPre.style.display = 'none';
+         resultTable.innerHTML = jsonToTable(json);
+       } else {
+         resultTable.style.display = 'none';
+         resultPre.style.display = 'block';
+       }
+     }
+
+     async function callApi(path){
+       setStatus('Querying API...');
+       try{
+         const base = window.location.origin;
+         const url = base + path;
+         const res = await fetch(url);
+         const json = await res.json();
+         if(!res.ok){
+           throw new Error(json.error || ('HTTP ' + res.status));
+         }
+         showResult(url, json);
+         setStatus('OK — response received');
+         result.style.display = 'block';
+       }catch(err){
+         showResult(path, {error: String(err.message)});
+         setStatus('Error');
+       }
+     }
+
+     document.getElementById('searchForm').addEventListener('submit', e=>{
+       e.preventDefault();
+       const q = encodeURIComponent(document.getElementById('q').value.trim());
+       if(!q) return;
+       callApi('/coords?q=' + q);
+     });
+     document.getElementById('predictBtn').addEventListener('click', ()=>{
+       const q = encodeURIComponent(document.getElementById('predictInput').value.trim());
+       if(!q) return;
+       callApi('/coords/predict?q=' + q);
+     });
+     document.getElementById('neighborsBtn').addEventListener('click', ()=>{
+       const parts = document.getElementById('neighborsInput').value.split(',').map(s=>s.trim());
+       if(parts.length < 4) return;
+       callApi(`/neighbors?x=${encodeURIComponent(parts[0])}&y=${encodeURIComponent(parts[1])}&z=${encodeURIComponent(parts[2])}&radius=${encodeURIComponent(parts[3])}`);
+     });
+    </script>
+    <script>
+     const toggleBtn = document.getElementById("toggleViewBtn");
+     const resultTable = document.getElementById("resultTable");
+     const copyIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-copy" viewBox="0 0 16 16">
+  <path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/>
+</svg>`;
+     const systemMapIconSvg = `<svg width="16" height="16" version="1.1" viewBox="0 0 24.77 24.77" xmlns="http://www.w3.org/2000/svg">
+          <path d="m18.976 12.385a6.5907 6.5907 0 0 1-6.5907 6.5907 6.5907 6.5907 0 0 1-6.5907-6.5907 6.5907 6.5907 0 0 1 6.5907-6.5907 6.5907 6.5907 0 0 1 6.5907 6.5907zm5.2941 0a11.885 11.885 0 0 1-11.885 11.885 11.885 11.885 0 0 1-11.885-11.885 11.885 11.885 0 0 1 11.885-11.885 11.885 11.885 0 0 1 11.885 11.885z" fill="none" stroke="currentColor" style="paint-order:stroke markers fill"></path>
+          <path d="m14.495 12.305a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm-10.089 6.7178a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm11.794-0.30414a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm-0.25378-12.724a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm7.9976-0.53351a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898z" fill="currentColor" style="paint-order:stroke markers fill"></path>
+        </svg>`;
+
+     let lastJson = null;
+     let tableVisible = true;
+
+     function openSystemMap(text, btnElement){
+       const url = `https://elitedangereuse.fr/outils/sysmap.php?system=${text}`;
+       window.open(url, "_blank");
+     }
+
+     function copyToClipboard(text, btnElement) {
+       navigator.clipboard.writeText(text).then(() => {
+         btnElement.innerHTML = '<span class="text-xs text-green-400">Copied!</span>';
+         setTimeout(() => {
+           btnElement.innerHTML = copyIconSvg;
+         }, 1500);
+       }).catch(err => {
+         console.error('Copy failed:', err);
+         btnElement.innerHTML = '<span class="text-xs text-red-400">Fail</span>';
+         setTimeout(() => {
+           btnElement.innerHTML = copyIconSvg;
+         }, 1500);
+       });
+     }
+
+     function jsonToTable(data) {
+       if (!Array.isArray(data)) {
+         // Single object → wrap in array so table still works
+         data = [data];
+       }
+       if (!data || data.length === 0) {
+         return "<p class='text-gray-400 text-sm'>No data available</p>";
+       }
+
+       const keys = Object.keys(data[0]);
+
+       // Search + Table wrapper
+       let html = `
+         <div class="mb-3">
+           <input id="tableSearch" type="text" placeholder="Filter results..." class="w-full sm:w-1/2 px-2 py-1 glass mono text-xs
+           placeholder:text-gray-500 focus:ring-0 outline-none" style="border-top-width: 0px;border-left-width: 0px; border-right-width: 0px; border-bottom-width: 0px">
+         </div>
+         <div class="overflow-x-auto rounded-xl">
+           <table class="w-full border-collapse text-gray-200 text-xs" id="interactiveTable">
+             <thead class="bg-[rgba(255,255,255,0.04)] text-[var(--accent-blue)] uppercase tracking-wide">
+               <tr>
+                 ${keys.map(k => `
+       <th class="px-2 py-1 border-b border-[rgba(255,255,255,0.1)] cursor-pointer hover:text-white transition text-xs" data-key="${k}">
+       ${k} <span class="sort-indicator text-gray-500"></span>
+       </th>`).join("")}
+          </tr>
+        </thead>
+        <tbody id="tableBody">
+          ${buildRows(data, keys)}
+        </tbody>
+      </table>
+    </div>
+       `;
+
+       // Attach interactivity after render
+       setTimeout(() => {
+         const tbody = document.getElementById("tableBody");
+         const searchInput = document.getElementById("tableSearch");
+         const headerEls = document.querySelectorAll("#interactiveTable th");
+
+         let sortState = {};
+
+         // Sorting
+         headerEls.forEach(th => {
+           th.addEventListener("click", () => {
+             const key = th.dataset.key;
+             sortState[key] = sortState[key] === "asc" ? "desc" : "asc";
+
+             data.sort((a, b) => compareValues(a[key], b[key], sortState[key]));
+             tbody.innerHTML = buildRows(data, keys);
+
+             document.querySelectorAll(".sort-indicator").forEach(el => el.textContent = "");
+             th.querySelector(".sort-indicator").textContent = sortState[key] === "asc" ? "▲" : "▼";
+           });
+         });
+
+         // Filtering
+         searchInput.addEventListener("input", () => {
+           const q = searchInput.value.toLowerCase();
+           const filtered = data.filter(row =>
+             keys.some(k => String(row[k]).toLowerCase().includes(q))
+           );
+           tbody.innerHTML = buildRows(filtered, keys);
+         });
+       }, 0);
+
+       return html;
+     }
+
+     function escapeQuotes(str) {
+       return String(str).replace(/'/g, "&#39;");
+     }
+
+     function fillNeighborsInput(x, y, z) {
+       const neighborsInput = document.getElementById('neighborsInput');
+       neighborsInput.value = `${x},${y},${z},10`;
+
+       // Optional: auto-scroll to neighbors section
+       neighborsInput.scrollIntoView({ behavior: 'smooth' });
+
+       // Optional: show status
+       setStatus(`Neighbors input filled: x=${x}, y=${y}, z=${z}, r=10`);
+     }
+
+     function buildRows(rows, keys) {
+       return rows.map((row, i) => `
+    <tr class="group ${i % 2 === 0 ? 'bg-[rgba(255,255,255,0.02)]' : ''} hover:bg-[rgba(255,255,255,0.08)] transition">
+      ${keys.map(k => {
+        let v = row[k];
+        if (k === "distance" && typeof v === "number") v = v.toFixed(1);
+
+        // Special handling: coords
+if (k === "coords" && typeof v === "object" && v !== null) {
+  const { x, y, z } = v;
+  const formatted = `${x.toFixed(3)},${y.toFixed(3)},${z.toFixed(3)}`;
+  const fullPrecision = `${x},${y},${z}`;
+  const valueForInput = `${x},${y},${z},10`;
+
+  return `
+         <td
+         class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] font-mono text-xs leading-tight"
+         title="x: ${fullPrecision}"
+         >
+         <div class="flex items-center gap-2">
+         <span class="text-gray-300 tabular-nums">${formatted}</span>
+         <button
+         type="button"
+         title="Search neighbors within 10 ly"
+         class="search-neighbors-btn opacity-30 hover:opacity-100 transition-all duration-200 px-2 py-1 text-xs rounded focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+         onclick="fillNeighborsInput('${x}','${y}','${z}')"
+         >
+         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-compass" viewBox="0 0 16 16">
+         <path d="M8 16.016a7.5 7.5 0 0 0 1.962-14.74A1 1 0 0 0 9 0H7a1 1 0 0 0-.962 1.276A7.5 7.5 0 0 0 8 16.016m6.5-7.5a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0"/>
+         <path d="m6.94 7.44 4.95-2.83-2.83 4.95-4.949 2.83 2.828-4.95z"/>
+         </svg>
+         </button>
+         </div>
+         </td>
+         `;
+}
+        // Special handling: 'name' field (copy button)
+        if (k === "name" && typeof v === "string") {
+          return `
+         <td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono">
+         <div class="flex items-center gap-2">
+         <span class="flex-1">${v}</span>
+         <button
+         title="Copy name"
+         class="copy-name-btn opacity-20 group-hover:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+         onclick="copyToClipboard('${escapeQuotes(v)}', this)"
+         >
+         ${copyIconSvg}
+         </button>
+         <button
+         title="View system map"
+         class="copy-name-btn opacity-20 group-hover:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+         onclick="openSystemMap('${escapeQuotes(v)}', this)"
+         >
+         ${systemMapIconSvg}
+         </button>
+         </div>
+         </td>
+         `;
+        }
+
+        // Default cell
+        if (typeof v === "object" && v !== null) v = JSON.stringify(v);
+        return `<td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono">${v ?? ""}</td>`;
+      }).join("")}
+    </tr>
+        `).join("");
+     }
+
+     function compareValues(a, b, dir) {
+       if (typeof a === "string") a = a.toLowerCase();
+       if (typeof b === "string") b = b.toLowerCase();
+       if (a < b) return dir === "asc" ? -1 : 1;
+       if (a > b) return dir === "asc" ? 1 : -1;
+       return 0;
+     }
+
+     toggleBtn.addEventListener("click", ()=>{
+       tableVisible = !tableVisible;
+       if (tableVisible) {
+         resultTable.style.display = 'block';
+         resultPre.style.display = 'none';
+         resultTable.innerHTML = jsonToTable(json);
+       } else {
+         resultTable.style.display = 'none';
+         resultPre.style.display = 'block';
+       }
+     });
+    </script>
+  </body>
+</html>
