@@ -421,8 +421,7 @@
 
      function jsonToTable(data) {
        if (!Array.isArray(data)) {
-         // Single object → wrap in array so table still works
-         data = [data];
+         data = [data]; // wrap single object
        }
        if (!data || data.length === 0) {
          return "<p class='text-gray-400 text-sm'>No data available</p>";
@@ -430,30 +429,36 @@
 
        const keys = Object.keys(data[0]);
 
-       // Search + Table wrapper
+       // 🔹 Only keep the first 100 rows
+       const MAX_ROWS = 100;
+       const limitedData = data.slice(0, MAX_ROWS);
+
        let html = `
          <div class="mb-3">
-           <input id="tableSearch" type="text" placeholder="Filter results..." class="w-full sm:w-1/2 px-2 py-1 glass mono text-xs
-           placeholder:text-gray-500 focus:ring-0 outline-none" style="border-top-width: 0px;border-left-width: 0px; border-right-width: 0px; border-bottom-width: 0px">
+           <input id="tableSearch" type="text" placeholder="Filter results..."
+                  class="w-full sm:w-1/2 px-2 py-1 glass mono text-xs placeholder:text-gray-500 focus:ring-0 outline-none"
+                  style="border:0">
          </div>
          <div class="overflow-x-auto rounded-xl">
            <table class="w-full border-collapse text-gray-200 text-xs" id="interactiveTable">
              <thead class="bg-[rgba(255,255,255,0.04)] text-[var(--accent-blue)] uppercase tracking-wide">
                <tr>
                  ${keys.map(k => `
-       <th class="px-2 py-1 border-b border-[rgba(255,255,255,0.1)] cursor-pointer hover:text-white transition text-xs" data-key="${k}">
+       <th class="px-2 py-1 border-b border-[rgba(255,255,255,0.1)] cursor-pointer hover:text-white transition text-xs"
+       data-key="${k}">
        ${k} <span class="sort-indicator text-gray-500"></span>
        </th>`).join("")}
           </tr>
         </thead>
         <tbody id="tableBody">
-          ${buildRows(data, keys)}
+          ${buildRows(limitedData, keys)}
         </tbody>
       </table>
     </div>
-       `;
+    ${data.length > MAX_ROWS ? `<p class="mt-2 text-xs text-gray-400">Showing first ${MAX_ROWS} of ${data.length} results.</p>` : ""}
+     `;
 
-       // Attach interactivity after render
+       // … keep the search/sort logic the same (if you want search to apply to all, you’d still pass full data instead of limitedData)
        setTimeout(() => {
          const tbody = document.getElementById("tableBody");
          const searchInput = document.getElementById("tableSearch");
@@ -461,26 +466,25 @@
 
          let sortState = {};
 
-         // Sorting
          headerEls.forEach(th => {
            th.addEventListener("click", () => {
              const key = th.dataset.key;
              sortState[key] = sortState[key] === "asc" ? "desc" : "asc";
 
-             data.sort((a, b) => compareValues(a[key], b[key], sortState[key]));
-             tbody.innerHTML = buildRows(data, keys);
+             // Sorting only within limitedData
+             limitedData.sort((a, b) => compareValues(a[key], b[key], sortState[key]));
+             tbody.innerHTML = buildRows(limitedData, keys);
 
              document.querySelectorAll(".sort-indicator").forEach(el => el.textContent = "");
              th.querySelector(".sort-indicator").textContent = sortState[key] === "asc" ? "▲" : "▼";
            });
          });
 
-         // Filtering
          searchInput.addEventListener("input", () => {
            const q = searchInput.value.toLowerCase();
            const filtered = data.filter(row =>
              keys.some(k => String(row[k]).toLowerCase().includes(q))
-           );
+           ).slice(0, MAX_ROWS);
            tbody.innerHTML = buildRows(filtered, keys);
          });
        }, 0);
