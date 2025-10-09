@@ -7,7 +7,17 @@ from fastapi.responses import JSONResponse
 import psycopg
 from pydantic import BaseModel
 from typing import Optional
-from edts.edtslib import system
+try:
+    from .edts.edtslib import system  # type: ignore[attr-defined]
+except ImportError:
+    import sys
+    from pathlib import Path
+    _local_edts = Path(__file__).resolve().parent / "edts"
+    if _local_edts.exists():
+        sys.path.insert(0, str(_local_edts))
+        from edtslib import system  # type: ignore[attr-defined]
+    else:
+        raise
 import asyncio
 from dotenv import load_dotenv
 
@@ -34,7 +44,6 @@ app.add_middleware(
 
 # Database connection parameters
 load_dotenv()
-
 DB_HOST = os.getenv("DB_HOST")
 DB_NAME = os.getenv("DB_NAME")
 DB_USER = os.getenv("DB_USER")
@@ -202,7 +211,9 @@ async def fetch_system_from_db(name_or_id: str):
         return None
 
     point_coordinates = row[3]
-    coords = point_coordinates.replace("POINT Z (", "").replace(")", "").split()
+    coords = (
+        point_coordinates.replace("POINT Z (", "").replace(")", "").split()
+    )
     x_coord = float(coords[0])
     y_coord = float(coords[1])
     z_coord = float(coords[2])
@@ -278,7 +289,9 @@ async def bodies(
 ):
     result = await fetch_bodies_from_db(name_or_id)
     if result is None:
-        return JSONResponse(content={"error": "System not found"}, status_code=404)
+        return JSONResponse(
+            content={"error": "System not found"}, status_code=404
+        )
     return result
 
 
@@ -327,7 +340,9 @@ async def proxy_edsm_bodies(
 async def get_coords(name_or_id: str = Query(..., alias="q")):
     result = await fetch_system_from_db(name_or_id)
     if result is None:
-        return JSONResponse(content={"error": "System not found"}, status_code=404)
+        return JSONResponse(
+            content={"error": "System not found"}, status_code=404
+        )
     return result
 
 
@@ -355,7 +370,9 @@ async def get_coords(name_or_id: str = Query(..., alias="q")):
         else:
             sys_obj = system.from_name(name_or_id, allow_known=False)
         if sys_obj is None:
-            return JSONResponse(content={"error": "System not found"}, status_code=404)
+            return JSONResponse(
+                content={"error": "System not found"}, status_code=404
+            )
 
         return SystemResponse(
             id64=getattr(sys_obj, "id64", None),
@@ -423,7 +440,9 @@ async def proxy_spansh_faction_presence(
         save_data = save_response.json()
         search_reference = save_data.get("search_reference")
         if not search_reference:
-            raise HTTPException(status_code=500, detail="No search_reference returned")
+            raise HTTPException(
+                status_code=500, detail="No search_reference returned"
+            )
 
         # Step 2: Recall search (handle pagination)
         all_results = []
@@ -456,7 +475,8 @@ async def proxy_spansh_faction_presence(
         {
             "id64": system.get("id64"),
             "name": system.get("name"),
-            "is_controlling": system.get("controlling_minor_faction") == faction,
+            "is_controlling": system.get("controlling_minor_faction")
+            == faction,
         }
         for system in all_results
     ]
