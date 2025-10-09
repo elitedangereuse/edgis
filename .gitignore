@@ -1,3 +1,6 @@
+*.pyc
+.env
+.direnv
 .DS_Store
 *.mo
 *~
