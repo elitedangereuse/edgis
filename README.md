@@ -3,6 +3,7 @@
 
 ## API
 ### Development Setup
+#### EDTS module
 Fetch the EDTS submodule once after cloning:
 
 ```bash
@@ -10,12 +11,19 @@ git submodule update --init --recursive
 ```
 
 Then set up the virtual environment and dependencies:
-
+#### Python dependancies
 ```bash
 cd api
 python3 -m venv .direnv
 . .direnv/bin/activate
 pip install -r requirements.txt
 ```
+
+#### CORS
+Populate your `.env` with database credentials and add a comma-separated `CORS_ORIGINS` entry for allowed browsers.
+```
+CORS_ORIGINS = https://example.com,https://example.fr
+```
+
 
 ## Frontend
