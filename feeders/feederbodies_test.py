@@ -73,7 +73,7 @@ conn = psycopg.connect(
 
 # === UPSERT Query for bodies (42 fields) ===
 UPSERT_BODY = """
-    INSERT INTO bodies (
+    INSERT INTO bodies_test (
         system_id64, body_id, body_name, body_type_id, planet_class_id, terraform_state_id,
         atmosphere_type_id, atmosphere_composition, atmosphere_id, volcanism_id, radius, mass_em,
         surface_gravity, surface_temperature, surface_pressure, axial_tilt,
@@ -90,11 +90,11 @@ UPSERT_BODY = """
               %s, %s, %s)
     ON CONFLICT (system_id64, body_id) DO UPDATE SET
         body_type_id            = EXCLUDED.body_type_id,
-        planet_class_id         = COALESCE(EXCLUDED.planet_class_id, bodies.planet_class_id),
+        planet_class_id         = COALESCE(EXCLUDED.planet_class_id, bodies_test.planet_class_id),
         terraform_state_id      = EXCLUDED.terraform_state_id,
-        atmosphere_type_id      = COALESCE(EXCLUDED.atmosphere_type_id, bodies.atmosphere_type_id),
-        atmosphere_composition  = COALESCE(EXCLUDED.atmosphere_composition, bodies.atmosphere_composition),
-        atmosphere_id           = COALESCE(EXCLUDED.atmosphere_id, bodies.atmosphere_id),
+        atmosphere_type_id      = COALESCE(EXCLUDED.atmosphere_type_id, bodies_test.atmosphere_type_id),
+        atmosphere_composition  = COALESCE(EXCLUDED.atmosphere_composition, bodies_test.atmosphere_composition),
+        atmosphere_id           = COALESCE(EXCLUDED.atmosphere_id, bodies_test.atmosphere_id),
         volcanism_id            = EXCLUDED.volcanism_id,
         radius                  = EXCLUDED.radius,
         mass_em                 = EXCLUDED.mass_em,
@@ -102,28 +102,28 @@ UPSERT_BODY = """
         surface_temperature     = EXCLUDED.surface_temperature,
         surface_pressure        = EXCLUDED.surface_pressure,
         axial_tilt              = EXCLUDED.axial_tilt,
-        semi_major_axis         = COALESCE(EXCLUDED.semi_major_axis, bodies.semi_major_axis),
-        eccentricity            = COALESCE(EXCLUDED.eccentricity, bodies.eccentricity),
-        orbital_inclination     = COALESCE(EXCLUDED.orbital_inclination, bodies.orbital_inclination),
-        periapsis               = COALESCE(EXCLUDED.periapsis, bodies.periapsis),
-        mean_anomaly            = COALESCE(EXCLUDED.mean_anomaly, bodies.mean_anomaly),
-        orbital_period          = COALESCE(EXCLUDED.orbital_period, bodies.orbital_period),
+        semi_major_axis         = COALESCE(EXCLUDED.semi_major_axis, bodies_test.semi_major_axis),
+        eccentricity            = COALESCE(EXCLUDED.eccentricity, bodies_test.eccentricity),
+        orbital_inclination     = COALESCE(EXCLUDED.orbital_inclination, bodies_test.orbital_inclination),
+        periapsis               = COALESCE(EXCLUDED.periapsis, bodies_test.periapsis),
+        mean_anomaly            = COALESCE(EXCLUDED.mean_anomaly, bodies_test.mean_anomaly),
+        orbital_period          = COALESCE(EXCLUDED.orbital_period, bodies_test.orbital_period),
         rotation_period         = EXCLUDED.rotation_period,
-        ascending_node          = COALESCE(EXCLUDED.ascending_node, bodies.ascending_node),
-        distance_from_arrival_ls= COALESCE(EXCLUDED.distance_from_arrival_ls, bodies.distance_from_arrival_ls),
+        ascending_node          = COALESCE(EXCLUDED.ascending_node, bodies_test.ascending_node),
+        distance_from_arrival_ls= COALESCE(EXCLUDED.distance_from_arrival_ls, bodies_test.distance_from_arrival_ls),
         age_my                  = EXCLUDED.age_my,
         absolute_magnitude      = EXCLUDED.absolute_magnitude,
         luminosity_id           = EXCLUDED.luminosity_id,
         star_type_id            = EXCLUDED.star_type_id,
         subclass                = EXCLUDED.subclass,
         stellar_mass            = EXCLUDED.stellar_mass,
-        composition_ice         = COALESCE(EXCLUDED.composition_ice, bodies.composition_ice),
-        composition_metal       = COALESCE(EXCLUDED.composition_metal, bodies.composition_metal),
-        composition_rock        = COALESCE(EXCLUDED.composition_rock, bodies.composition_rock),
-        materials               = COALESCE(EXCLUDED.materials, bodies.materials),
+        composition_ice         = COALESCE(EXCLUDED.composition_ice, bodies_test.composition_ice),
+        composition_metal       = COALESCE(EXCLUDED.composition_metal, bodies_test.composition_metal),
+        composition_rock        = COALESCE(EXCLUDED.composition_rock, bodies_test.composition_rock),
+        materials               = COALESCE(EXCLUDED.materials, bodies_test.materials),
         parents                 = CASE
                                     WHEN EXCLUDED.parents IS NOT NULL THEN EXCLUDED.parents
-                                    ELSE bodies.parents
+                                    ELSE bodies_test.parents
                                   END,
         tidally_locked          = EXCLUDED.tidally_locked,
         landable                = EXCLUDED.landable,
