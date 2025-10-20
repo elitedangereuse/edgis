@@ -71,29 +71,28 @@ conn = psycopg.connect(
     host=DB_HOST, port=5432, dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD
 )
 
-# === UPSERT Query for bodies (42 fields) ===
+# === UPSERT Query for bodies (41 fields) ===
 UPSERT_BODY = """
     INSERT INTO bodies (
         system_id64, body_id, body_name, body_type_id, planet_class_id, terraform_state_id,
-        atmosphere_type_id, atmosphere_composition, atmosphere_id, volcanism_id, radius, mass_em,
+        atmosphere_type_id, atmosphere_id, volcanism_id, radius, mass_em,
         surface_gravity, surface_temperature, surface_pressure, axial_tilt,
         semi_major_axis, eccentricity, orbital_inclination, periapsis,
         mean_anomaly, orbital_period, rotation_period, ascending_node,
         distance_from_arrival_ls, age_my, absolute_magnitude, luminosity_id,
         star_type_id, subclass, stellar_mass, composition_ice, composition_metal,
-        composition_rock, materials, parents, tidally_locked, landable, updatetime,
+        composition_rock, parents, tidally_locked, landable, updatetime,
         ring_class_id, ring_inner_rad, ring_outer_rad, ring_mass_mt
     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-              %s, %s, %s)
+              %s)
     ON CONFLICT (system_id64, body_id) DO UPDATE SET
         body_type_id            = EXCLUDED.body_type_id,
         planet_class_id         = COALESCE(EXCLUDED.planet_class_id, bodies.planet_class_id),
         terraform_state_id      = EXCLUDED.terraform_state_id,
         atmosphere_type_id      = COALESCE(EXCLUDED.atmosphere_type_id, bodies.atmosphere_type_id),
-        atmosphere_composition  = COALESCE(EXCLUDED.atmosphere_composition, bodies.atmosphere_composition),
         atmosphere_id           = COALESCE(EXCLUDED.atmosphere_id, bodies.atmosphere_id),
         volcanism_id            = EXCLUDED.volcanism_id,
         radius                  = EXCLUDED.radius,
@@ -120,7 +119,6 @@ UPSERT_BODY = """
         composition_ice         = COALESCE(EXCLUDED.composition_ice, bodies.composition_ice),
         composition_metal       = COALESCE(EXCLUDED.composition_metal, bodies.composition_metal),
         composition_rock        = COALESCE(EXCLUDED.composition_rock, bodies.composition_rock),
-        materials               = COALESCE(EXCLUDED.materials, bodies.materials),
         parents                 = CASE
                                     WHEN EXCLUDED.parents IS NOT NULL THEN EXCLUDED.parents
                                     ELSE bodies.parents
@@ -133,6 +131,19 @@ UPSERT_BODY = """
         ring_outer_rad          = EXCLUDED.ring_outer_rad,
         ring_mass_mt            = EXCLUDED.ring_mass_mt
     -- Removed RETURNING clause entirely
+"""
+
+# === New UPSERTs for normalized tables ===
+UPSERT_MATERIAL = """
+    INSERT INTO body_materials (system_id64, body_id, material_id, percent)
+    VALUES (%s, %s, %s, %s)
+    ON CONFLICT (system_id64, body_id, material_id) DO NOTHING;
+"""
+
+UPSERT_ATMOSPHERE_GAS = """
+    INSERT INTO body_atmospheres (system_id64, body_id, gas_id, percent)
+    VALUES (%s, %s, %s, %s)
+    ON CONFLICT (system_id64, body_id, gas_id) DO NOTHING;
 """
 
 # === ZMQ Setup ===
@@ -176,7 +187,9 @@ def get_lookup_id(table, name, conn):
             return row[0]
 
         # Insert new if not found
-        cur.execute(f"INSERT INTO {table} (name) VALUES (%s) RETURNING id;", (name,))
+        cur.execute(
+            f"INSERT INTO {table} (name) VALUES (%s) RETURNING id;", (name,)
+        )
         new_id = cur.fetchone()[0]
         conn.commit()
         cache[name] = new_id
@@ -268,7 +281,9 @@ while True:
         if event == "ScanBaryCentre":
             body["body_name"] = f"Barycenter{msg_data.get('BodyID')}"
         if not body["body_name"]:
-            print(f"/!\ Missing body name in event: {event}, BodyID: {body_id}")
+            print(
+                f"/!\ Missing body name in event: {event}, BodyID: {body_id}"
+            )
             continue
 
         if msg_data.get("BodyType") == "Station":
@@ -289,7 +304,6 @@ while True:
             body["atmosphere_type_id"] = get_lookup_id(
                 "atmosphere_types", msg_data.get("AtmosphereType"), conn
             )
-            body["atmosphere_composition"] = msg_data.get("AtmosphereComposition")
             body["atmosphere_id"] = get_lookup_id(
                 "atmospheres", msg_data.get("Atmosphere"), conn
             )
@@ -310,7 +324,9 @@ while True:
             body["orbital_period"] = msg_data.get("OrbitalPeriod")
             body["rotation_period"] = msg_data.get("RotationPeriod")
             body["ascending_node"] = msg_data.get("AscendingNode")
-            body["distance_from_arrival_ls"] = msg_data.get("DistanceFromArrivalLS")
+            body["distance_from_arrival_ls"] = msg_data.get(
+                "DistanceFromArrivalLS"
+            )
             body["tidally_locked"] = msg_data.get("TidalLock")
             body["landable"] = msg_data.get("Landable")
 
@@ -320,7 +336,6 @@ while True:
             body["composition_metal"] = comp.get("Metal")
             body["composition_rock"] = comp.get("Rock")
 
-            body["materials"] = msg_data.get("Materials")
             body["parents"] = msg_data.get("Parents", [])
 
             # Star-specific
@@ -349,7 +364,9 @@ while True:
 
                 if parent_body_id is not None:
                     # make a copy of parents list without { "Ring": id }
-                    new_parents = [p for p in body["parents"] if "Ring" not in p]
+                    new_parents = [
+                        p for p in body["parents"] if "Ring" not in p
+                    ]
 
                     ring_body = {
                         "system_id64": system_address,
@@ -361,7 +378,6 @@ while True:
                         "planet_class_id": None,
                         "terraform_state_id": None,
                         "atmosphere_type_id": None,
-                        "atmosphere_composition": None,
                         "atmosphere_id": None,
                         "volcanism_id": None,
                         "radius": None,
@@ -378,7 +394,9 @@ while True:
                         "orbital_period": None,
                         "rotation_period": None,
                         "ascending_node": None,
-                        "distance_from_arrival_ls": body["distance_from_arrival_ls"],
+                        "distance_from_arrival_ls": body[
+                            "distance_from_arrival_ls"
+                        ],
                         "age_my": None,
                         "absolute_magnitude": None,
                         "luminosity_id": None,
@@ -388,7 +406,6 @@ while True:
                         "composition_ice": None,
                         "composition_metal": None,
                         "composition_rock": None,
-                        "materials": None,
                         "parents": new_parents if new_parents else None,
                         "tidally_locked": None,
                         "landable": None,
@@ -410,7 +427,6 @@ while True:
                                 ring_body["planet_class_id"],
                                 ring_body["terraform_state_id"],
                                 ring_body["atmosphere_type_id"],
-                                ring_body["atmosphere_composition"],
                                 ring_body["atmosphere_id"],
                                 ring_body["volcanism_id"],
                                 ring_body["radius"],
@@ -437,7 +453,6 @@ while True:
                                 ring_body["composition_ice"],
                                 ring_body["composition_metal"],
                                 ring_body["composition_rock"],
-                                ring_body["materials"],
                                 json.dumps(ring_body["parents"])
                                 if ring_body["parents"]
                                 else None,
@@ -471,7 +486,6 @@ while True:
                         "planet_class_id": None,
                         "terraform_state_id": None,
                         "atmosphere_type_id": None,
-                        "atmosphere_composition": None,
                         "atmosphere_id": None,
                         "volcanism_id": None,
                         "radius": None,
@@ -482,7 +496,10 @@ while True:
                         "surface_temperature": None,
                         "surface_pressure": None,
                         "axial_tilt": None,
-                        "semi_major_axis": (ring["InnerRad"] + ring["OuterRad"]) / 2.0,
+                        "semi_major_axis": (
+                            ring["InnerRad"] + ring["OuterRad"]
+                        )
+                        / 2.0,
                         "eccentricity": None,
                         "orbital_inclination": None,
                         "periapsis": None,
@@ -490,7 +507,9 @@ while True:
                         "orbital_period": None,
                         "rotation_period": None,
                         "ascending_node": None,
-                        "distance_from_arrival_ls": body["distance_from_arrival_ls"],
+                        "distance_from_arrival_ls": body[
+                            "distance_from_arrival_ls"
+                        ],
                         "age_my": None,
                         "absolute_magnitude": None,
                         "luminosity_id": None,
@@ -500,7 +519,6 @@ while True:
                         "composition_ice": None,
                         "composition_metal": None,
                         "composition_rock": None,
-                        "materials": None,
                         "parents": [{"Planet": parent_body_id}],
                         "tidally_locked": None,
                         "landable": False,
@@ -516,14 +534,20 @@ while True:
                     # === Log suspicious PlanetaryRing insertions ===
                     if not ring_body["parents"]:
                         try:
-                            with open("suspicious_planetaryrings.log", "a") as f:
+                            with open(
+                                "suspicious_planetaryrings.log", "a"
+                            ) as f:
                                 f.write(
                                     json.dumps(
                                         {
                                             "timestamp": datetime.now().isoformat(),
-                                            "system_id64": ring_body["system_id64"],
+                                            "system_id64": ring_body[
+                                                "system_id64"
+                                            ],
                                             "body_id": ring_body["body_id"],
-                                            "body_name": ring_body["body_name"],
+                                            "body_name": ring_body[
+                                                "body_name"
+                                            ],
                                             "parents": ring_body["parents"],
                                         }
                                     )
@@ -543,7 +567,6 @@ while True:
                                 ring_body["planet_class_id"],
                                 ring_body["terraform_state_id"],
                                 ring_body["atmosphere_type_id"],
-                                ring_body["atmosphere_composition"],
                                 ring_body["atmosphere_id"],
                                 ring_body["volcanism_id"],
                                 ring_body["radius"],
@@ -570,7 +593,6 @@ while True:
                                 ring_body["composition_ice"],
                                 ring_body["composition_metal"],
                                 ring_body["composition_rock"],
-                                ring_body["materials"],
                                 json.dumps(ring_body["parents"])
                                 if ring_body["parents"]
                                 else None,
@@ -607,7 +629,6 @@ while True:
             "planet_class_id",
             "terraform_state_id",
             "atmosphere_type_id",
-            "atmosphere_composition",
             "atmosphere_id",
             "volcanism_id",
             "radius",
@@ -634,7 +655,6 @@ while True:
             "composition_ice",
             "composition_metal",
             "composition_rock",
-            "materials",
             "parents",
             "tidally_locked",
             "landable",
@@ -658,9 +678,6 @@ while True:
                     body["planet_class_id"],
                     body["terraform_state_id"],
                     body["atmosphere_type_id"],
-                    json.dumps(body["atmosphere_composition"])
-                    if body["atmosphere_composition"] is not None
-                    else None,
                     body["atmosphere_id"],
                     body["volcanism_id"],
                     body["radius"],
@@ -687,9 +704,6 @@ while True:
                     body["composition_ice"],
                     body["composition_metal"],
                     body["composition_rock"],
-                    json.dumps(body["materials"])
-                    if body["materials"] is not None
-                    else None,
                     json.dumps(body["parents"])
                     if body["parents"] is not None
                     else None,
@@ -703,6 +717,48 @@ while True:
                 ],
             )
         conn.commit()
+
+        # === Insert raw materials ===
+        materials = msg_data.get("Materials")
+        if isinstance(materials, list):
+            for m in materials:
+                name = m.get("Name")
+                percent = m.get("Percent")
+                if not name or percent is None:
+                    continue
+                try:
+                    mat_id = get_lookup_id("material_names", name, conn)
+                    with conn.cursor() as cur_m:
+                        cur_m.execute(
+                            UPSERT_MATERIAL,
+                            (system_address, body_id, mat_id, float(percent)),
+                        )
+                except Exception as e:
+                    print(
+                        f"Error inserting material {name} for body {body['body_name']}: {e}"
+                    )
+                    conn.rollback()
+
+        # === Insert raw atmosphere composition ===
+        atmo_composition = msg_data.get("AtmosphereComposition")
+        if isinstance(atmo_composition, list):
+            for g in atmo_composition:
+                name = g.get("Name")
+                percent = g.get("Percent")
+                if not name or percent is None:
+                    continue
+                try:
+                    gas_id = get_lookup_id("atmosphere_gases", name, conn)
+                    with conn.cursor() as cur_g:
+                        cur_g.execute(
+                            UPSERT_ATMOSPHERE_GAS,
+                            (system_address, body_id, gas_id, float(percent)),
+                        )
+                except Exception as e:
+                    print(
+                        f"Error inserting gas {name} for body {body['body_name']}: {e}"
+                    )
+                    conn.rollback()
 
         print(
             f"{event}: {body['body_name']} | Type: {body['type']} | System: {star_system}"
