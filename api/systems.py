@@ -1,17 +1,20 @@
 import os
 import httpx
+from decimal import Decimal
 from fastapi import HTTPException
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import psycopg
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Any
+
 try:
     from .edts.edtslib import system  # type: ignore[attr-defined]
 except ImportError:
     import sys
     from pathlib import Path
+
     _local_edts = Path(__file__).resolve().parent / "edts"
     if _local_edts.exists():
         sys.path.insert(0, str(_local_edts))
@@ -26,14 +29,17 @@ load_dotenv()
 NEIGHBORS_CONCURRENCY_LIMIT = 2
 neighbors_semaphore = asyncio.Semaphore(NEIGHBORS_CONCURRENCY_LIMIT)
 app = FastAPI()
+SYSTEM_NOT_FOUND = "System not found"
 
 # Enable CORS for your app, you can restrict it to specific domains (origins)
+
 
 def _load_cors_origins() -> list[str]:
     configured = os.getenv("CORS_ORIGINS", "")
     if not configured:
         return []
     return [origin.strip() for origin in configured.split(",") if origin.strip()]
+
 
 origins = _load_cors_origins()
 
@@ -213,9 +219,7 @@ async def fetch_system_from_db(name_or_id: str):
         return None
 
     point_coordinates = row[3]
-    coords = (
-        point_coordinates.replace("POINT Z (", "").replace(")", "").split()
-    )
+    coords = point_coordinates.replace("POINT Z (", "").replace(")", "").split()
     x_coord = float(coords[0])
     y_coord = float(coords[1])
     z_coord = float(coords[2])
@@ -236,7 +240,47 @@ async def fetch_system_from_db(name_or_id: str):
 #     namespace="bodies",
 #     serializer=PickleSerializer(),
 # )
-async def fetch_bodies_from_db(name_or_id: str):
+def _is_star(record: dict[str, Any]) -> bool:
+    body_type = str(record.get("type", "")).lower()
+    if body_type == "star":
+        return True
+    return "star_type" in record
+
+
+def _apply_mode_scaling(
+    records: list[dict[str, Any]], mode: Optional[str]
+) -> list[dict[str, Any]]:
+    if mode == "edsm":
+        conversions = {
+            "gravity": 9.807,
+            "surface_gravity": 9.807,
+            "semiMajorAxis": 149597870700,
+            "semi_major_axis": 149597870700,
+            "surfacePressure": 101325,
+            "surface_pressure": 101325,
+        }
+
+        numeric_types = (int, float, Decimal)
+
+        for record in records:
+            radius = record.get("radius")
+            if isinstance(radius, numeric_types):
+                if isinstance(radius, Decimal):
+                    radius = float(radius)
+                divisor = 695500000 if _is_star(record) else 1000
+                record["radius"] = radius / divisor
+
+            for key, divisor in conversions.items():
+                value = record.get(key)
+                if isinstance(value, numeric_types):
+                    if isinstance(value, Decimal):
+                        value = float(value)
+                    record[key] = value / divisor
+
+    return records
+
+
+async def fetch_bodies_from_db(name_or_id: str, mode: Optional[str] = None):
     import psycopg
 
     conn = psycopg.connect(
@@ -248,19 +292,38 @@ async def fetch_bodies_from_db(name_or_id: str):
         name_or_id.startswith("-") and name_or_id[1:].isdigit()
     ):
         query = """
-            SELECT *
-            FROM bodies
+            SELECT system_id64, body_id, body_name, bt.name as type, pc.name as planet_class, ts.name as terraform_state, at.name as atmosphere_type, atmosphere_composition, a.name as atmosphere, v.name as volcanism, rc.name as ring_class, ring_inner_rad, ring_outer_rad, ring_mass_mt, radius, mass_em, surface_gravity, surface_temperature, surface_pressure, axial_tilt, semi_major_axis, eccentricity, orbital_inclination, periapsis, mean_anomaly, orbital_period, rotation_period, ascending_node, distance_from_arrival_ls, age_my, absolute_magnitude, l.name as luminosity, st.name as star_type, subclass, stellar_mass, composition_ice, composition_metal, composition_rock, materials, parents, tidally_locked, landable, updatetime
+            FROM bodies b
+            LEFT JOIN body_types bt ON b.body_type_id = bt.id
+            LEFT JOIN planet_classes pc ON b.planet_class_id = pc.id
+            LEFT JOIN terraform_states ts ON b.terraform_state_id = ts.id
+            LEFT JOIN atmosphere_types at ON b.atmosphere_type_id = at.id
+            LEFT JOIN atmospheres a ON b.atmosphere_id = a.id
+            LEFT JOIN volcanisms v ON b.volcanism_id = v.id
+            LEFT JOIN ring_classes rc ON b.ring_class_id = rc.id
+            LEFT JOIN luminosities l ON b.luminosity_id = l.id
+            LEFT JOIN star_types st ON b.star_type_id = st.id
             WHERE system_id64 = %s
-            ORDER BY body_id;
+            ORDER by body_id;
         """
         cursor.execute(query, (name_or_id,))
     else:
         query = """
-            SELECT b.*
-            FROM bodies b, systems_big s
+            SELECT system_id64, body_id, body_name, bt.name as type, pc.name as planet_class, ts.name as terraform_state, at.name as atmosphere_type, atmosphere_composition, a.name as atmosphere, v.name as volcanism, rc.name as ring_class, ring_inner_rad, ring_outer_rad, ring_mass_mt, radius, mass_em, surface_gravity, surface_temperature, surface_pressure, axial_tilt, semi_major_axis, eccentricity, orbital_inclination, periapsis, mean_anomaly, orbital_period, rotation_period, ascending_node, distance_from_arrival_ls, age_my, absolute_magnitude, l.name as luminosity, st.name as star_type, subclass, stellar_mass, composition_ice, composition_metal, composition_rock, materials, parents, tidally_locked, landable, b.updatetime
+            FROM bodies b
+            INNER JOIN systems_big s ON s.id64 = b.system_id64
+            LEFT JOIN body_types bt ON b.body_type_id = bt.id
+            LEFT JOIN planet_classes pc ON b.planet_class_id = pc.id
+            LEFT JOIN terraform_states ts ON b.terraform_state_id = ts.id
+            LEFT JOIN atmosphere_types at ON b.atmosphere_type_id = at.id
+            LEFT JOIN atmospheres a ON b.atmosphere_id = a.id
+            LEFT JOIN volcanisms v ON b.volcanism_id = v.id
+            LEFT JOIN ring_classes rc ON b.ring_class_id = rc.id
+            LEFT JOIN luminosities l ON b.luminosity_id = l.id
+            LEFT JOIN star_types st ON b.star_type_id = st.id
             WHERE LOWER(s.name) = LOWER(%s)
             AND s.id64 = b.system_id64
-            ORDER BY b.body_id;
+            ORDER by body_id;
         """
         cursor.execute(query, (name_or_id,))
 
@@ -282,18 +345,17 @@ async def fetch_bodies_from_db(name_or_id: str):
         for row in rows
     ]
 
-    return results
+    return _apply_mode_scaling(results, mode)
 
 
 @app.get("/bodies", include_in_schema=True)
 async def bodies(
-    name_or_id: str = Query(..., description="The name or id64 of the system")
+    name_or_id: str = Query(..., description="The name or id64 of the system"),
+    mode: Optional[str] = Query(None, description="Optional response mode adjustments"),
 ):
-    result = await fetch_bodies_from_db(name_or_id)
+    result = await fetch_bodies_from_db(name_or_id, mode=mode)
     if result is None:
-        return JSONResponse(
-            content={"error": "System not found"}, status_code=404
-        )
+        return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
     return result
 
 
@@ -342,9 +404,7 @@ async def proxy_edsm_bodies(
 async def get_coords(name_or_id: str = Query(..., alias="q")):
     result = await fetch_system_from_db(name_or_id)
     if result is None:
-        return JSONResponse(
-            content={"error": "System not found"}, status_code=404
-        )
+        return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
     return result
 
 
@@ -372,9 +432,7 @@ async def get_coords(name_or_id: str = Query(..., alias="q")):
         else:
             sys_obj = system.from_name(name_or_id, allow_known=False)
         if sys_obj is None:
-            return JSONResponse(
-                content={"error": "System not found"}, status_code=404
-            )
+            return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
 
         return SystemResponse(
             id64=getattr(sys_obj, "id64", None),
@@ -442,9 +500,7 @@ async def proxy_spansh_faction_presence(
         save_data = save_response.json()
         search_reference = save_data.get("search_reference")
         if not search_reference:
-            raise HTTPException(
-                status_code=500, detail="No search_reference returned"
-            )
+            raise HTTPException(status_code=500, detail="No search_reference returned")
 
         # Step 2: Recall search (handle pagination)
         all_results = []
@@ -477,8 +533,7 @@ async def proxy_spansh_faction_presence(
         {
             "id64": system.get("id64"),
             "name": system.get("name"),
-            "is_controlling": system.get("controlling_minor_faction")
-            == faction,
+            "is_controlling": system.get("controlling_minor_faction") == faction,
         }
         for system in all_results
     ]

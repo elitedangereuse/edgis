@@ -24,6 +24,10 @@ Populate your `.env` with database credentials and add a comma-separated `CORS_O
 ```
 CORS_ORIGINS = https://example.com,https://example.fr
 ```
+#### Run locally
 
+```bash
+edgis/api$ uvicorn systems:app --reload --host 0.0.0.0 --port 8383
+```
 
 ## Frontend
