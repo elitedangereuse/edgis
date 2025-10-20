@@ -1,5 +1,6 @@
 import pathlib
 import sys
+from decimal import Decimal
 
 from fastapi.testclient import TestClient
 import pytest
@@ -138,3 +139,61 @@ def test_coords_lookup_success(monkeypatch):
     response = client.get("/coords", params={"q": "Alioth"})
     assert response.status_code == 200
     assert response.json()["name"] == "Alioth"
+
+
+def test_apply_mode_scaling_no_mode():
+    import math
+
+    sample = [{"radius": 2000, "gravity": 9.807}]
+    result = systems._apply_mode_scaling([body.copy() for body in sample], None)
+    assert result[0]["radius"] == 2000
+    assert math.isclose(result[0]["gravity"], 9.807, rel_tol=1e-09, abs_tol=1e-09)
+
+
+def test_apply_mode_scaling_edsm_handles_units():
+    source = [
+        {
+            "radius": 695500000,
+            "type": "Star",
+            "star_type": "G (Yellow) Star",
+            "gravity": Decimal("19.614"),
+            "surface_gravity": 19.614,
+            "semiMajorAxis": 149597870700,
+            "semi_major_axis": 299195741400,
+            "surfacePressure": 101325,
+            "surface_pressure": 202650,
+        },
+        {
+            "radius": 2000,
+            "type": "Planet",
+            "planet_class": "Earthlike body",
+            "gravity": 9.807,
+            "surface_gravity": 19.614,
+        },
+    ]
+
+    scaled = systems._apply_mode_scaling([body.copy() for body in source], "edsm")
+    star, planet = scaled
+    assert star["radius"] == pytest.approx(1.0)
+    assert star["gravity"] == pytest.approx(2.0)
+    assert star["surface_gravity"] == pytest.approx(2.0)
+    assert star["semiMajorAxis"] == pytest.approx(1.0)
+    assert star["semi_major_axis"] == pytest.approx(2.0)
+    assert star["surfacePressure"] == pytest.approx(1.0)
+    assert star["surface_pressure"] == pytest.approx(2.0)
+
+    assert planet["radius"] == pytest.approx(2.0)
+    assert planet["gravity"] == pytest.approx(1.0)
+    assert planet["surface_gravity"] == pytest.approx(2.0)
+
+
+def test_bodies_mode_query_passthrough(monkeypatch):
+    async def fake_fetch_bodies_from_db(name_or_id, mode=None):
+        return [{"name_or_id": name_or_id, "mode": mode}]
+
+    monkeypatch.setattr(systems, "fetch_bodies_from_db", fake_fetch_bodies_from_db)
+
+    response = client.get("/bodies", params={"name_or_id": "Sol", "mode": "edsm"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload[0]["mode"] == "edsm"
