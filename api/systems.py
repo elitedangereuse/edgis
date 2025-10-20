@@ -38,7 +38,9 @@ def _load_cors_origins() -> list[str]:
     configured = os.getenv("CORS_ORIGINS", "")
     if not configured:
         return []
-    return [origin.strip() for origin in configured.split(",") if origin.strip()]
+    return [
+        origin.strip() for origin in configured.split(",") if origin.strip()
+    ]
 
 
 origins = _load_cors_origins()
@@ -219,7 +221,9 @@ async def fetch_system_from_db(name_or_id: str):
         return None
 
     point_coordinates = row[3]
-    coords = point_coordinates.replace("POINT Z (", "").replace(")", "").split()
+    coords = (
+        point_coordinates.replace("POINT Z (", "").replace(")", "").split()
+    )
     x_coord = float(coords[0])
     y_coord = float(coords[1])
     z_coord = float(coords[2])
@@ -272,83 +276,7 @@ def _apply_mode_scaling(
     return records
 
 
-# @cached(
-#     cache=RedisCache,
-#     endpoint="localhost",
-#     port=6379,
-#     ttl=86400,  # one day cache
-#     namespace="bodies",
-#     serializer=PickleSerializer(),
-# )
 def fetch_bodies_from_db(name_or_id: str, mode: Optional[str] = None):
-    import psycopg
-
-    conn = psycopg.connect(
-        dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST
-    )
-    cursor = conn.cursor()
-
-    if name_or_id.isdigit() or (
-        name_or_id.startswith("-") and name_or_id[1:].isdigit()
-    ):
-        query = """
-            SELECT system_id64, body_id, body_name, bt.name as type, pc.name as planet_class, ts.name as terraform_state, at.name as atmosphere_type, atmosphere_composition, a.name as atmosphere, v.name as volcanism, rc.name as ring_class, ring_inner_rad, ring_outer_rad, ring_mass_mt, radius, mass_em, surface_gravity, surface_temperature, surface_pressure, axial_tilt, semi_major_axis, eccentricity, orbital_inclination, periapsis, mean_anomaly, orbital_period, rotation_period, ascending_node, distance_from_arrival_ls, age_my, absolute_magnitude, l.name as luminosity, st.name as star_type, subclass, stellar_mass, composition_ice, composition_metal, composition_rock, materials, parents, tidally_locked, landable, updatetime
-            FROM bodies b
-            LEFT JOIN body_types bt ON b.body_type_id = bt.id
-            LEFT JOIN planet_classes pc ON b.planet_class_id = pc.id
-            LEFT JOIN terraform_states ts ON b.terraform_state_id = ts.id
-            LEFT JOIN atmosphere_types at ON b.atmosphere_type_id = at.id
-            LEFT JOIN atmospheres a ON b.atmosphere_id = a.id
-            LEFT JOIN volcanisms v ON b.volcanism_id = v.id
-            LEFT JOIN ring_classes rc ON b.ring_class_id = rc.id
-            LEFT JOIN luminosities l ON b.luminosity_id = l.id
-            LEFT JOIN star_types st ON b.star_type_id = st.id
-            WHERE system_id64 = %s
-            ORDER by body_id;
-        """
-        cursor.execute(query, (name_or_id,))
-    else:
-        query = """
-            SELECT system_id64, body_id, body_name, bt.name as type, pc.name as planet_class, ts.name as terraform_state, at.name as atmosphere_type, atmosphere_composition, a.name as atmosphere, v.name as volcanism, rc.name as ring_class, ring_inner_rad, ring_outer_rad, ring_mass_mt, radius, mass_em, surface_gravity, surface_temperature, surface_pressure, axial_tilt, semi_major_axis, eccentricity, orbital_inclination, periapsis, mean_anomaly, orbital_period, rotation_period, ascending_node, distance_from_arrival_ls, age_my, absolute_magnitude, l.name as luminosity, st.name as star_type, subclass, stellar_mass, composition_ice, composition_metal, composition_rock, materials, parents, tidally_locked, landable, b.updatetime
-            FROM bodies b
-            INNER JOIN systems_big s ON s.id64 = b.system_id64
-            LEFT JOIN body_types bt ON b.body_type_id = bt.id
-            LEFT JOIN planet_classes pc ON b.planet_class_id = pc.id
-            LEFT JOIN terraform_states ts ON b.terraform_state_id = ts.id
-            LEFT JOIN atmosphere_types at ON b.atmosphere_type_id = at.id
-            LEFT JOIN atmospheres a ON b.atmosphere_id = a.id
-            LEFT JOIN volcanisms v ON b.volcanism_id = v.id
-            LEFT JOIN ring_classes rc ON b.ring_class_id = rc.id
-            LEFT JOIN luminosities l ON b.luminosity_id = l.id
-            LEFT JOIN star_types st ON b.star_type_id = st.id
-            WHERE LOWER(s.name) = LOWER(%s)
-            AND s.id64 = b.system_id64
-            ORDER by body_id;
-        """
-        cursor.execute(query, (name_or_id,))
-
-    rows = cursor.fetchall()
-    if not rows:
-        cursor.close()
-        conn.close()
-        return None
-
-    # get column names from cursor.description
-    col_names = [desc[0] for desc in cursor.description]
-
-    cursor.close()
-    conn.close()
-
-    # build array of dicts, filtering out None values
-    results = [
-        {col: val for col, val in zip(col_names, row) if val is not None}
-        for row in rows
-    ]
-
-    return _apply_mode_scaling(results, mode)
-
-
-def fetch_bodies_from_db2(name_or_id: str, mode: Optional[str] = None):
     import psycopg
 
     conn = psycopg.connect(
@@ -368,7 +296,6 @@ def fetch_bodies_from_db2(name_or_id: str, mode: Optional[str] = None):
                 pc.name AS planet_class,
                 ts.name AS terraform_state,
                 at.name AS atmosphere_type,
-                b.atmosphere_composition,
                 a.name AS atmosphere,
                 v.name AS volcanism,
                 rc.name AS ring_class,
@@ -458,7 +385,6 @@ def fetch_bodies_from_db2(name_or_id: str, mode: Optional[str] = None):
                 pc.name AS planet_class,
                 ts.name AS terraform_state,
                 at.name AS atmosphere_type,
-                b.atmosphere_composition,
                 a.name AS atmosphere,
                 v.name AS volcanism,
                 rc.name AS ring_class,
@@ -561,25 +487,26 @@ def fetch_bodies_from_db2(name_or_id: str, mode: Optional[str] = None):
     return _apply_mode_scaling(results, mode)
 
 
+# @cached(
+#     cache=RedisCache,
+#     endpoint="localhost",
+#     port=6379,
+#     ttl=86400,  # one day cache
+#     namespace="bodies",
+#     serializer=PickleSerializer(),
+# )
 @app.get("/bodies", include_in_schema=True)
 def bodies(
     name_or_id: str = Query(..., description="The name or id64 of the system"),
-    mode: Optional[str] = Query(None, description="Optional response mode adjustments"),
+    mode: Optional[str] = Query(
+        None, description="Optional response mode adjustments"
+    ),
 ):
     result = fetch_bodies_from_db(name_or_id, mode=mode)
     if result is None:
-        return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
-    return result
-
-
-@app.get("/bodies2", include_in_schema=True)
-def bodies2(
-    name_or_id: str = Query(..., description="The name or id64 of the system"),
-    mode: Optional[str] = Query(None, description="Optional response mode adjustments"),
-):
-    result = fetch_bodies_from_db2(name_or_id, mode=mode)
-    if result is None:
-        return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
+        return JSONResponse(
+            content={"error": SYSTEM_NOT_FOUND}, status_code=404
+        )
     return result
 
 
@@ -628,7 +555,9 @@ async def proxy_edsm_bodies(
 async def get_coords(name_or_id: str = Query(..., alias="q")):
     result = await fetch_system_from_db(name_or_id)
     if result is None:
-        return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
+        return JSONResponse(
+            content={"error": SYSTEM_NOT_FOUND}, status_code=404
+        )
     return result
 
 
@@ -656,7 +585,9 @@ async def get_coords(name_or_id: str = Query(..., alias="q")):
         else:
             sys_obj = system.from_name(name_or_id, allow_known=False)
         if sys_obj is None:
-            return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
+            return JSONResponse(
+                content={"error": SYSTEM_NOT_FOUND}, status_code=404
+            )
 
         return SystemResponse(
             id64=getattr(sys_obj, "id64", None),
@@ -724,7 +655,9 @@ async def proxy_spansh_faction_presence(
         save_data = save_response.json()
         search_reference = save_data.get("search_reference")
         if not search_reference:
-            raise HTTPException(status_code=500, detail="No search_reference returned")
+            raise HTTPException(
+                status_code=500, detail="No search_reference returned"
+            )
 
         # Step 2: Recall search (handle pagination)
         all_results = []
@@ -757,7 +690,8 @@ async def proxy_spansh_faction_presence(
         {
             "id64": system.get("id64"),
             "name": system.get("name"),
-            "is_controlling": system.get("controlling_minor_faction") == faction,
+            "is_controlling": system.get("controlling_minor_faction")
+            == faction,
         }
         for system in all_results
     ]
