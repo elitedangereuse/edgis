@@ -12,7 +12,7 @@ def insert_barycenter_first_pass(conn, system_id, debug=False):
 
     # Look for BodyID=1 with parents [{"Null": 0}]
     cur.execute(
-        "SELECT body_id, body_name, type, parents FROM bodies WHERE system_id64 = %s AND body_id = 1",
+        "SELECT body_id, body_name, body_type_id, parents FROM bodies WHERE system_id64 = %s AND body_id = 1",
         (system_id,),
     )
     row = cur.fetchone()
@@ -40,10 +40,10 @@ def insert_barycenter_first_pass(conn, system_id, debug=False):
                 tqdm.write(f"Inserting Barycenter0 into system {system_id}")
             cur.execute(
                 """
-                INSERT INTO bodies (system_id64, body_id, body_name, type, parents)
+                INSERT INTO bodies (system_id64, body_id, body_name, body_type_id, parents)
                 VALUES (%s, %s, %s, %s, %s)
                 """,
-                (system_id, 0, "Barycenter0", "Barycenter", json.dumps([])),
+                (system_id, 0, "Barycenter0", 2, json.dumps([])),
             )
 
     cur.close()
@@ -54,7 +54,7 @@ def rename_barycenters_second_pass(conn, system_id, debug=False):
     cur = conn.cursor()
 
     cur.execute(
-        "SELECT body_id, body_name, type, parents FROM bodies WHERE system_id64 = %s ORDER BY body_id",
+        "SELECT body_id, body_name, body_type_id, parents FROM bodies WHERE system_id64 = %s ORDER BY body_id",
         (system_id,),
     )
     rows = cur.fetchall()
@@ -63,7 +63,7 @@ def rename_barycenters_second_pass(conn, system_id, debug=False):
         row[0]: {
             "body_id": row[0],
             "body_name": row[1],
-            "type": row[2],
+            "body_type_id": row[2],
             "parents": row[3] if row[3] else [],
         }
         for row in rows
@@ -81,7 +81,7 @@ def rename_barycenters_second_pass(conn, system_id, debug=False):
         return suffix, base
 
     for body_id, body in bodies.items():
-        if body["type"] != "Barycenter" or not re.match(
+        if body["body_type_id"] != 2 or not re.match(
             r"Barycenter\d+", body["body_name"]
         ):
             continue
@@ -107,10 +107,14 @@ def rename_barycenters_second_pass(conn, system_id, debug=False):
             continue
 
         # Must be a planet or star or barycenter
-        if child1["type"] not in ("Planet", "Star", "Barycenter"):
+        if child1["body_type_id"] not in (
+            3,
+            5,
+            2,
+        ):  # "Planet", "Star", "Barycenter"
             if debug:
                 tqdm.write(
-                    f"Skipping {body['body_name']} – child1 is a {child1['type']}"
+                    f"Skipping {body['body_name']} – child1 is a {child1['body_type_id']}"
                 )
             continue
 
@@ -138,7 +142,11 @@ def rename_barycenters_second_pass(conn, system_id, debug=False):
                         f"skip first child {b_id} (type: {type1} / suffix: {suffix1})"
                     )
                 continue
-            if b["type"] not in ("Planet", "Star", "Barycenter"):
+            if b["body_type_id"] not in (
+                3,
+                5,
+                2,
+            ):  # "Planet", "Star", "Barycenter"
                 if debug:
                     tqdm.write(f"not in Planet or Star or Barycenter {b_id}")
                 continue
@@ -153,7 +161,9 @@ def rename_barycenters_second_pass(conn, system_id, debug=False):
             parent_list = b["parents"]
             if not parent_list or not isinstance(parent_list, list):
                 if debug:
-                    tqdm.write(f"skip {b_id} - invalid or missing parents list")
+                    tqdm.write(
+                        f"skip {b_id} - invalid or missing parents list"
+                    )
                 continue
 
             first_parent = parent_list[0]
@@ -177,7 +187,9 @@ def rename_barycenters_second_pass(conn, system_id, debug=False):
             type2 = get_suffix_type(suffix2)
             if type2 != type1:
                 if debug:
-                    tqdm.write(f"skip different suffix types {b_id}: {type2} - {type1}")
+                    tqdm.write(
+                        f"skip different suffix types {b_id}: {type2} - {type1}"
+                    )
                 continue  # must match suffix type
 
             # Prefer same base name, but allow fallback
@@ -247,7 +259,9 @@ def main():
     # === Parse Command Line Arguments ===
     if len(sys.argv) != 1 and len(sys.argv) != 2:
         tqdm.write("Usage: python script.py [system_id64]")
-        tqdm.write("  - No argument: process all systems from 'new_barycenters.txt'")
+        tqdm.write(
+            "  - No argument: process all systems from 'new_barycenters.txt'"
+        )
         tqdm.write("  - With argument: process only that system_id64")
         sys.exit(1)
 
@@ -283,21 +297,26 @@ def main():
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT DISTINCT system_id64
+                SELECT system_id64
                 FROM bodies
                 WHERE body_name LIKE 'Barycenter%'
-                ORDER BY system_id64
+                AND body_type_id = 2
+                LIMIT 100000
             """
             )
             system_ids = [str(row[0]) for row in cur.fetchall()]
         tqdm.write(f"Found {len(system_ids)} systems with barycenters to fix")
 
     # === Process Each System ===
-    for system_id in tqdm(system_ids, desc="Processing systems", unit="system"):
+    for system_id in tqdm(
+        system_ids, desc="Processing systems", unit="system"
+    ):
         try:
             insert_barycenter_first_pass(conn, system_id, debug)
             while True:
-                renamed_count = rename_barycenters_second_pass(conn, system_id, debug)
+                renamed_count = rename_barycenters_second_pass(
+                    conn, system_id, debug
+                )
                 if renamed_count == 0:
                     break
         except Exception as e:

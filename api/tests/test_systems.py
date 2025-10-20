@@ -51,11 +51,18 @@ def test_get_neighbors_success(monkeypatch, expected):
     assert response.json() == [expected]
 
 
-class DummySystem:
-    id64 = 123
-    name = "Test System"
-    mainstar = "G"
-    position = (11.1, 22.2, 33.3)
+class TestSystem:
+    id64 = 9469999523369
+    name = "Swoilz GG-B b5-4"
+    mainstar = "null"
+    position = (225.0, -235.0, 325.0)
+
+
+class TestSystem2:
+    id64 = 98765
+    name = "Odotls EG-Y f0"
+    mainstar = "null"
+    position = (-49825.0, -33145.0, -5705.0)
 
 
 @pytest.fixture
@@ -63,12 +70,12 @@ def patch_prediction(monkeypatch):
     monkeypatch.setattr(
         systems.system,
         "from_name",
-        lambda name, allow_known=False: DummySystem(),
+        lambda name, allow_known=False: TestSystem(),
     )
     monkeypatch.setattr(
         systems.system,
         "from_id64",
-        lambda value, allow_known=False: DummySystem(),
+        lambda value, allow_known=False: TestSystem2(),
     )
 
 
@@ -77,7 +84,7 @@ def test_coords_predict_success(patch_prediction):
     assert response.status_code == 200
     body = response.json()
     assert body["prediction"] is True
-    assert body["coords"] == {"x": 11.1, "y": 22.2, "z": 33.3}
+    assert body["coords"] == {"x": 225.0, "y": -235.0, "z": 325.0}
 
 
 def test_coords_predict_numeric_uses_id64(monkeypatch):
@@ -85,7 +92,7 @@ def test_coords_predict_numeric_uses_id64(monkeypatch):
 
     def fake_from_id64(value, allow_known=False):
         calls["value"] = value
-        return DummySystem()
+        return TestSystem2()
 
     monkeypatch.setattr(
         systems.system,
@@ -101,17 +108,18 @@ def test_coords_predict_numeric_uses_id64(monkeypatch):
     response = client.get("/coords/predict", params={"q": "98765"})
     assert response.status_code == 200
     assert calls["value"] == 98765
+    body = response.json()
+    assert body["prediction"] is True
+    assert body["name"] == "Odotls EG-Y f0"
 
 
 def test_coords_lookup_not_found(monkeypatch):
     async def fake_fetch_system_from_db(name_or_id):
         return None
 
-    monkeypatch.setattr(
-        systems, "fetch_system_from_db", fake_fetch_system_from_db
-    )
+    monkeypatch.setattr(systems, "fetch_system_from_db", fake_fetch_system_from_db)
 
-    response = client.get("/coords", params={"q": "Missing"})
+    response = client.get("/coords", params={"q": "Kubeo"})
     assert response.status_code == 404
     assert response.json() == {"error": "System not found"}
 
@@ -119,16 +127,14 @@ def test_coords_lookup_not_found(monkeypatch):
 def test_coords_lookup_success(monkeypatch):
     async def fake_fetch_system_from_db(name_or_id):
         return {
-            "id64": 999,
-            "name": "Found",
-            "mainstar": "K",
-            "coords": {"x": -1.0, "y": 0.5, "z": 4.2},
+            "id64": 1109989017963,
+            "name": "Alioth",
+            "mainstar": "A",
+            "coords": {"x": -33.65625, "y": 72.46875, "z": -20.65625},
         }
 
-    monkeypatch.setattr(
-        systems, "fetch_system_from_db", fake_fetch_system_from_db
-    )
+    monkeypatch.setattr(systems, "fetch_system_from_db", fake_fetch_system_from_db)
 
-    response = client.get("/coords", params={"q": "Found"})
+    response = client.get("/coords", params={"q": "Alioth"})
     assert response.status_code == 200
-    assert response.json()["name"] == "Found"
+    assert response.json()["name"] == "Alioth"

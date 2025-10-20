@@ -32,28 +32,28 @@ conn = psycopg.connect(
 # === UPSERT Query for bodies (42 fields) ===
 UPSERT_BODY = """
     INSERT INTO bodies (
-        system_id64, body_id, body_name, type, planet_class, terraform_state,
-        atmosphere_type, atmosphere_composition, atmosphere, volcanism, radius, mass_em,
+        system_id64, body_id, body_name, body_type_id, planet_class_id, terraform_state_id,
+        atmosphere_type_id, atmosphere_composition, atmosphere_id, volcanism_id, radius, mass_em,
         surface_gravity, surface_temperature, surface_pressure, axial_tilt,
         semi_major_axis, eccentricity, orbital_inclination, periapsis,
         mean_anomaly, orbital_period, rotation_period, ascending_node,
-        distance_from_arrival_ls, age_my, absolute_magnitude, luminosity,
-        star_type, subclass, stellar_mass, composition_ice, composition_metal,
+        distance_from_arrival_ls, age_my, absolute_magnitude, luminosity_id,
+        star_type_id, subclass, stellar_mass, composition_ice, composition_metal,
         composition_rock, materials, parents, tidally_locked, landable, updatetime,
-        ring_class, ring_inner_rad, ring_outer_rad, ring_mass_mt
+        ring_class_id, ring_inner_rad, ring_outer_rad, ring_mass_mt
     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
               %s, %s, %s)
     ON CONFLICT (system_id64, body_id) DO UPDATE SET
-        type                    = EXCLUDED.type,
-        planet_class            = COALESCE(EXCLUDED.planet_class, bodies.planet_class),
-        terraform_state         = COALESCE(EXCLUDED.terraform_state, bodies.terraform_state),
-        atmosphere_type         = COALESCE(EXCLUDED.atmosphere_type, bodies.atmosphere_type),
+        body_type_id            = EXCLUDED.body_type_id,
+        planet_class_id         = COALESCE(EXCLUDED.planet_class_id, bodies.planet_class_id),
+        terraform_state_id      = COALESCE(EXCLUDED.terraform_state_id, bodies.terraform_state_id),
+        atmosphere_type_id      = COALESCE(EXCLUDED.atmosphere_type_id, bodies.atmosphere_type_id),
         atmosphere_composition  = COALESCE(EXCLUDED.atmosphere_composition, bodies.atmosphere_composition),
-        atmosphere              = COALESCE(EXCLUDED.atmosphere, bodies.atmosphere),
-        volcanism               = COALESCE(EXCLUDED.volcanism, bodies.volcanism),
+        atmosphere_id           = COALESCE(EXCLUDED.atmosphere_id, bodies.atmosphere_id),
+        volcanism_id            = COALESCE(EXCLUDED.volcanism_id, bodies.volcanism_id),
         radius                  = COALESCE(EXCLUDED.radius, bodies.radius),
         mass_em                 = COALESCE(EXCLUDED.mass_em, bodies.mass_em),
         surface_gravity         = COALESCE(EXCLUDED.surface_gravity, bodies.surface_gravity),
@@ -71,8 +71,8 @@ UPSERT_BODY = """
         distance_from_arrival_ls= COALESCE(EXCLUDED.distance_from_arrival_ls, bodies.distance_from_arrival_ls),
         age_my                  = COALESCE(EXCLUDED.age_my, bodies.age_my),
         absolute_magnitude      = COALESCE(EXCLUDED.absolute_magnitude, bodies.absolute_magnitude),
-        luminosity              = COALESCE(EXCLUDED.luminosity, bodies.luminosity),
-        star_type               = COALESCE(EXCLUDED.star_type, bodies.star_type),
+        luminosity_id              = COALESCE(EXCLUDED.luminosity_id, bodies.luminosity_id),
+        star_type_id               = COALESCE(EXCLUDED.star_type_id, bodies.star_type_id),
         subclass                = COALESCE(EXCLUDED.subclass, bodies.subclass),
         stellar_mass            = COALESCE(EXCLUDED.stellar_mass, bodies.stellar_mass),
         composition_ice         = COALESCE(EXCLUDED.composition_ice, bodies.composition_ice),
@@ -86,12 +86,51 @@ UPSERT_BODY = """
         tidally_locked          = EXCLUDED.tidally_locked,
         landable                = EXCLUDED.landable,
         updatetime              = EXCLUDED.updatetime,
-        ring_class              = EXCLUDED.ring_class,
+        ring_class_id           = EXCLUDED.ring_class_id,
         ring_inner_rad          = EXCLUDED.ring_inner_rad,
         ring_outer_rad          = EXCLUDED.ring_outer_rad,
         ring_mass_mt            = EXCLUDED.ring_mass_mt
     -- Removed RETURNING clause entirely
 """
+
+# === Lookup Cache ===
+lookup_cache = {
+    "body_types": {},
+    "planet_classes": {},
+    "atmosphere_types": {},
+    "atmospheres": {},
+    "terraform_states": {},
+    "volcanisms": {},
+    "luminosities": {},
+    "star_types": {},
+    "ring_classes": {},
+}
+
+
+def get_lookup_id(table, name, conn):
+    """Get the ID for a lookup value, inserting it if needed."""
+    if not name:
+        return None
+
+    # Use cache first
+    cache = lookup_cache.get(table, {})
+    if name in cache:
+        return cache[name]
+
+    with conn.cursor() as cur:
+        # Try to fetch existing
+        cur.execute(f"SELECT id FROM {table} WHERE name = %s;", (name,))
+        row = cur.fetchone()
+        if row:
+            cache[name] = row[0]
+            return row[0]
+
+        # Insert new if not found
+        cur.execute(f"INSERT INTO {table} (name) VALUES (%s) RETURNING id;", (name,))
+        new_id = cur.fetchone()[0]
+        conn.commit()
+        cache[name] = new_id
+        return new_id
 
 
 def parse_timestamp(ts_str):
@@ -146,7 +185,7 @@ def convert_atmosphere_type(description: str, subType: str, name) -> str | None:
     desc = (
         description.lower().replace("-rich", " rich").replace("atmosphere", "").strip()
     )
-
+    desc = re.sub(r"\bsulfur\b", "sulphur", desc)
     # remove qualifiers
     qualifiers = {"hot", "cold", "thin", "thick"}
     parts = [word for word in desc.split() if word not in qualifiers]
@@ -210,22 +249,38 @@ def ingest_streaming(path):
                             if body.get("type") == "Barycentre"
                             else body.get("name")
                         ),
-                        "type": "Barycenter"
+                        "body_type_id": get_lookup_id("body_types", "Barycenter", conn)
                         if body.get("type") == "Barycentre"
-                        else body.get("type"),
-                        "planet_class": (
-                            "Earthlike body"
+                        else get_lookup_id("body_types", body.get("type"), conn),
+                        "planet_class_id": (
+                            get_lookup_id("planet_classes", "Earthlike body", conn)
                             if body.get("type") == "Planet"
                             and body.get("subType") == "Earth-like world"
-                            else body.get("subType")
-                            if body.get("type") == "Planet"
-                            else None
+                            else (
+                                get_lookup_id(
+                                    "planet_classes",
+                                    body.get("subType").replace(
+                                        "ammonia-based", "ammonia based"
+                                    )
+                                    if body.get("subType")
+                                    else None,
+                                    conn,
+                                )
+                                if body.get("type") == "Planet"
+                                else None
+                            )
                         ),
-                        "terraform_state": body.get("terraformingState"),
-                        "atmosphere_type": convert_atmosphere_type(
-                            body.get("atmosphereType"),
-                            body.get("subType"),
-                            body.get("name"),
+                        "terraform_state_id": get_lookup_id(
+                            "terraform_states", body.get("terraformingState"), conn
+                        ),
+                        "atmosphere_type_id": get_lookup_id(
+                            "atmosphere_types",
+                            convert_atmosphere_type(
+                                body.get("atmosphereType"),
+                                body.get("subType"),
+                                body.get("name"),
+                            ),
+                            conn,
                         )
                         if body.get("type") == "Planet"
                         else None,
@@ -249,14 +304,24 @@ def ingest_streaming(path):
                         )
                         if body.get("atmosphereComposition")
                         else None,
-                        "atmosphere": body.get("atmosphereType")
-                        .lower()
-                        .replace("-rich", " rich")
-                        + " atmosphere"
+                        "atmosphere_id": get_lookup_id(
+                            "atmospheres",
+                            body.get("atmosphereType")
+                            .lower()
+                            .replace("sulphur", "sulfur")
+                            .replace("-rich", " rich")
+                            .replace("no atmosphere", "no")
+                            + " atmosphere",
+                            conn,
+                        )
                         if body.get("atmosphereType")
                         else None,
-                        "volcanism": (
-                            (body.get("volcanismType") or "").lower() + " volcanism"
+                        "volcanism_id": (
+                            get_lookup_id(
+                                "volcanisms",
+                                (body.get("volcanismType")).lower() + " volcanism",
+                                conn,
+                            )
                             if body.get("volcanismType")
                             else None
                         ),
@@ -277,8 +342,14 @@ def ingest_streaming(path):
                         "distance_from_arrival_ls": body.get("distanceToArrival"),
                         "age_my": body.get("age"),
                         "absolute_magnitude": body.get("absoluteMagnitude"),
-                        "luminosity": body.get("luminosity"),
-                        "star_type": parse_star_type(body.get("spectralClass"))
+                        "luminosity_id": get_lookup_id(
+                            "luminosities", body.get("luminosity"), conn
+                        ),
+                        "star_type_id": get_lookup_id(
+                            "star_types",
+                            parse_star_type(body.get("spectralClass")),
+                            conn,
+                        )
                         if body.get("type") == "Star"
                         else None,
                         "subclass": parse_subclass(body.get("spectralClass"))
@@ -314,7 +385,7 @@ def ingest_streaming(path):
                         "landable": body.get("isLandable"),
                         "updatetime": parse_timestamp(body.get("updateTime"))
                         or updatetime,
-                        "ring_class": None,
+                        "ring_class_id": None,
                         "ring_inner_rad": None,
                         "ring_outer_rad": None,
                         "ring_mass_mt": None,
@@ -332,13 +403,15 @@ def ingest_streaming(path):
                             "system_id64": sys_id,
                             "body_id": body.get("bodyId") + i,  # increment bodyId
                             "body_name": ring.get("name"),
-                            "type": "PlanetaryRing",
-                            "planet_class": None,
-                            "terraform_state": None,
-                            "atmosphere_type": None,
+                            "body_type_id": get_lookup_id(
+                                "body_types", "PlanetaryRing", conn
+                            ),
+                            "planet_class_id": None,
+                            "terraform_state_id": None,
+                            "atmosphere_type_id": None,
                             "atmosphere_composition": None,
-                            "atmosphere": None,
-                            "volcanism": None,
+                            "atmosphere_id": None,
+                            "volcanism_id": None,
                             "radius": None,
                             "mass_em": None,
                             "surface_gravity": None,
@@ -356,8 +429,8 @@ def ingest_streaming(path):
                             "distance_from_arrival_ls": body.get("distanceToArrival"),
                             "age_my": body.get("age"),
                             "absolute_magnitude": None,
-                            "luminosity": None,
-                            "star_type": None,
+                            "luminosity_id": None,
+                            "star_type_id": None,
                             "subclass": None,
                             "stellar_mass": None,
                             "composition_ice": None,
@@ -369,8 +442,11 @@ def ingest_streaming(path):
                             "landable": None,
                             "updatetime": parse_timestamp(ring.get("updateTime"))
                             or updatetime,
-                            "ring_class": "eRingClass_"
-                            + ring.get("type", "").replace(" ", "")
+                            "ring_class_id": get_lookup_id(
+                                "ring_classes",
+                                "eRingClass_" + ring.get("type", "").replace(" ", ""),
+                                conn,
+                            )
                             if ring.get("type")
                             else None,
                             "ring_inner_rad": ring.get("innerRadius"),
