@@ -1,0 +1,9 @@
+[run]
+omit =
+    */api/edts/*
+    */api/edts.py
+
+[report]
+omit =
+    */api/edts/*
+    */api/edts.py
