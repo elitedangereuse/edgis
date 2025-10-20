@@ -280,7 +280,7 @@ def _apply_mode_scaling(
 #     namespace="bodies",
 #     serializer=PickleSerializer(),
 # )
-async def fetch_bodies_from_db(name_or_id: str, mode: Optional[str] = None):
+def fetch_bodies_from_db(name_or_id: str, mode: Optional[str] = None):
     import psycopg
 
     conn = psycopg.connect(
@@ -348,7 +348,7 @@ async def fetch_bodies_from_db(name_or_id: str, mode: Optional[str] = None):
     return _apply_mode_scaling(results, mode)
 
 
-async def fetch_bodies_from_db2(name_or_id: str, mode: Optional[str] = None):
+def fetch_bodies_from_db2(name_or_id: str, mode: Optional[str] = None):
     import psycopg
 
     conn = psycopg.connect(
@@ -562,22 +562,22 @@ async def fetch_bodies_from_db2(name_or_id: str, mode: Optional[str] = None):
 
 
 @app.get("/bodies", include_in_schema=True)
-async def bodies(
+def bodies(
     name_or_id: str = Query(..., description="The name or id64 of the system"),
     mode: Optional[str] = Query(None, description="Optional response mode adjustments"),
 ):
-    result = await fetch_bodies_from_db(name_or_id, mode=mode)
+    result = fetch_bodies_from_db(name_or_id, mode=mode)
     if result is None:
         return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
     return result
 
 
 @app.get("/bodies2", include_in_schema=True)
-async def bodies2(
+def bodies2(
     name_or_id: str = Query(..., description="The name or id64 of the system"),
     mode: Optional[str] = Query(None, description="Optional response mode adjustments"),
 ):
-    result = await fetch_bodies_from_db2(name_or_id, mode=mode)
+    result = fetch_bodies_from_db2(name_or_id, mode=mode)
     if result is None:
         return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
     return result
