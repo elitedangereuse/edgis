@@ -29,29 +29,28 @@ conn = psycopg.connect(
     host=DB_HOST, port=5432, dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD
 )
 
-# === UPSERT Query for bodies (42 fields) ===
+# === UPSERT Query for bodies (41 fields) ===
 UPSERT_BODY = """
     INSERT INTO bodies (
         system_id64, body_id, body_name, body_type_id, planet_class_id, terraform_state_id,
-        atmosphere_type_id, atmosphere_composition, atmosphere_id, volcanism_id, radius, mass_em,
+        atmosphere_type_id, atmosphere_id, volcanism_id, radius, mass_em,
         surface_gravity, surface_temperature, surface_pressure, axial_tilt,
         semi_major_axis, eccentricity, orbital_inclination, periapsis,
         mean_anomaly, orbital_period, rotation_period, ascending_node,
         distance_from_arrival_ls, age_my, absolute_magnitude, luminosity_id,
         star_type_id, subclass, stellar_mass, composition_ice, composition_metal,
-        composition_rock, materials, parents, tidally_locked, landable, updatetime,
+        composition_rock, parents, tidally_locked, landable, updatetime,
         ring_class_id, ring_inner_rad, ring_outer_rad, ring_mass_mt
     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-              %s, %s, %s)
+              %s)
     ON CONFLICT (system_id64, body_id) DO UPDATE SET
         body_type_id            = EXCLUDED.body_type_id,
         planet_class_id         = COALESCE(EXCLUDED.planet_class_id, bodies.planet_class_id),
         terraform_state_id      = COALESCE(EXCLUDED.terraform_state_id, bodies.terraform_state_id),
         atmosphere_type_id      = COALESCE(EXCLUDED.atmosphere_type_id, bodies.atmosphere_type_id),
-        atmosphere_composition  = COALESCE(EXCLUDED.atmosphere_composition, bodies.atmosphere_composition),
         atmosphere_id           = COALESCE(EXCLUDED.atmosphere_id, bodies.atmosphere_id),
         volcanism_id            = COALESCE(EXCLUDED.volcanism_id, bodies.volcanism_id),
         radius                  = COALESCE(EXCLUDED.radius, bodies.radius),
@@ -78,7 +77,6 @@ UPSERT_BODY = """
         composition_ice         = COALESCE(EXCLUDED.composition_ice, bodies.composition_ice),
         composition_metal       = COALESCE(EXCLUDED.composition_metal, bodies.composition_metal),
         composition_rock        = COALESCE(EXCLUDED.composition_rock, bodies.composition_rock),
-        materials               = COALESCE(EXCLUDED.materials, bodies.materials),
         parents                 = CASE
                                     WHEN EXCLUDED.parents IS NOT NULL THEN EXCLUDED.parents
                                     ELSE bodies.parents
@@ -91,6 +89,18 @@ UPSERT_BODY = """
         ring_outer_rad          = EXCLUDED.ring_outer_rad,
         ring_mass_mt            = EXCLUDED.ring_mass_mt
     -- Removed RETURNING clause entirely
+"""
+
+UPSERT_MATERIAL = """
+    INSERT INTO body_materials (system_id64, body_id, material_id, percent)
+    VALUES (%s, %s, %s, %s)
+    ON CONFLICT (system_id64, body_id, material_id) DO NOTHING;
+"""
+
+UPSERT_ATMOSPHERE_GAS = """
+    INSERT INTO body_atmospheres (system_id64, body_id, gas_id, percent)
+    VALUES (%s, %s, %s, %s)
+    ON CONFLICT (system_id64, body_id, gas_id) DO NOTHING;
 """
 
 # === Lookup Cache ===
@@ -284,26 +294,6 @@ def ingest_streaming(path):
                         )
                         if body.get("type") == "Planet"
                         else None,
-                        "atmosphere_composition": json.dumps(
-                            sorted(
-                                [
-                                    {
-                                        "Name": "".join(
-                                            word.capitalize() for word in k.split()
-                                        ),  # Capitalize & remove spaces
-                                        "Percent": v,
-                                    }
-                                    for k, v in body.get(
-                                        "atmosphereComposition", {}
-                                    ).items()
-                                ],
-                                key=lambda x: x["Percent"],
-                                reverse=True,
-                            ),
-                            default=json_default,
-                        )
-                        if body.get("atmosphereComposition")
-                        else None,
                         "atmosphere_id": get_lookup_id(
                             "atmospheres",
                             body.get("atmosphereType")
@@ -365,19 +355,6 @@ def ingest_streaming(path):
                         "composition_rock": composition_rock / 100
                         if composition_rock is not None
                         else None,
-                        "materials": json.dumps(
-                            sorted(
-                                [
-                                    {"Name": k.lower(), "Percent": v}
-                                    for k, v in body.get("materials", {}).items()
-                                ],
-                                key=lambda x: x["Percent"],
-                                reverse=True,
-                            ),
-                            default=json_default,
-                        )
-                        if body.get("materials")
-                        else None,
                         "parents": json.dumps(body.get("parents"))
                         if body.get("parents")
                         else None,
@@ -397,6 +374,68 @@ def ingest_streaming(path):
                             bodyname = body.get("name")
                             tqdm.write(f"Error processing body {bodyname}: {e}")
                             conn.rollback()  # Reset transaction on error
+
+                    # Process materials
+                    materials = body.get("materials", {})
+                    if materials:
+                        for name, percent in materials.items():
+                            try:
+                                mat_id = get_lookup_id(
+                                    "material_names", name.lower(), conn
+                                )
+                                with conn.cursor() as cur_m:
+                                    cur_m.execute(
+                                        UPSERT_MATERIAL,
+                                        (
+                                            sys_id,
+                                            body.get("bodyId"),
+                                            mat_id,
+                                            float(percent),
+                                        ),
+                                    )
+                            except Exception as e:
+                                tqdm.write(
+                                    f"Error inserting material {name.lower()} for body {body.get('name')}: {e}"
+                                )
+                                conn.rollback()
+
+                    # Process atmosphere compositions
+                    atmosphere_composition = body.get("atmosphereComposition", {})
+                    if atmosphere_composition:
+                        for raw_name, percent in sorted(
+                            atmosphere_composition.items(),
+                            key=lambda kv: kv[1],
+                            reverse=True,
+                        ):
+                            try:
+                                # Match the capitalization style used before
+                                formatted_name = "".join(
+                                    word.capitalize() for word in raw_name.split()
+                                )
+
+                                # Lookup or insert gas_id
+                                gas_id = get_lookup_id(
+                                    "atmosphere_gases", formatted_name, conn
+                                )
+
+                                # Insert into normalized table
+                                with conn.cursor() as cur_g:
+                                    cur_g.execute(
+                                        UPSERT_ATMOSPHERE_GAS,
+                                        (
+                                            sys_id,
+                                            body.get("bodyId"),
+                                            gas_id,
+                                            float(percent),
+                                        ),
+                                    )
+
+                            except Exception as e:
+                                tqdm.write(
+                                    f"Error inserting gas {raw_name} for body {body.get('name')}: {e}"
+                                )
+                                conn.rollback()
+
                     # Process rings as separate bodies
                     for i, ring in enumerate(body.get("rings", []), start=1):
                         ring_row = {
@@ -409,7 +448,6 @@ def ingest_streaming(path):
                             "planet_class_id": None,
                             "terraform_state_id": None,
                             "atmosphere_type_id": None,
-                            "atmosphere_composition": None,
                             "atmosphere_id": None,
                             "volcanism_id": None,
                             "radius": None,
@@ -436,7 +474,6 @@ def ingest_streaming(path):
                             "composition_ice": None,
                             "composition_metal": None,
                             "composition_rock": None,
-                            "materials": None,
                             "parents": json.dumps([{"parent_id": body.get("bodyId")}]),
                             "tidally_locked": None,
                             "landable": None,
