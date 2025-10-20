@@ -74,28 +74,28 @@ conn = psycopg.connect(
 # === UPSERT Query for bodies (42 fields) ===
 UPSERT_BODY = """
     INSERT INTO bodies (
-        system_id64, body_id, body_name, type, planet_class, terraform_state,
-        atmosphere_type, atmosphere_composition, atmosphere, volcanism, radius, mass_em,
+        system_id64, body_id, body_name, body_type_id, planet_class_id, terraform_state_id,
+        atmosphere_type_id, atmosphere_composition, atmosphere_id, volcanism_id, radius, mass_em,
         surface_gravity, surface_temperature, surface_pressure, axial_tilt,
         semi_major_axis, eccentricity, orbital_inclination, periapsis,
         mean_anomaly, orbital_period, rotation_period, ascending_node,
-        distance_from_arrival_ls, age_my, absolute_magnitude, luminosity,
-        star_type, subclass, stellar_mass, composition_ice, composition_metal,
+        distance_from_arrival_ls, age_my, absolute_magnitude, luminosity_id,
+        star_type_id, subclass, stellar_mass, composition_ice, composition_metal,
         composition_rock, materials, parents, tidally_locked, landable, updatetime,
-        ring_class, ring_inner_rad, ring_outer_rad, ring_mass_mt
+        ring_class_id, ring_inner_rad, ring_outer_rad, ring_mass_mt
     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
               %s, %s, %s)
     ON CONFLICT (system_id64, body_id) DO UPDATE SET
-        type                    = EXCLUDED.type,
-        planet_class            = COALESCE(EXCLUDED.planet_class, bodies.planet_class),
-        terraform_state         = EXCLUDED.terraform_state,
-        atmosphere_type         = COALESCE(EXCLUDED.atmosphere_type, bodies.atmosphere_type),
+        body_type_id            = EXCLUDED.body_type_id,
+        planet_class_id         = COALESCE(EXCLUDED.planet_class_id, bodies.planet_class_id),
+        terraform_state_id      = EXCLUDED.terraform_state_id,
+        atmosphere_type_id      = COALESCE(EXCLUDED.atmosphere_type_id, bodies.atmosphere_type_id),
         atmosphere_composition  = COALESCE(EXCLUDED.atmosphere_composition, bodies.atmosphere_composition),
-        atmosphere              = COALESCE(EXCLUDED.atmosphere, bodies.atmosphere),
-        volcanism               = EXCLUDED.volcanism,
+        atmosphere_id           = COALESCE(EXCLUDED.atmosphere_id, bodies.atmosphere_id),
+        volcanism_id            = EXCLUDED.volcanism_id,
         radius                  = EXCLUDED.radius,
         mass_em                 = EXCLUDED.mass_em,
         surface_gravity         = EXCLUDED.surface_gravity,
@@ -113,8 +113,8 @@ UPSERT_BODY = """
         distance_from_arrival_ls= COALESCE(EXCLUDED.distance_from_arrival_ls, bodies.distance_from_arrival_ls),
         age_my                  = EXCLUDED.age_my,
         absolute_magnitude      = EXCLUDED.absolute_magnitude,
-        luminosity              = EXCLUDED.luminosity,
-        star_type               = EXCLUDED.star_type,
+        luminosity_id           = EXCLUDED.luminosity_id,
+        star_type_id            = EXCLUDED.star_type_id,
         subclass                = EXCLUDED.subclass,
         stellar_mass            = EXCLUDED.stellar_mass,
         composition_ice         = COALESCE(EXCLUDED.composition_ice, bodies.composition_ice),
@@ -128,7 +128,7 @@ UPSERT_BODY = """
         tidally_locked          = EXCLUDED.tidally_locked,
         landable                = EXCLUDED.landable,
         updatetime              = EXCLUDED.updatetime,
-        ring_class              = EXCLUDED.ring_class,
+        ring_class_id           = EXCLUDED.ring_class_id,
         ring_inner_rad          = EXCLUDED.ring_inner_rad,
         ring_outer_rad          = EXCLUDED.ring_outer_rad,
         ring_mass_mt            = EXCLUDED.ring_mass_mt
@@ -142,6 +142,45 @@ socket.connect("tcp://eddn.edcd.io:9500")
 socket.setsockopt_string(zmq.SUBSCRIBE, "")
 
 print("Listening for EDDN body events from trusted clients...")
+
+# === Lookup Cache ===
+lookup_cache = {
+    "body_types": {},
+    "planet_classes": {},
+    "atmosphere_types": {},
+    "atmospheres": {},
+    "terraform_states": {},
+    "volcanisms": {},
+    "luminosities": {},
+    "star_types": {},
+    "ring_classes": {},
+}
+
+
+def get_lookup_id(table, name, conn):
+    """Get the ID for a lookup value, inserting it if needed."""
+    if not name:
+        return None
+
+    # Use cache first
+    cache = lookup_cache.get(table, {})
+    if name in cache:
+        return cache[name]
+
+    with conn.cursor() as cur:
+        # Try to fetch existing
+        cur.execute(f"SELECT id FROM {table} WHERE name = %s;", (name,))
+        row = cur.fetchone()
+        if row:
+            cache[name] = row[0]
+            return row[0]
+
+        # Insert new if not found
+        cur.execute(f"INSERT INTO {table} (name) VALUES (%s) RETURNING id;", (name,))
+        new_id = cur.fetchone()[0]
+        conn.commit()
+        cache[name] = new_id
+        return new_id
 
 
 # === Helper: Parse timestamp ===
@@ -219,7 +258,7 @@ while True:
         body["system_id64"] = system_address
         body["body_id"] = body_id
         body["updatetime"] = updatetime
-        body["ring_class"] = None
+        body["ring_class_id"] = None
         body["ring_inner_rad"] = None
         body["ring_outer_rad"] = None
         body["ring_mass_mt"] = None
@@ -237,16 +276,26 @@ while True:
         body["type"] = infer_body_type(msg_data, body["body_name"])
         if body["type"] == "Unknown":
             continue
-
+        body["body_type_id"] = get_lookup_id("body_types", body["type"], conn)
         # --- Handle Scan (Planets, Stars, Belts) ---
         if event == "Scan":
             # Planet or Star
-            body["planet_class"] = msg_data.get("PlanetClass")
-            body["terraform_state"] = msg_data.get("TerraformState") or ""
-            body["atmosphere_type"] = msg_data.get("AtmosphereType") or ""
+            body["planet_class_id"] = get_lookup_id(
+                "planet_classes", msg_data.get("PlanetClass"), conn
+            )
+            body["terraform_state_id"] = get_lookup_id(
+                "terraform_states", msg_data.get("TerraformState"), conn
+            )
+            body["atmosphere_type_id"] = get_lookup_id(
+                "atmosphere_types", msg_data.get("AtmosphereType"), conn
+            )
             body["atmosphere_composition"] = msg_data.get("AtmosphereComposition")
-            body["atmosphere"] = msg_data.get("Atmosphere") or ""
-            body["volcanism"] = msg_data.get("Volcanism") or ""
+            body["atmosphere_id"] = get_lookup_id(
+                "atmospheres", msg_data.get("Atmosphere"), conn
+            )
+            body["volcanism_id"] = get_lookup_id(
+                "volcanisms", msg_data.get("Volcanism"), conn
+            )
             body["radius"] = msg_data.get("Radius")
             body["mass_em"] = msg_data.get("MassEM")
             body["surface_gravity"] = msg_data.get("SurfaceGravity")
@@ -278,8 +327,12 @@ while True:
             if body["type"] == "Star":
                 body["age_my"] = msg_data.get("Age_MY")
                 body["absolute_magnitude"] = msg_data.get("AbsoluteMagnitude")
-                body["luminosity"] = msg_data.get("Luminosity")
-                body["star_type"] = msg_data.get("StarType")
+                body["luminosity_id"] = get_lookup_id(
+                    "luminosities", msg_data.get("Luminosity"), conn
+                )
+                body["star_type_id"] = get_lookup_id(
+                    "star_types", msg_data.get("StarType"), conn
+                )
                 body["subclass"] = msg_data.get("Subclass")
                 body["stellar_mass"] = msg_data.get("StellarMass")
 
@@ -302,13 +355,15 @@ while True:
                         "system_id64": system_address,
                         "body_id": parent_body_id,
                         "body_name": f"{base_name} Belt",
-                        "type": "StellarRing",
-                        "planet_class": None,
-                        "terraform_state": "",
-                        "atmosphere_type": None,
+                        "body_type_id": get_lookup_id(
+                            "body_types", "StellarRing", conn
+                        ),
+                        "planet_class_id": None,
+                        "terraform_state_id": None,
+                        "atmosphere_type_id": None,
                         "atmosphere_composition": None,
-                        "atmosphere": None,
-                        "volcanism": None,
+                        "atmosphere_id": None,
+                        "volcanism_id": None,
                         "radius": None,
                         "mass_em": None,
                         "surface_gravity": None,
@@ -326,8 +381,8 @@ while True:
                         "distance_from_arrival_ls": body["distance_from_arrival_ls"],
                         "age_my": None,
                         "absolute_magnitude": None,
-                        "luminosity": None,
-                        "star_type": None,
+                        "luminosity_id": None,
+                        "star_type_id": None,
                         "subclass": None,
                         "stellar_mass": None,
                         "composition_ice": None,
@@ -338,7 +393,7 @@ while True:
                         "tidally_locked": None,
                         "landable": None,
                         "updatetime": updatetime,
-                        "ring_class": None,
+                        "ring_class_id": None,
                         "ring_inner_rad": None,
                         "ring_outer_rad": None,
                         "ring_mass_mt": None,
@@ -351,13 +406,13 @@ while True:
                                 ring_body["system_id64"],
                                 ring_body["body_id"],
                                 ring_body["body_name"],
-                                ring_body["type"],
-                                ring_body["planet_class"],
-                                ring_body["terraform_state"],
-                                ring_body["atmosphere_type"],
+                                ring_body["body_type_id"],
+                                ring_body["planet_class_id"],
+                                ring_body["terraform_state_id"],
+                                ring_body["atmosphere_type_id"],
                                 ring_body["atmosphere_composition"],
-                                ring_body["atmosphere"],
-                                ring_body["volcanism"],
+                                ring_body["atmosphere_id"],
+                                ring_body["volcanism_id"],
                                 ring_body["radius"],
                                 ring_body["mass_em"],
                                 ring_body["surface_gravity"],
@@ -375,8 +430,8 @@ while True:
                                 ring_body["distance_from_arrival_ls"],
                                 ring_body["age_my"],
                                 ring_body["absolute_magnitude"],
-                                ring_body["luminosity"],
-                                ring_body["star_type"],
+                                ring_body["luminosity_id"],
+                                ring_body["star_type_id"],
                                 ring_body["subclass"],
                                 ring_body["stellar_mass"],
                                 ring_body["composition_ice"],
@@ -389,7 +444,7 @@ while True:
                                 ring_body["tidally_locked"],
                                 ring_body["landable"],
                                 ring_body["updatetime"],
-                                ring_body["ring_class"],
+                                ring_body["ring_class_id"],
                                 ring_body["ring_inner_rad"],
                                 ring_body["ring_outer_rad"],
                                 ring_body["ring_mass_mt"],
@@ -410,13 +465,15 @@ while True:
                         "system_id64": system_address,
                         "body_id": ring_body_id,
                         "body_name": ring_name,
-                        "type": "PlanetaryRing",
-                        "planet_class": None,
-                        "terraform_state": "",
-                        "atmosphere_type": None,
+                        "body_type_id": get_lookup_id(
+                            "body_types", "PlanetaryRing", conn
+                        ),
+                        "planet_class_id": None,
+                        "terraform_state_id": None,
+                        "atmosphere_type_id": None,
                         "atmosphere_composition": None,
-                        "atmosphere": None,
-                        "volcanism": None,
+                        "atmosphere_id": None,
+                        "volcanism_id": None,
                         "radius": None,
                         "mass_em": ring.get("MassMT") / 5.972e20
                         if ring.get("MassMT")
@@ -436,8 +493,8 @@ while True:
                         "distance_from_arrival_ls": body["distance_from_arrival_ls"],
                         "age_my": None,
                         "absolute_magnitude": None,
-                        "luminosity": None,
-                        "star_type": None,
+                        "luminosity_id": None,
+                        "star_type_id": None,
                         "subclass": None,
                         "stellar_mass": None,
                         "composition_ice": None,
@@ -448,7 +505,9 @@ while True:
                         "tidally_locked": None,
                         "landable": False,
                         "updatetime": updatetime,
-                        "ring_class": ring.get("RingClass"),
+                        "ring_class_id": get_lookup_id(
+                            "ring_classes", ring.get("RingClass"), conn
+                        ),
                         "ring_inner_rad": ring.get("InnerRad"),
                         "ring_outer_rad": ring.get("OuterRad"),
                         "ring_mass_mt": ring.get("MassMT"),
@@ -480,13 +539,13 @@ while True:
                                 ring_body["system_id64"],
                                 ring_body["body_id"],
                                 ring_body["body_name"],
-                                ring_body["type"],
-                                ring_body["planet_class"],
-                                ring_body["terraform_state"],
-                                ring_body["atmosphere_type"],
+                                ring_body["body_type_id"],
+                                ring_body["planet_class_id"],
+                                ring_body["terraform_state_id"],
+                                ring_body["atmosphere_type_id"],
                                 ring_body["atmosphere_composition"],
-                                ring_body["atmosphere"],
-                                ring_body["volcanism"],
+                                ring_body["atmosphere_id"],
+                                ring_body["volcanism_id"],
                                 ring_body["radius"],
                                 ring_body["mass_em"],
                                 ring_body["surface_gravity"],
@@ -504,8 +563,8 @@ while True:
                                 ring_body["distance_from_arrival_ls"],
                                 ring_body["age_my"],
                                 ring_body["absolute_magnitude"],
-                                ring_body["luminosity"],
-                                ring_body["star_type"],
+                                ring_body["luminosity_id"],
+                                ring_body["star_type_id"],
                                 ring_body["subclass"],
                                 ring_body["stellar_mass"],
                                 ring_body["composition_ice"],
@@ -518,7 +577,7 @@ while True:
                                 ring_body["tidally_locked"],
                                 ring_body["landable"],
                                 ring_body["updatetime"],
-                                ring_body["ring_class"],
+                                ring_body["ring_class_id"],
                                 ring_body["ring_inner_rad"],
                                 ring_body["ring_outer_rad"],
                                 ring_body["ring_mass_mt"],
@@ -545,12 +604,12 @@ while True:
 
         # --- Fill remaining as None if not set ---
         for col in [
-            "planet_class",
-            "terraform_state",
-            "atmosphere_type",
+            "planet_class_id",
+            "terraform_state_id",
+            "atmosphere_type_id",
             "atmosphere_composition",
-            "atmosphere",
-            "volcanism",
+            "atmosphere_id",
+            "volcanism_id",
             "radius",
             "mass_em",
             "surface_gravity",
@@ -568,8 +627,8 @@ while True:
             "distance_from_arrival_ls",
             "age_my",
             "absolute_magnitude",
-            "luminosity",
-            "star_type",
+            "luminosity_id",
+            "star_type_id",
             "subclass",
             "stellar_mass",
             "composition_ice",
@@ -579,7 +638,7 @@ while True:
             "parents",
             "tidally_locked",
             "landable",
-            "ring_class",
+            "ring_class_id",
             "ring_inner_rad",
             "ring_outer_rad",
             "ring_mass_mt",
@@ -595,15 +654,15 @@ while True:
                     body["system_id64"],
                     body["body_id"],
                     body["body_name"],
-                    body["type"],
-                    body["planet_class"],
-                    body["terraform_state"],
-                    body["atmosphere_type"],
+                    body["body_type_id"],
+                    body["planet_class_id"],
+                    body["terraform_state_id"],
+                    body["atmosphere_type_id"],
                     json.dumps(body["atmosphere_composition"])
                     if body["atmosphere_composition"] is not None
                     else None,
-                    body["atmosphere"],
-                    body["volcanism"],
+                    body["atmosphere_id"],
+                    body["volcanism_id"],
                     body["radius"],
                     body["mass_em"],
                     body["surface_gravity"],
@@ -621,8 +680,8 @@ while True:
                     body["distance_from_arrival_ls"],
                     body["age_my"],
                     body["absolute_magnitude"],
-                    body["luminosity"],
-                    body["star_type"],
+                    body["luminosity_id"],
+                    body["star_type_id"],
                     body["subclass"],
                     body["stellar_mass"],
                     body["composition_ice"],
@@ -637,7 +696,7 @@ while True:
                     body["tidally_locked"],
                     body["landable"],
                     body["updatetime"],
-                    body["ring_class"],
+                    body["ring_class_id"],
                     body["ring_inner_rad"],
                     body["ring_outer_rad"],
                     body["ring_mass_mt"],
