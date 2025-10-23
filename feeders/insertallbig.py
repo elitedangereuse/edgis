@@ -12,7 +12,7 @@ DB_HOST = os.getenv("DB_HOST")
 DB_NAME = os.getenv("DB_NAME")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
-BATCH_SIZE = 100000  # Define your batch size
+BATCH_SIZE = 1000  # Define your batch size
 
 
 def import_systems(file_path):
@@ -34,6 +34,7 @@ def import_systems(file_path):
         unit_divisor=1024,
         desc="Ingesting systems",
     ) as progress:
+        log = progress.write
         # Read the opening bracket of the JSON array
         if is_gz:
             prev_pos = file.fileobj.tell()
@@ -42,9 +43,7 @@ def import_systems(file_path):
             progress.update(current_pos - prev_pos)
             prev_pos = current_pos
         else:
-            progress.update(
-                len(file.readline())
-            )  # Skip the first line which is '['
+            progress.update(len(file.readline()))  # Skip the first line which is '['
             prev_pos = None
 
         batch = []  # List to hold records for the current batch
@@ -60,9 +59,7 @@ def import_systems(file_path):
             if not line:
                 continue
 
-            if (
-                line == b"]"
-            ):  # Stop processing when we reach the closing bracket
+            if line == b"]":  # Stop processing when we reach the closing bracket
                 break
 
             if line.endswith(b","):  # Remove the trailing comma if present
@@ -73,17 +70,13 @@ def import_systems(file_path):
                 system = json.loads(line.decode("utf-8"))
             except json.JSONDecodeError as e:
                 printable_line = line.decode("utf-8", errors="replace")
-                print(
-                    f"Error decoding JSON line: {printable_line}. Error: {e}"
-                )
+                log(f"Error decoding JSON line: {printable_line}. Error: {e}")
                 continue
 
             # Extract necessary data
             id64 = system.get("id64")
             name = system.get("name")
-            main_star = system.get(
-                "mainStar", None
-            )  # Default to None if not found
+            main_star = system.get("mainStar", None)  # Default to None if not found
             coords = system.get("coords", {})
             update_time = system.get("updateTime")
 
@@ -91,7 +84,7 @@ def import_systems(file_path):
             if coords:
                 pointz = f"POINTZ({coords.get('x', 0)} {coords.get('y', 0)} {coords.get('z', 0)})"
             else:
-                print(f"Missing coordinates for system {id64}")
+                log(f"Missing coordinates for system {id64}")
                 continue  # Skip this entry if no coordinates
 
             # Add this record to the batch
@@ -114,9 +107,9 @@ def import_systems(file_path):
                         batch,
                     )
                     conn.commit()
-                    print(f"Inserted {len(batch)} records.")
+                    log(f"Inserted {len(batch)} records.")
                 except Exception as e:
-                    print(f"Error inserting batch: {e}")
+                    log(f"Error inserting batch: {e}")
                     conn.rollback()  # Rollback on error
                 batch.clear()  # Clear the batch
 
@@ -136,9 +129,9 @@ def import_systems(file_path):
                     batch,
                 )
                 conn.commit()
-                print(f"Inserted {len(batch)} remaining records.")
+                log(f"Inserted {len(batch)} remaining records.")
             except Exception as e:
-                print(f"Error inserting final batch: {e}")
+                log(f"Error inserting final batch: {e}")
                 conn.rollback()  # Rollback on error
 
     # Close the connection
@@ -147,4 +140,4 @@ def import_systems(file_path):
 
 
 if __name__ == "__main__":
-    import_systems("systems.json")
+    import_systems("systems.json.gz")
