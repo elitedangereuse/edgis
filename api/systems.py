@@ -637,7 +637,9 @@ async def proxy_spansh_faction_presence(
     MAX_PAGE_SIZE = 500  # Maximum results per page
 
     payload = {
-        "filters": {"minor_faction_presences": {"name": {"value": [faction]}}},
+        "filters": {
+            "minor_faction_presences": [{"name": {"value": [faction]}}]
+        },
         "sort": [],
         "size": MAX_PAGE_SIZE,
         "page": 0,
