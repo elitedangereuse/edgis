@@ -23,7 +23,7 @@ def insert_barycenter_first_pass(conn, system_id, debug=False):
         cur.close()
         return
 
-    body_id, body_name, body_type, parents = row
+    _, _, _, parents = row
     parents = parents if parents else []
 
     if any(isinstance(p, dict) and p.get("Null") == 0 for p in parents):
@@ -161,9 +161,7 @@ def rename_barycenters_second_pass(conn, system_id, debug=False):
             parent_list = b["parents"]
             if not parent_list or not isinstance(parent_list, list):
                 if debug:
-                    tqdm.write(
-                        f"skip {b_id} - invalid or missing parents list"
-                    )
+                    tqdm.write(f"skip {b_id} - invalid or missing parents list")
                 continue
 
             first_parent = parent_list[0]
@@ -187,9 +185,7 @@ def rename_barycenters_second_pass(conn, system_id, debug=False):
             type2 = get_suffix_type(suffix2)
             if type2 != type1:
                 if debug:
-                    tqdm.write(
-                        f"skip different suffix types {b_id}: {type2} - {type1}"
-                    )
+                    tqdm.write(f"skip different suffix types {b_id}: {type2} - {type1}")
                 continue  # must match suffix type
 
             # Prefer same base name, but allow fallback
@@ -205,7 +201,7 @@ def rename_barycenters_second_pass(conn, system_id, debug=False):
                 )
             continue
 
-        child2, suffix2 = candidates[0]  # pick best candidate
+        _, suffix2 = candidates[0]  # pick best candidate
         type2 = get_suffix_type(suffix2)
         if debug:
             tqdm.write(f"candidate: {suffix2} ({type2} vs {type1})")
@@ -259,9 +255,7 @@ def main():
     # === Parse Command Line Arguments ===
     if len(sys.argv) != 1 and len(sys.argv) != 2:
         tqdm.write("Usage: python script.py [system_id64]")
-        tqdm.write(
-            "  - No argument: process all systems from 'new_barycenters.txt'"
-        )
+        tqdm.write("  - No argument: process all systems from 'new_barycenters.txt'")
         tqdm.write("  - With argument: process only that system_id64")
         sys.exit(1)
 
@@ -308,15 +302,11 @@ def main():
         tqdm.write(f"Found {len(system_ids)} systems with barycenters to fix")
 
     # === Process Each System ===
-    for system_id in tqdm(
-        system_ids, desc="Processing systems", unit="system"
-    ):
+    for system_id in tqdm(system_ids, desc="Processing systems", unit="system"):
         try:
             insert_barycenter_first_pass(conn, system_id, debug)
             while True:
-                renamed_count = rename_barycenters_second_pass(
-                    conn, system_id, debug
-                )
+                renamed_count = rename_barycenters_second_pass(conn, system_id, debug)
                 if renamed_count == 0:
                     break
         except Exception as e:

@@ -17,6 +17,8 @@ TRUSTED_CLIENTS = {
     "E:D Market Connector [Windows]",
     "EDO Materials Helper",
 }
+ERROR_LOG_FILE = "error_log.jsonl"
+TIMEZONE = "+00:00"
 
 # === Coordinate Bounds (for validation) ===
 MAX_XYZ = 70000  # Light years
@@ -188,9 +190,7 @@ def get_lookup_id(table, name, conn):
             return row[0]
 
         # Insert new if not found
-        cur.execute(
-            f"INSERT INTO {table} (name) VALUES (%s) RETURNING id;", (name,)
-        )
+        cur.execute(f"INSERT INTO {table} (name) VALUES (%s) RETURNING id;", (name,))
         new_id = cur.fetchone()[0]
         conn.commit()
         cache[name] = new_id
@@ -200,7 +200,7 @@ def get_lookup_id(table, name, conn):
 # === Helper: Parse timestamp ===
 def parse_timestamp(ts_str):
     try:
-        return datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        return datetime.fromisoformat(ts_str.replace("Z", TIMEZONE))
     except (ValueError, TypeError):
         return None
 
@@ -292,9 +292,7 @@ def process_message(
         body["body_name"] = f"Barycenter{msg_data.get('BodyID')}"
     if not body["body_name"]:
         if verbose:
-            print(
-                f"/!\\ Missing body name in event: {event}, BodyID: {body_id}"
-            )
+            print(f"/!\\ Missing body name in event: {event}, BodyID: {body_id}")
         return ProcessOutcome("skipped", "missing_body_name")
 
     if msg_data.get("BodyType") == "Station":
@@ -338,9 +336,7 @@ def process_message(
         body["orbital_period"] = msg_data.get("OrbitalPeriod")
         body["rotation_period"] = msg_data.get("RotationPeriod")
         body["ascending_node"] = msg_data.get("AscendingNode")
-        body["distance_from_arrival_ls"] = msg_data.get(
-            "DistanceFromArrivalLS"
-        )
+        body["distance_from_arrival_ls"] = msg_data.get("DistanceFromArrivalLS")
         body["tidally_locked"] = msg_data.get("TidalLock")
         body["landable"] = msg_data.get("Landable")
 
@@ -382,9 +378,7 @@ def process_message(
                     "system_id64": system_address,
                     "body_id": parent_body_id,
                     "body_name": f"{base_name} Belt",
-                    "body_type_id": get_lookup_id(
-                        "body_types", "StellarRing", db_conn
-                    ),
+                    "body_type_id": get_lookup_id("body_types", "StellarRing", db_conn),
                     "planet_class_id": None,
                     "terraform_state_id": None,
                     "atmosphere_type_id": None,
@@ -404,9 +398,7 @@ def process_message(
                     "orbital_period": None,
                     "rotation_period": None,
                     "ascending_node": None,
-                    "distance_from_arrival_ls": body[
-                        "distance_from_arrival_ls"
-                    ],
+                    "distance_from_arrival_ls": body["distance_from_arrival_ls"],
                     "age_my": None,
                     "absolute_magnitude": None,
                     "luminosity_id": None,
@@ -686,9 +678,7 @@ def process_message(
                 body["composition_ice"],
                 body["composition_metal"],
                 body["composition_rock"],
-                json.dumps(body["parents"])
-                if body["parents"] is not None
-                else None,
+                json.dumps(body["parents"]) if body["parents"] is not None else None,
                 body["tidally_locked"],
                 body["landable"],
                 body["updatetime"],
@@ -721,7 +711,7 @@ def process_message(
                         f"Error inserting material {name} for body {body['body_name']}: {exc}"
                     )
                 try:
-                    with open("error_log.jsonl", "a") as f:
+                    with open(ERROR_LOG_FILE, "a") as f:
                         f.write(
                             json.dumps(
                                 {
@@ -759,7 +749,7 @@ def process_message(
                         f"Error inserting gas {name} for body {body['body_name']}: {exc}"
                     )
                 try:
-                    with open("error_log.jsonl", "a") as f:
+                    with open(ERROR_LOG_FILE, "a") as f:
                         f.write(
                             json.dumps(
                                 {
@@ -798,15 +788,13 @@ def stream_events(verbose: bool = True) -> None:
                 message = json.loads(decompressed.decode("utf-8"))
                 header = message.get("header", {})
                 msg_data = message.get("message", {})
-                outcome = process_message(
-                    message, connection=conn, verbose=verbose
-                )
+                outcome = process_message(message, connection=conn, verbose=verbose)
                 if outcome.status != "success":
                     continue
             except Exception as exc:
                 print(f"Error processing message: {exc}")
                 try:
-                    with open("error_log.jsonl", "a") as f:
+                    with open(ERROR_LOG_FILE, "a") as f:
                         f.write(
                             json.dumps(
                                 {
