@@ -355,22 +355,44 @@
        }
      }
 
-     document.getElementById('searchForm').addEventListener('submit', e=>{
-       e.preventDefault();
-       const q = encodeURIComponent(document.getElementById('q').value.trim());
-       if(!q) return;
-       callApi('/coords?q=' + q);
-     });
-     document.getElementById('predictBtn').addEventListener('click', ()=>{
-       const q = encodeURIComponent(document.getElementById('predictInput').value.trim());
-       if(!q) return;
-       callApi('/coords/predict?q=' + q);
-     });
-     document.getElementById('neighborsBtn').addEventListener('click', ()=>{
-       const parts = document.getElementById('neighborsInput').value.split(',').map(s=>s.trim());
-       if(parts.length < 4) return;
-       callApi(`/neighbors?x=${encodeURIComponent(parts[0])}&y=${encodeURIComponent(parts[1])}&z=${encodeURIComponent(parts[2])}&radius=${encodeURIComponent(parts[3])}`);
-     });
+    document.getElementById('searchForm').addEventListener('submit', e=>{
+      e.preventDefault();
+      const q = encodeURIComponent(document.getElementById('q').value.trim());
+      if(!q) return;
+      callApi('/coords?q=' + q);
+    });
+    const predictInput = document.getElementById('predictInput');
+    const predictBtn = document.getElementById('predictBtn');
+    const neighborsInput = document.getElementById('neighborsInput');
+    const neighborsBtn = document.getElementById('neighborsBtn');
+
+    function submitPredict(){
+      const value = predictInput.value.trim();
+      if(!value) return;
+      callApi('/coords/predict?q=' + encodeURIComponent(value));
+    }
+
+    function submitNeighbors(){
+      const parts = neighborsInput.value.split(',').map(s=>s.trim());
+      if(parts.length < 4 || parts.slice(0,4).some(p => p === '')) return;
+      callApi(`/neighbors?x=${encodeURIComponent(parts[0])}&y=${encodeURIComponent(parts[1])}&z=${encodeURIComponent(parts[2])}&radius=${encodeURIComponent(parts[3])}`);
+    }
+
+    predictBtn.addEventListener('click', submitPredict);
+    predictInput.addEventListener('keydown', e=>{
+      if(e.key === 'Enter'){
+        e.preventDefault();
+        submitPredict();
+      }
+    });
+
+    neighborsBtn.addEventListener('click', submitNeighbors);
+    neighborsInput.addEventListener('keydown', e=>{
+      if(e.key === 'Enter'){
+        e.preventDefault();
+        submitNeighbors();
+      }
+    });
     </script>
     <script>
      const toggleBtn = document.getElementById("toggleViewBtn");
