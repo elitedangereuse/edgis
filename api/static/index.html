@@ -38,7 +38,7 @@
 
         <!-- search -->
         <form id="searchForm" class="mt-6 flex flex-col sm:flex-row gap-4">
-          <input id="q" name="q" required type="search" placeholder="Search a system — e.g. Kamadhenu"
+          <input id="q" name="q" required type="search" autofocus placeholder="Search a system — e.g. Kamadhenu"
                  class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-4 py-3 placeholder:text-gray-500 outline-none focus:ring-2 focus:ring-[var(--accent-blue)]" />
           <button type="submit" class="px-5 py-1 rounded-lg bg-[var(--accent-blue)] text-black font-semibold hover:bg-[#0c6bc9] hover:text-white transition-colors duration-200">
             <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" fill="currentColor" style="display: inline; vertical-align: text-bottom; margin-right: 5px;" class="bi-search" viewBox="0 0 16 16">   <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/> </svg>
@@ -443,6 +443,7 @@
 
        // Optional: auto-scroll to neighbors section
        neighborsInput.scrollIntoView({ behavior: 'smooth' });
+       neighborsInput.focus();
 
        // Optional: show status
        setStatus(`Neighbors input filled: x=${x}, y=${y}, z=${z}, r=10`);
