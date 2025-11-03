@@ -167,10 +167,15 @@
         <div class="flex justify-between items-center mt-2 w-full">
           <div id="resultCount" class="text-sm text-gray-400"></div>
         </div>
+        <div id="docsContainer" class="text-sm mt-2" style="text-align: right;">
+          <a id="apiDocsLink" target="_blank" class="text-[var(--accent-blue)] hover:underline">
+            API docs
+          </a>
+        </div>
       </div>
 
       <div id="result" class="mt-6 glass rounded-2xl p-4" style="display: none;">
-        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div class="text-sm font-medium">Latest API response</div>
           <button id="toggleViewBtn" class="px-4 py-1 rounded bg-[var(--accent-blue)] text-black w-full sm:w-auto hover:bg-[#0c6bc9] hover:text-white transition-colors duration-200">JSON view</button>
         </div>
@@ -244,6 +249,16 @@
      const result = document.getElementById('result');
      let resultPre = document.getElementById('resultPre');
      const statusEl = document.getElementById('status');
+     const apiDocsLink = document.getElementById('apiDocsLink');
+
+     if (apiDocsLink) {
+       try {
+         const docsUrl = new URL('/docs', window.location.origin);
+         apiDocsLink.href = docsUrl.toString();
+       } catch (err) {
+         console.warn('Unable to resolve docs URL', err);
+       }
+     }
 
      function setStatus(txt){ statusEl.textContent = txt; }
      function showResult(url, json) {
