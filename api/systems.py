@@ -1,13 +1,24 @@
-import os
-import httpx
+from aiocache import cached
+from aiocache import caches
+from aiocache.backends.redis import RedisCache
+from aiocache.serializers import PickleSerializer
 from decimal import Decimal
-from fastapi import HTTPException
 from fastapi import FastAPI, Query
+from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
-import psycopg
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, Any
+import heapq
+import httpx
+import json
+import logging
+import math
+import os
+import psycopg
+import time
 
 try:
     from .edts.edtslib import system  # type: ignore[attr-defined]
@@ -38,9 +49,7 @@ def _load_cors_origins() -> list[str]:
     configured = os.getenv("CORS_ORIGINS", "")
     if not configured:
         return []
-    return [
-        origin.strip() for origin in configured.split(",") if origin.strip()
-    ]
+    return [origin.strip() for origin in configured.split(",") if origin.strip()]
 
 
 origins = _load_cors_origins()
@@ -59,9 +68,258 @@ DB_NAME = os.getenv("DB_NAME")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 
-from aiocache import cached
-from aiocache.serializers import PickleSerializer
-from aiocache.backends.redis import RedisCache
+
+async def _get_coords_by_name(conn, name: str):
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id64, name, ST_X(coords), ST_Y(coords), ST_Z(coords) "
+        "FROM systems_big WHERE lower(name)=lower(%s) LIMIT 1;",
+        (name,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    if not row:
+        return None
+    return {
+        "id64": row[0],
+        "name": row[1],
+        "x": float(row[2]),
+        "y": float(row[3]),
+        "z": float(row[4]),
+    }
+
+
+@cached(
+    cache=RedisCache,
+    endpoint="localhost",
+    port=6379,
+    ttl=7 * 86400,  # 1 week
+    namespace="neighbors_cache",
+    serializer=PickleSerializer(),
+)
+async def cached_neighbors(
+    conn,
+    system_id64: int,
+    cx: float,
+    cy: float,
+    cz: float,
+    gx: float,
+    gy: float,
+    gz: float,
+    radius: float,
+    limit: int = 150,
+):
+    # This wraps the same SQL you have
+    return await _neighbors(conn, cx, cy, cz, gx, gy, gz, radius, limit)
+
+
+async def _neighbors(
+    conn,
+    cx: float,
+    cy: float,
+    cz: float,
+    gx: float,
+    gy: float,
+    gz: float,
+    radius: float,
+    limit: int = 150,
+):
+    cur = conn.cursor()
+    cur.execute(
+        """
+        WITH cur AS (
+          SELECT ST_MakePoint(%s,%s,%s)::geometry(PointZ) AS geom,
+                 ST_MakePoint(%s,%s,%s)::geometry(PointZ) AS goal_geom
+        )
+        SELECT
+          s.id64, s.name,
+          ST_X(s.coords) AS x,
+          ST_Y(s.coords) AS y,
+          ST_Z(s.coords) AS z,
+          ST_3DDistance(s.coords, cur.geom) AS dist_from_current,
+          ST_3DDistance(s.coords, cur.goal_geom) AS dist_to_goal
+        FROM systems_big s, cur
+        WHERE ST_3DDWithin(s.coords, cur.geom, %s)
+          AND ST_3DDistance(s.coords, cur.geom) > 0
+        ORDER BY dist_from_current DESC, dist_to_goal ASC
+        LIMIT %s;
+        """,
+        (cx, cy, cz, gx, gy, gz, radius, limit),
+    )
+    rows = cur.fetchall()
+    cur.close()
+
+    return [
+        {
+            "id64": r[0],
+            "name": r[1],
+            "x": r[2],
+            "y": r[3],
+            "z": r[4],
+            "dist": float(r[5]),
+            "goal_dist": float(r[6]),
+        }
+        for r in rows
+    ]
+
+
+def _dist(a, b):
+    return math.sqrt(
+        (a["x"] - b["x"]) ** 2 + (a["y"] - b["y"]) ** 2 + (a["z"] - b["z"]) ** 2
+    )
+
+
+async def cache_route_segment(
+    start_id64: int, goal_id64: int, jump_range: float, path: list[dict]
+):
+    key = f"route_cache:{start_id64}:{goal_id64}:{int(jump_range)}"
+    redis = caches.get("default")
+    await redis.set(key, json.dumps(path), ttl=30 * 86400)  # 30 days
+
+
+async def fetch_cached_segment(start_id64: int, goal_id64: int, jump_range: float):
+    key = f"route_cache:{start_id64}:{goal_id64}:{int(jump_range)}"
+    redis = caches.get("default")
+    data = await redis.get(key)
+    if data:
+        return json.loads(data)
+    return None
+
+
+logger = logging.getLogger("route_debug")
+logging.basicConfig(level=logging.INFO)
+
+
+async def astar_route(
+    conn,
+    start,
+    goal,
+    jump_range: float,
+    neighbor_limit: int = 50,
+    max_expansions: int = 5000,
+    log_every: int = 50,
+):
+    openq = [(0.0, start["id64"], start)]
+    gscore = {start["id64"]: 0.0}
+    came_from = {}
+    visited = set()
+    expansions = 0
+    start_time = time.time()
+
+    while openq:
+        _, cid, current = heapq.heappop(openq)
+        if cid in visited:
+            continue
+        visited.add(cid)
+        expansions += 1
+
+        if expansions % log_every == 0:
+            logger.info(
+                f"[A*] expanded={expansions} open={len(openq)} visited={len(visited)} "
+                f"dist_to_goal={_dist(current, goal):.1f} ly"
+            )
+
+        # Goal check
+        if _dist(current, goal) <= jump_range:
+            logger.info(f"[A*] Reached goal vicinity after {expansions} expansions.")
+
+            # Reconstruct safely
+            path = [current]
+            step = cid
+            while step in came_from:
+                prev = came_from[step]
+                path.append(prev)
+                step = prev["id"]
+            path.reverse()
+
+            logger.info(
+                f"[A*] Path length={len(path)} nodes; time={time.time() - start_time:.2f}s"
+            )
+            return path
+
+        if expansions > max_expansions:
+            logger.warning(f"[A*] Aborted after {expansions} expansions.")
+            return []
+
+        neighbors = await cached_neighbors(
+            conn,
+            current["id64"],
+            current["x"],
+            current["y"],
+            current["z"],
+            goal["x"],
+            goal["y"],
+            goal["z"],
+            jump_range,
+            limit=100000,
+        )
+
+        for nb in neighbors:
+            nid = nb["id64"]
+            tentative = gscore[cid] + nb["dist"]
+            if tentative < gscore.get(nid, float("inf")):
+                gscore[nid] = tentative
+                came_from[nid] = {"id": cid, **current}
+                f = tentative + _dist(nb, goal)
+                heapq.heappush(openq, (f, nid, nb))
+
+    logger.warning(f"[A*] Queue exhausted after {expansions} expansions.")
+    return []
+
+
+@app.get("/route")
+async def get_route(
+    start: str = Query(...),
+    goal: str = Query(...),
+    jump_range: float = Query(70.0),
+):
+    conn = None
+    try:
+        conn = psycopg.connect(
+            dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST
+        )
+
+        s = await _get_coords_by_name(conn, start)
+        g = await _get_coords_by_name(conn, goal)
+        if not s or not g:
+            return JSONResponse({"error": "Start or goal not found"}, 404)
+
+        logger.info(
+            f"[route] Starting A* from {s['name']} -> {g['name']} "
+            f"(range {jump_range} ly)"
+        )
+
+        cached = await fetch_cached_segment(s["id64"], g["id64"], jump_range)
+        if cached:
+            logger.info(f"[route] Using cached route {s['name']} -> {g['name']}")
+            return {"count": len(cached), "route": cached}
+
+        path = await astar_route(conn, s, g, jump_range)
+        if not path:
+            return JSONResponse({"error": "No route found"}, 404)
+
+        await cache_route_segment(s["id64"], g["id64"], jump_range, path)
+        await cache_route_segment(
+            g["id64"], s["id64"], jump_range, list(reversed(path))
+        )
+
+        total_distance = sum(p.get("dist", 0) for p in path[1:])
+        avg_jump = total_distance / (len(path) - 1) if len(path) > 1 else 0
+
+        return {
+            "count": len(path),
+            "total_distance": round(total_distance, 2),
+            "avg_jump": round(avg_jump, 2),
+            "route": path,
+        }
+
+    except Exception as e:
+        logger.exception("[route] Exception in /route")
+        return JSONResponse({"error": str(e)}, 500)
+
+    finally:
+        if conn:
+            conn.close()
 
 
 @cached(
@@ -81,7 +339,7 @@ async def fetch_coords_for_systems(id64_list: list[int]):
     )
     cursor = conn.cursor()
 
-    query = f"""
+    query = """
         SELECT id64, ST_AsText(coords) AS coordinates
         FROM systems_big
         WHERE id64 = ANY(%s)
@@ -221,9 +479,7 @@ async def fetch_system_from_db(name_or_id: str):
         return None
 
     point_coordinates = row[3]
-    coords = (
-        point_coordinates.replace("POINT Z (", "").replace(")", "").split()
-    )
+    coords = point_coordinates.replace("POINT Z (", "").replace(")", "").split()
     x_coord = float(coords[0])
     y_coord = float(coords[1])
     z_coord = float(coords[2])
@@ -498,15 +754,11 @@ def fetch_bodies_from_db(name_or_id: str, mode: Optional[str] = None):
 @app.get("/bodies", include_in_schema=True)
 def bodies(
     name_or_id: str = Query(..., description="The name or id64 of the system"),
-    mode: Optional[str] = Query(
-        None, description="Optional response mode adjustments"
-    ),
+    mode: Optional[str] = Query(None, description="Optional response mode adjustments"),
 ):
     result = fetch_bodies_from_db(name_or_id, mode=mode)
     if result is None:
-        return JSONResponse(
-            content={"error": SYSTEM_NOT_FOUND}, status_code=404
-        )
+        return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
     return result
 
 
@@ -520,7 +772,7 @@ def bodies(
     serializer=PickleSerializer(),
 )
 async def proxy_edsm_bodies(
-    systemName: str = Query(..., description="The name of the system")
+    systemName: str = Query(..., description="The name of the system"),
 ):
     url = "https://www.edsm.net/api-system-v1/bodies"
 
@@ -555,9 +807,7 @@ async def proxy_edsm_bodies(
 async def get_coords(name_or_id: str = Query(..., alias="q")):
     result = await fetch_system_from_db(name_or_id)
     if result is None:
-        return JSONResponse(
-            content={"error": SYSTEM_NOT_FOUND}, status_code=404
-        )
+        return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
     return result
 
 
@@ -576,7 +826,7 @@ class SystemResponse(BaseModel):
 
 
 @app.get("/coords/predict", response_model=SystemResponse)
-async def get_coords(name_or_id: str = Query(..., alias="q")):
+async def get_coords_prediction(name_or_id: str = Query(..., alias="q")):
     try:
         if name_or_id.isdigit() or (
             name_or_id.startswith("-") and name_or_id[1:].isdigit()
@@ -585,9 +835,7 @@ async def get_coords(name_or_id: str = Query(..., alias="q")):
         else:
             sys_obj = system.from_name(name_or_id, allow_known=False)
         if sys_obj is None:
-            return JSONResponse(
-                content={"error": SYSTEM_NOT_FOUND}, status_code=404
-            )
+            return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
 
         return SystemResponse(
             id64=getattr(sys_obj, "id64", None),
@@ -630,16 +878,14 @@ async def proxy_spansh_system(system_id: int):
     serializer=PickleSerializer(),
 )
 async def proxy_spansh_faction_presence(
-    faction: str = Query(..., description="The minor faction name")
+    faction: str = Query(..., description="The minor faction name"),
 ):
     SAVE_URL = "https://spansh.co.uk/api/systems/search/save"
     RECALL_URL = "https://spansh.co.uk/api/systems/search/recall/"
     MAX_PAGE_SIZE = 500  # Maximum results per page
 
     payload = {
-        "filters": {
-            "minor_faction_presences": [{"name": {"value": [faction]}}]
-        },
+        "filters": {"minor_faction_presences": [{"name": {"value": [faction]}}]},
         "sort": [],
         "size": MAX_PAGE_SIZE,
         "page": 0,
@@ -657,9 +903,7 @@ async def proxy_spansh_faction_presence(
         save_data = save_response.json()
         search_reference = save_data.get("search_reference")
         if not search_reference:
-            raise HTTPException(
-                status_code=500, detail="No search_reference returned"
-            )
+            raise HTTPException(status_code=500, detail="No search_reference returned")
 
         # Step 2: Recall search (handle pagination)
         all_results = []
@@ -692,8 +936,7 @@ async def proxy_spansh_faction_presence(
         {
             "id64": system.get("id64"),
             "name": system.get("name"),
-            "is_controlling": system.get("controlling_minor_faction")
-            == faction,
+            "is_controlling": system.get("controlling_minor_faction") == faction,
         }
         for system in all_results
     ]
@@ -709,11 +952,7 @@ async def proxy_spansh_faction_presence(
     return {"results": simplified_results}
 
 
-from fastapi.staticfiles import StaticFiles
-
 app.mount("/static", StaticFiles(directory="static"), name="static")
-
-from fastapi.responses import FileResponse
 
 
 @app.get("/favicon.ico", include_in_schema=False)

@@ -339,7 +339,7 @@
      }
 
      function openCoordsMap(x, y, z){
-       const url = convertEdUrl(`https://elitedangereuse.fr/outils/ed3ddrawer.php?x=${x}&y=${y}&z=${z}&radius=10`);
+       const url = convertEdUrl(`https://elitedangereuse.fr/outils/ed3ddrawer.php?x=${x}&y=${y}&z=${z}&radius=15`);
        window.open(url, "_blank");
      }
 
@@ -439,14 +439,12 @@
 
      function fillNeighborsInput(x, y, z) {
        const neighborsInput = document.getElementById('neighborsInput');
-       neighborsInput.value = `${x},${y},${z},10`;
+       neighborsInput.value = `${x},${y},${z},15`;
 
-       // Optional: auto-scroll to neighbors section
        neighborsInput.scrollIntoView({ behavior: 'smooth' });
        neighborsInput.focus();
 
-       // Optional: show status
-       setStatus(`Neighbors input filled: x=${x}, y=${y}, z=${z}, r=10`);
+       setStatus(`Neighbors input filled: x=${x}, y=${y}, z=${z}, r=15`);
      }
 
      function buildRows(rows, keys) {
@@ -530,7 +528,7 @@ if (k === "coords" && typeof v === "object" && v !== null) {
          `, `
          <button
          type="button"
-         title="Search neighbors within 10 ly"
+         title="Search neighbors within 15 ly"
          class="opacity-30 hover:opacity-100 group-hover:opacity-100 focus:opacity-100 transition-all duration-200 px-2 py-1 text-xs rounded focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
          onclick="fillNeighborsInput('${x}','${y}','${z}')"
          >
