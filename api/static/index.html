@@ -169,7 +169,7 @@
 
      if (apiDocsLink) {
        try {
-         const docsUrl = new URL('/docs', window.location.origin);
+         const docsUrl = new URL('/docs', globalThis.location.origin);
          apiDocsLink.href = docsUrl.toString();
        } catch (err) {
          console.warn('Unable to resolve docs URL', err);
@@ -255,7 +255,7 @@
      async function callApi(path){
        setStatus('Querying API...');
        try{
-         const base = window.location.origin;
+         const base = globalThis.location.origin;
          const url = base + path;
          const res = await fetch(url);
          const json = await res.json();
@@ -290,7 +290,7 @@
 
     function submitNeighbors(){
       const parts = neighborsInput.value.split(',').map(s=>s.trim());
-      if(parts.length < 4 || parts.slice(0,4).some(p => p === '')) return;
+      if(parts.length < 4 || parts.slice(0,4).includes(p => p === '')) return;
       callApi(`/neighbors?x=${encodeURIComponent(parts[0])}&y=${encodeURIComponent(parts[1])}&z=${encodeURIComponent(parts[2])}&radius=${encodeURIComponent(parts[3])}`);
     }
 
@@ -526,9 +526,7 @@ if (k === "coords" && typeof v === "object" && v !== null) {
          >
          ${galaxyMapIconSvg}
          </button>
-         `);
-
-           parts.push(`
+         `, `
          <button
          type="button"
          title="Search neighbors within 10 ly"
