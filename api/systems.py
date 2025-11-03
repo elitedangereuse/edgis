@@ -716,13 +716,13 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 from fastapi.responses import FileResponse
 
 
-@app.get("/favicon.ico")
+@app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
     return FileResponse("static/favicon.png")
 
 
 # Route to serve index.html
-@app.get("/")
+@app.get("/", include_in_schema=False)
 def read_index():
     return FileResponse(os.path.join("static", "index.html"))
 
