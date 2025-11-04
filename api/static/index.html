@@ -132,6 +132,7 @@
         <div id="resultPreContainer" class="mt-3">
           <pre id="resultPre" class="text-sm text-gray-100 bg-transparent mono"></pre>
         </div>
+        <div><p class="text-sm text-gray-100 bg-transparent mono">*: neutron boost.</p></div>
       </div>
     </main>
     <script>
@@ -600,6 +601,9 @@
       ${keys.map(k => {
         let v = row[k];
         if (k === "distance" && typeof v === "number") v = v.toFixed(1);
+        if ((k === "jump_ly" || k === "remaining_ly") && typeof v === "number") {
+          v = v.toFixed(2);
+        }
 
         // Special handling: coords
 if (k === "coords" && typeof v === "object" && v !== null) {
@@ -616,6 +620,22 @@ if (k === "coords" && typeof v === "object" && v !== null) {
          </td>
          `;
 }
+        // Special handling: jump highlighting for neutron-boosted legs
+        if (k === "jump_ly" && typeof row[k] !== "undefined") {
+          const rawJump = Number(row[k]);
+          const rawDepart = String(row.depart_mainstar || row.depart_star || '')
+            .trim()
+            .toUpperCase();
+          const hasBoost = Number.isFinite(rawJump) && rawDepart.startsWith('N');
+          const displayValue = typeof v === "string" ? v : (Number.isFinite(rawJump) ? rawJump.toFixed(2) : '—');
+          const suffix = hasBoost ? '*' : '';
+          return `
+         <td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono">
+           ${displayValue}${suffix}
+         </td>
+         `;
+        }
+
         // Special handling: 'name' field (copy button)
         if ((k === "name" || k === "system") && typeof v === "string") {
           return `
