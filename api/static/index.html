@@ -88,6 +88,39 @@
             API docs
           </a>
         </div>
+
+        <section class="mt-10">
+          <div class="flex items-center gap-3">
+            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" fill="currentColor" class="text-[var(--accent-blue)]" viewBox="0 0 16 16">
+              <path d="M4.5 15a.5.5 0 0 1-.5-.5V13H2.5A1.5 1.5 0 0 1 1 11.5V1h1v10.5a.5.5 0 0 0 .5.5H4V8.5A1.5 1.5 0 0 1 5.5 7h2A1.5 1.5 0 0 1 9 8.5V12h.5a.5.5 0 0 0 .5-.5V4h1v7.5A1.5 1.5 0 0 1 9.5 13H9v1.5a.5.5 0 0 1-1 0V13H6v1.5a.5.5 0 0 1-.5.5Z"/>
+              <path d="M9.5 5h-4A1.5 1.5 0 0 1 4 3.5v-2A1.5 1.5 0 0 1 5.5 0h4A1.5 1.5 0 0 1 11 1.5v2A1.5 1.5 0 0 1 9.5 5Zm-4-4A.5.5 0 0 0 5 1.5v2a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5v-2a.5.5 0 0 0-.5-.5Z"/>
+            </svg>
+            <div>
+              <h3 class="text-xl font-semibold">Plan a route</h3>
+              <p class="text-sm text-gray-400">Bidirectional planner with neutron boosts.</p>
+            </div>
+          </div>
+
+          <form id="routeForm" class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+            <label class="flex flex-col gap-2 text-sm">
+              <span class="text-gray-300">Start system</span>
+              <input id="routeStart" required type="text" placeholder="Sol" class="bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+            </label>
+            <label class="flex flex-col gap-2 text-sm">
+              <span class="text-gray-300">Goal system</span>
+              <input id="routeGoal" required type="text" placeholder="Col 173 Sector..." class="bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+            </label>
+            <label class="flex flex-col gap-2 text-sm">
+              <span class="text-gray-300">Jump range (ly)</span>
+              <input id="routeRange" type="number" min="5" max="500" step="1" value="70" class="bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+            </label>
+            <button type="submit" class="sm:col-span-3 px-5 py-3 rounded-lg bg-[var(--accent-blue)] text-black font-semibold hover:bg-[#0c6bc9] hover:text-white transition-colors duration-200">
+              Plot bidirectional route
+            </button>
+          </form>
+
+          <div id="routeStatus" class="mt-3 text-sm text-gray-400"></div>
+        </section>
       </div>
 
       <div id="result" class="mt-6 glass rounded-2xl p-4" style="display: none;">
@@ -281,6 +314,11 @@
     const predictBtn = document.getElementById('predictBtn');
     const neighborsInput = document.getElementById('neighborsInput');
     const neighborsBtn = document.getElementById('neighborsBtn');
+    const routeForm = document.getElementById('routeForm');
+    const routeStart = document.getElementById('routeStart');
+    const routeGoal = document.getElementById('routeGoal');
+    const routeRange = document.getElementById('routeRange');
+    const routeStatus = document.getElementById('routeStatus');
 
     function submitPredict(){
       const value = predictInput.value.trim();
@@ -309,6 +347,115 @@
         submitNeighbors();
       }
     });
+
+    function formatLy(value){
+      return Number.isFinite(value) ? value.toFixed(2) : '—';
+    }
+
+    function computeTotalDistance(route, reported){
+      if (Number.isFinite(reported)) {
+        return reported;
+      }
+      return route.reduce((sum, node, idx) => {
+        if (idx === 0) return sum;
+        const jump = Number(node?.dist ?? 0);
+        return Number.isFinite(jump) ? sum + jump : sum;
+      }, 0);
+    }
+
+    function buildRouteRows(route, totalDistance){
+      if (!Array.isArray(route) || route.length === 0) {
+        return [];
+      }
+
+      const total = computeTotalDistance(route, totalDistance);
+      let traversed = 0;
+
+      return route.map((node, idx) => {
+        const jumpVal = idx === 0 ? 0 : Number(node?.dist ?? 0);
+        if (idx > 0 && Number.isFinite(jumpVal)) {
+          traversed += jumpVal;
+        }
+        const remainingVal = idx === route.length - 1 ? 0 : Math.max(total - traversed, 0);
+        const systemName = node?.name || node?.id64 || `Waypoint ${idx + 1}`;
+
+        const departStar =
+          node?.depart_mainstar ??
+          (idx > 0 ? route[idx - 1]?.mainstar : node?.mainstar);
+        const arrivalStar = node?.mainstar ?? null;
+
+        return {
+          step: idx + 1,
+          system: systemName,
+          depart_mainstar: departStar,
+          arrival_mainstar: arrivalStar,
+          jump_ly: idx === 0 || !Number.isFinite(jumpVal) ? null : Number(jumpVal.toFixed(2)),
+          remaining_ly: Number(remainingVal.toFixed(2))
+        };
+      });
+    }
+
+    if (routeForm) {
+      routeForm.addEventListener('submit', async event => {
+        event.preventDefault();
+        const start = routeStart.value.trim();
+        const goal = routeGoal.value.trim();
+        const jumpRange = Number(routeRange.value) || 70;
+        if (!start || !goal) {
+          routeStatus.textContent = 'Start and goal are required.';
+          return;
+        }
+
+        tableVisible = true;
+        routeStatus.textContent = 'Plotting route...';
+        setStatus('Querying API...');
+
+        const params = new URLSearchParams({
+          start,
+          goal,
+          jump_range: String(jumpRange)
+        });
+        const requestUrl = new URL(`/route/bidirectional?${params.toString()}`, globalThis.location.origin);
+
+        try {
+          const res = await fetch(requestUrl.toString());
+          const data = await res.json();
+          if (!res.ok || data.error) {
+            throw new Error(data.error || `HTTP ${res.status}`);
+          }
+
+          const route = Array.isArray(data.route) ? data.route : [];
+          if (!route.length) {
+            routeStatus.textContent = 'No route found.';
+            showResult(requestUrl.toString(), route);
+            return;
+          }
+
+          const total = computeTotalDistance(route, data.total_distance);
+          const jumpCount = Math.max(route.length - 1, 0);
+          const avg = jumpCount > 0 ? total / jumpCount : NaN;
+          const tableRows = buildRouteRows(route, total).map(row => ({
+            step: row.step,
+            system: row.system,
+            depart_mainstar: row.depart_mainstar ?? '—',
+            arrival_mainstar: row.arrival_mainstar ?? '—',
+            jump_ly: row.jump_ly ?? '—',
+            remaining_ly: row.remaining_ly
+          }));
+
+          showResult(requestUrl.toString(), tableRows);
+
+          routeStatus.textContent = `Route ready: ${jumpCount} jumps · ${route.length} systems · total ${formatLy(total)} ly · avg ${formatLy(avg)} ly.`;
+          setStatus('OK — response received');
+          result.style.display = 'block';
+        } catch (err) {
+          console.error(err);
+          showResult(requestUrl.toString(), { error: err.message });
+          routeStatus.textContent = `Error: ${err.message}`;
+          setStatus('Error');
+        }
+      });
+    }
     </script>
     <script>
      const toggleBtn = document.getElementById("toggleViewBtn");
@@ -470,7 +617,7 @@ if (k === "coords" && typeof v === "object" && v !== null) {
          `;
 }
         // Special handling: 'name' field (copy button)
-        if (k === "name" && typeof v === "string") {
+        if ((k === "name" || k === "system") && typeof v === "string") {
           return `
          <td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono">
          <div class="flex items-center gap-2">
@@ -501,17 +648,18 @@ if (k === "coords" && typeof v === "object" && v !== null) {
      function buildActionsCell(row) {
        const parts = [];
 
-       if (typeof row.name === "string" && row.name.trim()) {
-         parts.push(`
+        const systemName = row.name || row.system;
+        if (typeof systemName === "string" && systemName.trim()) {
+          parts.push(`
          <button
          title="View system map"
          class="opacity-30 hover:opacity-100 group-hover:opacity-100 focus:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
-         onclick="openSystemMap('${escapeQuotes(row.name)}', this)"
+         onclick="openSystemMap('${escapeQuotes(systemName)}', this)"
          >
          ${systemMapIconSvg}
          </button>
          `);
-       }
+        }
 
        if (row.coords && typeof row.coords === "object") {
          const { x, y, z } = row.coords;

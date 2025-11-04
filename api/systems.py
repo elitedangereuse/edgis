@@ -1,5 +1,4 @@
 from aiocache import cached
-from aiocache import caches
 from aiocache.backends.redis import RedisCache
 from aiocache.serializers import PickleSerializer
 from decimal import Decimal
@@ -13,7 +12,6 @@ from pydantic import BaseModel
 from typing import Optional, Any
 import heapq
 import httpx
-import json
 import logging
 import math
 import os
@@ -41,6 +39,27 @@ NEIGHBORS_CONCURRENCY_LIMIT = 2
 neighbors_semaphore = asyncio.Semaphore(NEIGHBORS_CONCURRENCY_LIMIT)
 app = FastAPI()
 SYSTEM_NOT_FOUND = "System not found"
+CACHE_PROBE_LIMIT = 200
+NEUTRON_HEURISTIC_BONUS = 500.0
+
+
+def _has_neutron_boost(mainstar: Optional[str]) -> bool:
+    if not mainstar:
+        return False
+    normalized = str(mainstar).strip().upper()
+    return normalized == "N" or normalized.startswith("N ")
+
+
+def _annotate_departure_stars(path: list[dict]) -> list[dict]:
+    previous_star = None
+    for idx, node in enumerate(path):
+        if idx == 0:
+            node["depart_mainstar"] = node.get("mainstar")
+        else:
+            node["depart_mainstar"] = previous_star
+        previous_star = node.get("mainstar")
+    return path
+
 
 # Enable CORS for your app, you can restrict it to specific domains (origins)
 
@@ -49,7 +68,9 @@ def _load_cors_origins() -> list[str]:
     configured = os.getenv("CORS_ORIGINS", "")
     if not configured:
         return []
-    return [origin.strip() for origin in configured.split(",") if origin.strip()]
+    return [
+        origin.strip() for origin in configured.split(",") if origin.strip()
+    ]
 
 
 origins = _load_cors_origins()
@@ -72,7 +93,7 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 async def _get_coords_by_name(conn, name: str):
     cur = conn.cursor()
     cur.execute(
-        "SELECT id64, name, ST_X(coords), ST_Y(coords), ST_Z(coords) "
+        "SELECT id64, name, mainstar, ST_X(coords), ST_Y(coords), ST_Z(coords) "
         "FROM systems_big WHERE lower(name)=lower(%s) LIMIT 1;",
         (name,),
     )
@@ -83,9 +104,10 @@ async def _get_coords_by_name(conn, name: str):
     return {
         "id64": row[0],
         "name": row[1],
-        "x": float(row[2]),
-        "y": float(row[3]),
-        "z": float(row[4]),
+        "mainstar": row[2],
+        "x": float(row[3]),
+        "y": float(row[4]),
+        "z": float(row[5]),
     }
 
 
@@ -133,6 +155,7 @@ async def _neighbors(
         )
         SELECT
           s.id64, s.name,
+          s.mainstar,
           ST_X(s.coords) AS x,
           ST_Y(s.coords) AS y,
           ST_Z(s.coords) AS z,
@@ -153,11 +176,12 @@ async def _neighbors(
         {
             "id64": r[0],
             "name": r[1],
-            "x": r[2],
-            "y": r[3],
-            "z": r[4],
-            "dist": float(r[5]),
-            "goal_dist": float(r[6]),
+            "mainstar": r[2],
+            "x": r[3],
+            "y": r[4],
+            "z": r[5],
+            "dist": float(r[6]),
+            "goal_dist": float(r[7]),
         }
         for r in rows
     ]
@@ -165,29 +189,60 @@ async def _neighbors(
 
 def _dist(a, b):
     return math.sqrt(
-        (a["x"] - b["x"]) ** 2 + (a["y"] - b["y"]) ** 2 + (a["z"] - b["z"]) ** 2
+        (a["x"] - b["x"]) ** 2
+        + (a["y"] - b["y"]) ** 2
+        + (a["z"] - b["z"]) ** 2
     )
 
 
-async def cache_route_segment(
-    start_id64: int, goal_id64: int, jump_range: float, path: list[dict]
-):
-    key = f"route_cache:{start_id64}:{goal_id64}:{int(jump_range)}"
-    redis = caches.get("default")
-    await redis.set(key, json.dumps(path), ttl=30 * 86400)  # 30 days
-
-
-async def fetch_cached_segment(start_id64: int, goal_id64: int, jump_range: float):
-    key = f"route_cache:{start_id64}:{goal_id64}:{int(jump_range)}"
-    redis = caches.get("default")
-    data = await redis.get(key)
-    if data:
-        return json.loads(data)
-    return None
+def _reconstruct_path(
+    came_from: dict[int, dict], node_id: int, node: dict
+) -> list[dict]:
+    path = [node]
+    step = node_id
+    while step in came_from:
+        prev = came_from[step]
+        path.append(prev)
+        step = prev["id"]
+    path.reverse()
+    return path
 
 
 logger = logging.getLogger("route_debug")
 logging.basicConfig(level=logging.INFO)
+
+
+async def safe_neighbors(
+    conn,
+    system_id64: int,
+    cx: float,
+    cy: float,
+    cz: float,
+    gx: float,
+    gy: float,
+    gz: float,
+    radius: float,
+    limit: int,
+):
+    try:
+        return await cached_neighbors(
+            conn,
+            system_id64,
+            cx,
+            cy,
+            cz,
+            gx,
+            gy,
+            gz,
+            radius,
+            limit=limit,
+        )
+    except Exception as exc:  # pragma: no cover
+        logger.warning(
+            "[neighbors] cache miss due to %s, falling back to direct query",
+            exc,
+        )
+        return await _neighbors(conn, cx, cy, cz, gx, gy, gz, radius, limit)
 
 
 async def astar_route(
@@ -213,6 +268,10 @@ async def astar_route(
         visited.add(cid)
         expansions += 1
 
+        current_range = jump_range * (
+            2 if _has_neutron_boost(current.get("mainstar")) else 1
+        )
+
         if expansions % log_every == 0:
             logger.info(
                 f"[A*] expanded={expansions} open={len(openq)} visited={len(visited)} "
@@ -220,28 +279,24 @@ async def astar_route(
             )
 
         # Goal check
-        if _dist(current, goal) <= jump_range:
-            logger.info(f"[A*] Reached goal vicinity after {expansions} expansions.")
+        if _dist(current, goal) <= current_range:
+            logger.info(
+                f"[A*] Reached goal vicinity after {expansions} expansions."
+            )
 
             # Reconstruct safely
-            path = [current]
-            step = cid
-            while step in came_from:
-                prev = came_from[step]
-                path.append(prev)
-                step = prev["id"]
-            path.reverse()
+            path = _reconstruct_path(came_from, cid, current)
 
             logger.info(
                 f"[A*] Path length={len(path)} nodes; time={time.time() - start_time:.2f}s"
             )
-            return path
+            return _annotate_departure_stars(path)
 
         if expansions > max_expansions:
             logger.warning(f"[A*] Aborted after {expansions} expansions.")
             return []
 
-        neighbors = await cached_neighbors(
+        neighbors = await safe_neighbors(
             conn,
             current["id64"],
             current["x"],
@@ -250,7 +305,7 @@ async def astar_route(
             goal["x"],
             goal["y"],
             goal["z"],
-            jump_range,
+            current_range,
             limit=100000,
         )
 
@@ -260,10 +315,184 @@ async def astar_route(
             if tentative < gscore.get(nid, float("inf")):
                 gscore[nid] = tentative
                 came_from[nid] = {"id": cid, **current}
-                f = tentative + _dist(nb, goal)
+                heuristic = _dist(nb, goal)
+                boost_bias = (
+                    NEUTRON_HEURISTIC_BONUS
+                    if _has_neutron_boost(nb.get("mainstar"))
+                    else 0.0
+                )
+                f = tentative + heuristic - boost_bias
                 heapq.heappush(openq, (f, nid, nb))
 
     logger.warning(f"[A*] Queue exhausted after {expansions} expansions.")
+    return []
+
+
+def _reconstruct_bidirectional_path(
+    meeting_id: int,
+    meeting_node: dict,
+    forward_came_from: dict[int, dict],
+    backward_came_from: dict[int, dict],
+) -> list[dict]:
+    """Stitch together the two search trees once the frontiers meet."""
+
+    forward_path = [meeting_node]
+    step = meeting_id
+    while step in forward_came_from:
+        prev = forward_came_from[step]
+        forward_path.append(prev)
+        step = prev["id"]
+    forward_path.reverse()
+
+    backward_path: list[dict] = []
+    step = meeting_id
+    while step in backward_came_from:
+        nxt = backward_came_from[step]
+        backward_path.append(nxt)
+        step = nxt["id"]
+
+    return forward_path + backward_path
+
+
+async def bidirectional_astar_route(
+    conn,
+    start,
+    goal,
+    jump_range: float,
+    neighbor_limit: int = 100000,
+    max_expansions: int = 3000,
+    log_every: int = 100,
+):
+    """Meet-in-the-middle variant of A* that expands from both ends."""
+
+    forward_open = [(0.0, start["id64"], start)]
+    backward_open = [(0.0, goal["id64"], goal)]
+
+    forward_g = {start["id64"]: 0.0}
+    backward_g = {goal["id64"]: 0.0}
+
+    forward_came_from: dict[int, dict] = {}
+    backward_came_from: dict[int, dict] = {}
+
+    visited_forward: dict[int, dict] = {}
+    visited_backward: dict[int, dict] = {}
+
+    expansions = 0
+    start_time = time.time()
+
+    def _select_direction() -> str:
+        if not forward_open:
+            return "backward"
+        if not backward_open:
+            return "forward"
+        return (
+            "forward"
+            if len(visited_forward) <= len(visited_backward)
+            else "backward"
+        )
+
+    while forward_open and backward_open:
+        if expansions >= max_expansions:
+            logger.warning(
+                f"[BiA*] Aborted after hitting expansion limit {max_expansions}."
+            )
+            return []
+
+        direction = _select_direction()
+        queue = forward_open if direction == "forward" else backward_open
+        g_scores = forward_g if direction == "forward" else backward_g
+        came_from = (
+            forward_came_from if direction == "forward" else backward_came_from
+        )
+        visited = (
+            visited_forward if direction == "forward" else visited_backward
+        )
+        other_visited = (
+            visited_backward if direction == "forward" else visited_forward
+        )
+        heuristic_target = goal if direction == "forward" else start
+
+        current_f, current_id, current = heapq.heappop(queue)
+        if current_id in visited:
+            continue
+
+        visited[current_id] = current
+        expansions += 1
+
+        current_range = jump_range * (
+            2 if _has_neutron_boost(current.get("mainstar")) else 1
+        )
+
+        if expansions % log_every == 0:
+            logger.info(
+                f"[BiA*] dir={direction} expanded={expansions} forward={len(visited_forward)} "
+                f"backward={len(visited_backward)} best_f={current_f:.1f}"
+            )
+
+        if current_id in other_visited:
+            logger.info(
+                f"[BiA*] Frontiers met at {current['name']} after {expansions} expansions "
+                f"in {time.time() - start_time:.2f}s"
+            )
+            return _annotate_departure_stars(
+                _reconstruct_bidirectional_path(
+                    current_id, current, forward_came_from, backward_came_from
+                )
+            )
+
+        neighbors = await safe_neighbors(
+            conn,
+            current["id64"],
+            current["x"],
+            current["y"],
+            current["z"],
+            heuristic_target["x"],
+            heuristic_target["y"],
+            heuristic_target["z"],
+            current_range,
+            limit=neighbor_limit,
+        )
+
+        for nb in neighbors:
+            nid = nb["id64"]
+            leg_distance = nb["dist"]
+
+            if direction == "backward":
+                allowed_range = jump_range * (
+                    2 if _has_neutron_boost(nb.get("mainstar")) else 1
+                )
+                if leg_distance > allowed_range:
+                    continue
+
+            tentative = g_scores[current_id] + leg_distance
+            if tentative >= g_scores.get(nid, float("inf")):
+                continue
+
+            g_scores[nid] = tentative
+            came_from[nid] = {"id": current_id, **current}
+            heuristic = _dist(nb, heuristic_target)
+            boost_bias = (
+                NEUTRON_HEURISTIC_BONUS
+                if _has_neutron_boost(nb.get("mainstar"))
+                else 0.0
+            )
+            f_score = tentative + heuristic - boost_bias
+            heapq.heappush(queue, (f_score, nid, nb))
+
+            if nid in other_visited:
+                logger.info(
+                    f"[BiA*] Connected via neighbor {nb['name']} after {expansions} expansions"
+                )
+                return _annotate_departure_stars(
+                    _reconstruct_bidirectional_path(
+                        nid,
+                        nb,
+                        forward_came_from,
+                        backward_came_from,
+                    )
+                )
+
+    logger.warning("[BiA*] Search queues exhausted without meeting.")
     return []
 
 
@@ -289,19 +518,9 @@ async def get_route(
             f"(range {jump_range} ly)"
         )
 
-        cached = await fetch_cached_segment(s["id64"], g["id64"], jump_range)
-        if cached:
-            logger.info(f"[route] Using cached route {s['name']} -> {g['name']}")
-            return {"count": len(cached), "route": cached}
-
         path = await astar_route(conn, s, g, jump_range)
         if not path:
             return JSONResponse({"error": "No route found"}, 404)
-
-        await cache_route_segment(s["id64"], g["id64"], jump_range, path)
-        await cache_route_segment(
-            g["id64"], s["id64"], jump_range, list(reversed(path))
-        )
 
         total_distance = sum(p.get("dist", 0) for p in path[1:])
         avg_jump = total_distance / (len(path) - 1) if len(path) > 1 else 0
@@ -315,6 +534,54 @@ async def get_route(
 
     except Exception as e:
         logger.exception("[route] Exception in /route")
+        return JSONResponse({"error": str(e)}, 500)
+
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.get("/route/bidirectional")
+async def get_bidirectional_route(
+    start: str = Query(...),
+    goal: str = Query(...),
+    jump_range: float = Query(70.0),
+    neighbor_limit: int = Query(100000, ge=10, le=100000),
+):
+    conn = None
+    try:
+        conn = psycopg.connect(
+            dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST
+        )
+
+        s = await _get_coords_by_name(conn, start)
+        g = await _get_coords_by_name(conn, goal)
+        if not s or not g:
+            return JSONResponse({"error": "Start or goal not found"}, 404)
+
+        logger.info(
+            f"[route-bidir] Starting Bi-A* from {s['name']} -> {g['name']} "
+            f"(range {jump_range} ly, neighbors {neighbor_limit})"
+        )
+
+        path = await bidirectional_astar_route(
+            conn, s, g, jump_range, neighbor_limit=neighbor_limit
+        )
+        if not path:
+            return JSONResponse({"error": "No route found"}, 404)
+
+        total_distance = sum(p.get("dist", 0) for p in path[1:])
+        avg_jump = total_distance / (len(path) - 1) if len(path) > 1 else 0
+
+        return {
+            "count": len(path),
+            "total_distance": round(total_distance, 2),
+            "avg_jump": round(avg_jump, 2),
+            "route": path,
+        }
+
+    except Exception as e:
+        logger.exception("[route-bidir] Exception in /route/bidirectional")
         return JSONResponse({"error": str(e)}, 500)
 
     finally:
@@ -479,7 +746,9 @@ async def fetch_system_from_db(name_or_id: str):
         return None
 
     point_coordinates = row[3]
-    coords = point_coordinates.replace("POINT Z (", "").replace(")", "").split()
+    coords = (
+        point_coordinates.replace("POINT Z (", "").replace(")", "").split()
+    )
     x_coord = float(coords[0])
     y_coord = float(coords[1])
     z_coord = float(coords[2])
@@ -754,11 +1023,15 @@ def fetch_bodies_from_db(name_or_id: str, mode: Optional[str] = None):
 @app.get("/bodies", include_in_schema=True)
 def bodies(
     name_or_id: str = Query(..., description="The name or id64 of the system"),
-    mode: Optional[str] = Query(None, description="Optional response mode adjustments"),
+    mode: Optional[str] = Query(
+        None, description="Optional response mode adjustments"
+    ),
 ):
     result = fetch_bodies_from_db(name_or_id, mode=mode)
     if result is None:
-        return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
+        return JSONResponse(
+            content={"error": SYSTEM_NOT_FOUND}, status_code=404
+        )
     return result
 
 
@@ -807,7 +1080,9 @@ async def proxy_edsm_bodies(
 async def get_coords(name_or_id: str = Query(..., alias="q")):
     result = await fetch_system_from_db(name_or_id)
     if result is None:
-        return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
+        return JSONResponse(
+            content={"error": SYSTEM_NOT_FOUND}, status_code=404
+        )
     return result
 
 
@@ -835,7 +1110,9 @@ async def get_coords_prediction(name_or_id: str = Query(..., alias="q")):
         else:
             sys_obj = system.from_name(name_or_id, allow_known=False)
         if sys_obj is None:
-            return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
+            return JSONResponse(
+                content={"error": SYSTEM_NOT_FOUND}, status_code=404
+            )
 
         return SystemResponse(
             id64=getattr(sys_obj, "id64", None),
@@ -885,7 +1162,9 @@ async def proxy_spansh_faction_presence(
     MAX_PAGE_SIZE = 500  # Maximum results per page
 
     payload = {
-        "filters": {"minor_faction_presences": [{"name": {"value": [faction]}}]},
+        "filters": {
+            "minor_faction_presences": [{"name": {"value": [faction]}}]
+        },
         "sort": [],
         "size": MAX_PAGE_SIZE,
         "page": 0,
@@ -903,7 +1182,9 @@ async def proxy_spansh_faction_presence(
         save_data = save_response.json()
         search_reference = save_data.get("search_reference")
         if not search_reference:
-            raise HTTPException(status_code=500, detail="No search_reference returned")
+            raise HTTPException(
+                status_code=500, detail="No search_reference returned"
+            )
 
         # Step 2: Recall search (handle pagination)
         all_results = []
@@ -936,7 +1217,8 @@ async def proxy_spansh_faction_presence(
         {
             "id64": system.get("id64"),
             "name": system.get("name"),
-            "is_controlling": system.get("controlling_minor_faction") == faction,
+            "is_controlling": system.get("controlling_minor_faction")
+            == faction,
         }
         for system in all_results
     ]
