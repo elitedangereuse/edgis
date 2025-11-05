@@ -3,7 +3,7 @@ import zmq
 import zlib
 import json
 import psycopg
-from datetime import datetime
+from datetime import datetime, timezone
 import re
 from typing import Literal, NamedTuple, Optional
 from dotenv import load_dotenv
@@ -73,6 +73,19 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 conn = psycopg.connect(
     host=DB_HOST, port=5432, dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD
 )
+
+UPSERT_METRICS_QUERY = """
+    INSERT INTO eddn_bodies_metrics (bucket, bodies_processed)
+    VALUES (%s, %s)
+    ON CONFLICT (bucket) DO UPDATE
+    SET bodies_processed = eddn_bodies_metrics.bodies_processed + EXCLUDED.bodies_processed;
+"""
+
+
+def record_bodies_processed(cur, amount: int = 1) -> None:
+    minute_bucket = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    cur.execute(UPSERT_METRICS_QUERY, (minute_bucket, amount))
+
 
 # === UPSERT Query for bodies (41 fields) ===
 UPSERT_BODY = """
@@ -688,6 +701,7 @@ def process_message(
                 body["ring_mass_mt"],
             ],
         )
+        record_bodies_processed(cur)
     db_conn.commit()
 
     # === Insert raw materials ===
