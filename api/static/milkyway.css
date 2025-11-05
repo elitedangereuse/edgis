@@ -34,38 +34,39 @@
 }
 
 :root{
-    --accent-blue:#1294d6;
+    --accent-blue:#3b505966;
+    --accent-white:#f8f8ff;
 }
 
 body::before {
     content: "";
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
-    background-image: url('/static/milkyway.webp');
+    background-image: url('/static/guardians.webp');
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
-    opacity: .25; /* Subtle visibility */
+    opacity: .15; /* Subtle visibility */
     z-index: -2; /* Behind starfield and gradient */
     pointer-events: none;
-    filter: brightness(1.2) saturate(1.1);
+    filter: brightness(1.1) saturate(1.2);
 }
 
 body {
-    background: #111;
+    background: #000;
     position: relative;
     margin: 0;
 }
 
 a:hover {
-    text-shadow: 0 0 5px #1294d6, 0 0 10px #1294d6, 0 0 15px #80c4e6;
+    text-shadow: 0 0 5px #3b505966, 0 0 10px #3b505966, 0 0 15px #80c4e6;
 }
 
 #resultPre, #resultTable {
     max-height: 60vh;
     overflow-y: auto;
     scrollbar-width: thin;
-    scrollbar-color: #1294d6 #1a1a1a;
+    scrollbar-color: #3b505966 #1a1a1a;
 }
 
 #resultPre::-webkit-scrollbar, #resultTable::-webkit-scrollbar {
@@ -77,7 +78,7 @@ a:hover {
 }
 
 #resultPre::-webkit-scrollbar-thumb, #resultTable::-webkit-scrollbar-thumb {
-    background-color: #1294d6;
+    background-color: #3b505966;
     border-radius: 3px;
 }
 /* Thin grid lines for table columns and rows */
