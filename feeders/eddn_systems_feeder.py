@@ -3,7 +3,7 @@ import zmq
 import zlib
 import json
 import psycopg
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 # === Trusted Clients List ===
@@ -72,6 +72,19 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 conn = psycopg.connect(
     host=DB_HOST, port=5432, dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD
 )
+
+UPSERT_METRICS_QUERY = """
+    INSERT INTO eddn_systems_metrics (bucket, systems_processed)
+    VALUES (%s, %s)
+    ON CONFLICT (bucket) DO UPDATE
+    SET systems_processed = eddn_systems_metrics.systems_processed + EXCLUDED.systems_processed;
+"""
+
+
+def record_systems_processed(cur, amount=1):
+    minute_bucket = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    cur.execute(UPSERT_METRICS_QUERY, (minute_bucket, amount))
+
 
 # === UPSERT Query ===
 UPSERT_QUERY = """
@@ -161,6 +174,7 @@ while True:
                         z,
                     ),
                 )
+                record_systems_processed(cur)
             conn.commit()
             print(f"Scan: {star_system} [{system_address}] | Type: {star_type}")
 
@@ -216,6 +230,7 @@ while True:
                             z,
                         ),
                     )
+                    record_systems_processed(cur)
                 conn.commit()
                 systems_added += 1
                 print(
@@ -264,6 +279,7 @@ while True:
                     UPSERT_QUERY,
                     (system_address, star_system, None, updatetime, x, y, z),
                 )
+                record_systems_processed(cur)
             conn.commit()
             print(f"FSDJump: {star_system} [{system_address}] | Pos: {x}, {y}, {z}")
 
