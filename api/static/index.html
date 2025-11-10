@@ -364,7 +364,7 @@
     function submitNeighbors(){
       const parts = neighborsInput.value.split(',').map(s=>s.trim());
       if(parts.length < 4 || parts.slice(0,4).includes(p => p === '')) return;
-      activateTab('advanced');
+      activateTab('lookup');
       callApi(`/neighbors?x=${encodeURIComponent(parts[0])}&y=${encodeURIComponent(parts[1])}&z=${encodeURIComponent(parts[2])}&radius=${encodeURIComponent(parts[3])}`);
     }
 
