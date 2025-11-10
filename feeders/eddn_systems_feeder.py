@@ -73,17 +73,29 @@ conn = psycopg.connect(
     host=DB_HOST, port=5432, dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD
 )
 
-UPSERT_METRICS_QUERY = """
-    INSERT INTO eddn_systems_metrics (bucket, systems_processed)
-    VALUES (%s, %s)
-    ON CONFLICT (bucket) DO UPDATE
-    SET systems_processed = eddn_systems_metrics.systems_processed + EXCLUDED.systems_processed;
-"""
 
-
-def record_systems_processed(cur, amount=1):
+def record_systems_processed(cur, amount=1, is_new=False):
     minute_bucket = datetime.now(timezone.utc).replace(second=0, microsecond=0)
-    cur.execute(UPSERT_METRICS_QUERY, (minute_bucket, amount))
+    if is_new:
+        cur.execute(
+            """
+            INSERT INTO eddn_systems_metrics (bucket, systems_processed, systems_new)
+            VALUES (%s, 0, %s)
+            ON CONFLICT (bucket) DO UPDATE
+            SET systems_new = eddn_systems_metrics.systems_new + EXCLUDED.systems_new;
+        """,
+            (minute_bucket, amount),
+        )
+    else:
+        cur.execute(
+            """
+            INSERT INTO eddn_systems_metrics (bucket, systems_processed, systems_new)
+            VALUES (%s, %s, 0)
+            ON CONFLICT (bucket) DO UPDATE
+            SET systems_processed = eddn_systems_metrics.systems_processed + EXCLUDED.systems_processed;
+        """,
+            (minute_bucket, amount),
+        )
 
 
 # === UPSERT Query ===
@@ -94,7 +106,8 @@ UPSERT_QUERY = """
         name      = COALESCE(EXCLUDED.name, systems_big.name),
         mainstar  = COALESCE(EXCLUDED.mainstar, systems_big.mainstar),
         updatetime= EXCLUDED.updatetime,
-        coords    = EXCLUDED.coords;
+        coords    = EXCLUDED.coords
+    RETURNING (xmax = 0) AS is_new;
 """
 
 # === ZMQ Setup ===
@@ -174,7 +187,9 @@ while True:
                         z,
                     ),
                 )
-                record_systems_processed(cur)
+                result = cur.fetchone()
+                is_new = result[0] if result else False
+                record_systems_processed(cur, amount=1, is_new=is_new)
             conn.commit()
             print(f"Scan: {star_system} [{system_address}] | Type: {star_type}")
 
@@ -230,7 +245,10 @@ while True:
                             z,
                         ),
                     )
-                    record_systems_processed(cur)
+                    result = cur.fetchone()
+                    is_new = result[0] if result else False
+                    record_systems_processed(cur, amount=1, is_new=is_new)
+
                 conn.commit()
                 systems_added += 1
                 print(
@@ -279,7 +297,10 @@ while True:
                     UPSERT_QUERY,
                     (system_address, star_system, None, updatetime, x, y, z),
                 )
-                record_systems_processed(cur)
+                result = cur.fetchone()
+                is_new = result[0] if result else False
+                record_systems_processed(cur, amount=1, is_new=is_new)
+
             conn.commit()
             print(f"FSDJump: {star_system} [{system_address}] | Pos: {x}, {y}, {z}")
 

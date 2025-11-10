@@ -74,17 +74,29 @@ conn = psycopg.connect(
     host=DB_HOST, port=5432, dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD
 )
 
-UPSERT_METRICS_QUERY = """
-    INSERT INTO eddn_bodies_metrics (bucket, bodies_processed)
-    VALUES (%s, %s)
-    ON CONFLICT (bucket) DO UPDATE
-    SET bodies_processed = eddn_bodies_metrics.bodies_processed + EXCLUDED.bodies_processed;
-"""
 
-
-def record_bodies_processed(cur, amount: int = 1) -> None:
+def record_bodies_processed(cur, amount: int = 1, is_new: bool = False) -> None:
     minute_bucket = datetime.now(timezone.utc).replace(second=0, microsecond=0)
-    cur.execute(UPSERT_METRICS_QUERY, (minute_bucket, amount))
+    if is_new:
+        cur.execute(
+            """
+            INSERT INTO eddn_bodies_metrics (bucket, bodies_processed, bodies_new)
+            VALUES (%s, 0, %s)
+            ON CONFLICT (bucket) DO UPDATE
+            SET bodies_new = eddn_bodies_metrics.bodies_new + EXCLUDED.bodies_new;
+        """,
+            (minute_bucket, amount),
+        )
+    else:
+        cur.execute(
+            """
+            INSERT INTO eddn_bodies_metrics (bucket, bodies_processed, bodies_new)
+            VALUES (%s, %s, 0)
+            ON CONFLICT (bucket) DO UPDATE
+            SET bodies_processed = eddn_bodies_metrics.bodies_processed + EXCLUDED.bodies_processed;
+        """,
+            (minute_bucket, amount),
+        )
 
 
 # === UPSERT Query for bodies (41 fields) ===
@@ -146,7 +158,7 @@ UPSERT_BODY = """
         ring_inner_rad          = EXCLUDED.ring_inner_rad,
         ring_outer_rad          = EXCLUDED.ring_outer_rad,
         ring_mass_mt            = EXCLUDED.ring_mass_mt
-    -- Removed RETURNING clause entirely
+    RETURNING (xmax = 0) AS is_new;
 """
 
 # === New UPSERTs for normalized tables ===
@@ -701,7 +713,9 @@ def process_message(
                 body["ring_mass_mt"],
             ],
         )
-        record_bodies_processed(cur)
+        result = cur.fetchone()
+        is_new = result[0] if result else False
+        record_bodies_processed(cur, amount=1, is_new=is_new)
     db_conn.commit()
 
     # === Insert raw materials ===
