@@ -382,10 +382,10 @@
       color: var(--color-gray-500);
     }
   }
-  .hover\:bg-\[\#0c6bc9\] {
+  .hover\:bg-\[\#107CB2\] {
     &:hover {
       @media (hover: hover) {
-        background-color: #0c6bc9;
+        background-color: #107CB2;
       }
     }
   }
@@ -655,4 +655,26 @@
       --tw-duration: initial;
     }
   }
+}
+.tool-tab {
+  padding: 0.5rem 1rem;
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  color: #aaaaaa;
+  font-size: 0.875rem;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.tool-tab:hover {
+  background: #107CB2;
+  color: #ffffff;
+}
+
+.tool-tab.active {
+  background: var(--accent-blue);
+  color: #ffffff;
+}
+
+.tool-panel.hidden {
+  display: none;
 }
