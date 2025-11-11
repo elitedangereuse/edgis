@@ -45,14 +45,14 @@
         <section id="panel-lookup" class="tool-panel mt-6" role="tabpanel" aria-labelledby="tab-lookup">
           <div class="flex flex-col gap-6">
             <form id="searchForm" class="flex flex-col gap-2">
-              <label for="q" class="text-sm font-semibold flex items-center gap-2">
+              <label for="searchInput" class="text-sm font-semibold flex items-center gap-2">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" style="color: #1294d6;" class="bi-search" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/></svg>
                 Search system
               </label>
               <div class="flex flex-wrap items-center gap-3">
-                <input id="q" name="q" required type="search" autofocus placeholder="Search a system — e.g. Kamadhenu"
+                <input id="searchInput" required type="text" autofocus placeholder="Search a system — e.g. Kamadhenu"
                        class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
-                <button type="submit" class="inline-flex items-center justify-center px-4 py-2 rounded bg-[var(--accent-blue)] text-white hover:bg-[#107CB2] hover:text-white transition-colors duration-200 flex-none min-w-[130px]">
+                <button id="searchBtn" type="button" class="tool-tab active">
                   <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" fill="currentColor" style="display: inline; vertical-align: text-bottom; margin-right: 5px;" class="bi-search" viewBox="0 0 16 16">   <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/> </svg>
                   Search system
                 </button>
@@ -74,7 +74,7 @@
               <div class="flex flex-wrap items-center gap-3">
                 <input id="neighborsInput" type="text" placeholder="0,0,0,15"
                        class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
-                <button id="neighborsBtn" type="button" class="inline-flex items-center justify-center px-4 py-2 rounded bg-[var(--accent-blue)] text-white hover:bg-[#107CB2] hover:text-white transition-colors duration-200 flex-none min-w-[130px]">
+                <button id="neighborsBtn" type="button" class="tool-tab active">
                   <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" fill="currentColor" style="display: inline; vertical-align: text-bottom; margin-right: 5px;" class="bi-search" viewBox="0 0 16 16">   <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/> </svg>
                   Find neighbors
                 </button>
@@ -295,465 +295,478 @@
        }
      }
 
-    document.getElementById('searchForm').addEventListener('submit', e=>{
-      e.preventDefault();
-      const q = encodeURIComponent(document.getElementById('q').value.trim());
-      if(!q) return;
-      callApi('/coords?q=' + q);
-    });
-    const predictInput = document.getElementById('predictInput');
-    const predictBtn = document.getElementById('predictBtn');
-    const neighborsInput = document.getElementById('neighborsInput');
-    const neighborsBtn = document.getElementById('neighborsBtn');
-    const routeForm = document.getElementById('routeForm');
-    const routeStart = document.getElementById('routeStart');
-    const routeGoal = document.getElementById('routeGoal');
-    const routeRange = document.getElementById('routeRange');
-    const routeStatus = document.getElementById('routeStatus');
+     const searchInput = document.getElementById('searchInput');
+     const searchBtn = document.getElementById('searchBtn');
+     const predictInput = document.getElementById('predictInput');
+     const predictBtn = document.getElementById('predictBtn');
+     const neighborsInput = document.getElementById('neighborsInput');
+     const neighborsBtn = document.getElementById('neighborsBtn');
+     const routeForm = document.getElementById('routeForm');
+     const routeStart = document.getElementById('routeStart');
+     const routeGoal = document.getElementById('routeGoal');
+     const routeRange = document.getElementById('routeRange');
+     const routeStatus = document.getElementById('routeStatus');
 
-    const tabButtons = Array.from(document.querySelectorAll('.tool-tab'));
-    const tabPanels = {
-      lookup: document.getElementById('panel-lookup'),
-      advanced: document.getElementById('panel-advanced'),
-      route: document.getElementById('panel-route'),
-    };
+    const tabButtons = Array.from(document.querySelectorAll('button[role="tab"].tool-tab'));
+     const tabPanels = {
+       lookup: document.getElementById('panel-lookup'),
+       advanced: document.getElementById('panel-advanced'),
+       route: document.getElementById('panel-route'),
+     };
 
-    function activateTab(name) {
-      for (const btn of tabButtons) {
-        const isActive = btn.dataset.tab === name;
-        btn.classList.toggle('active', isActive);
-        btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
-        btn.tabIndex = isActive ? 0 : -1;
-      }
+     function activateTab(name) {
+       for (const btn of tabButtons) {
+         const isActive = btn.dataset.tab === name;
+         btn.classList.toggle('active', isActive);
+         btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+         btn.tabIndex = isActive ? 0 : -1;
+       }
 
-      for (const [key, panel] of Object.entries(tabPanels)) {
-        if (!panel) continue;
-        const isActive = key === name;
-        panel.classList.toggle('hidden', !isActive);
-        panel.setAttribute('aria-hidden', isActive ? 'false' : 'true');
-      }
+       for (const [key, panel] of Object.entries(tabPanels)) {
+         if (!panel) continue;
+         const isActive = key === name;
+         panel.classList.toggle('hidden', !isActive);
+         panel.setAttribute('aria-hidden', isActive ? 'false' : 'true');
+       }
 
-      try {
-        localStorage.setItem('edgis-active-tab', name);
-      } catch (err) {
-        console.warn('Unable to persist tab selection', err);
-      }
-    }
-
-    const storedTab = (() => {
-      try {
-        return localStorage.getItem('edgis-active-tab');
-      } catch {
-        return null;
-      }
-    })();
-
-    activateTab(tabPanels[storedTab] ? storedTab : 'lookup');
-
-    for (const btn of tabButtons) {
-      btn.addEventListener('click', () => activateTab(btn.dataset.tab));
-    }
-
-    function submitPredict(){
-      const value = predictInput.value.trim();
-      if(!value) return;
-      activateTab('advanced');
-      callApi('/coords/predict?q=' + encodeURIComponent(value));
-    }
-
-    function submitNeighbors(){
-      const parts = neighborsInput.value.split(',').map(s=>s.trim());
-      if(parts.length < 4 || parts.slice(0,4).includes(p => p === '')) return;
-      activateTab('lookup');
-      callApi(`/neighbors?x=${encodeURIComponent(parts[0])}&y=${encodeURIComponent(parts[1])}&z=${encodeURIComponent(parts[2])}&radius=${encodeURIComponent(parts[3])}`);
-    }
-
-    predictBtn.addEventListener('click', submitPredict);
-    predictInput.addEventListener('keydown', e=>{
-      if(e.key === 'Enter'){
-        e.preventDefault();
-        submitPredict();
-      }
-    });
-
-    neighborsBtn.addEventListener('click', submitNeighbors);
-    neighborsInput.addEventListener('keydown', e=>{
-      if(e.key === 'Enter'){
-        e.preventDefault();
-        submitNeighbors();
-      }
-    });
-
-    function formatLy(value){
-      return Number.isFinite(value) ? value.toFixed(2) : '—';
-    }
-
-    function computeTotalDistance(route, reported){
-      if (Number.isFinite(reported)) {
-        return reported;
-      }
-      return route.reduce((sum, node, idx) => {
-        if (idx === 0) return sum;
-        const jump = Number(node?.dist ?? 0);
-        return Number.isFinite(jump) ? sum + jump : sum;
-      }, 0);
-    }
-
-    function buildRouteRows(route, totalDistance){
-      if (!Array.isArray(route) || route.length === 0) {
-        return [];
-      }
-
-      const total = computeTotalDistance(route, totalDistance);
-      let traversed = 0;
-
-      return route.map((node, idx) => {
-        const jumpVal = idx === 0 ? 0 : Number(node?.dist ?? 0);
-        if (idx > 0 && Number.isFinite(jumpVal)) {
-          traversed += jumpVal;
-        }
-        const remainingVal = idx === route.length - 1 ? 0 : Math.max(total - traversed, 0);
-        const systemName = node?.name || node?.id64 || `Waypoint ${idx + 1}`;
-
-        const departStar =
-          node?.depart_mainstar ??
-          (idx > 0 ? route[idx - 1]?.mainstar : node?.mainstar);
-        const arrivalStar = node?.mainstar ?? null;
-
-        return {
-          step: idx + 1,
-          system: systemName,
-          depart_mainstar: departStar,
-          arrival_mainstar: arrivalStar,
-          jump_ly: idx === 0 || !Number.isFinite(jumpVal) ? null : Number(jumpVal.toFixed(2)),
-          remaining_ly: Number(remainingVal.toFixed(2))
-        };
-      });
-    }
-
-    if (routeForm) {
-      routeForm.addEventListener('submit', async event => {
-        event.preventDefault();
-        const start = routeStart.value.trim();
-        const goal = routeGoal.value.trim();
-        const jumpRange = Number(routeRange.value) || 70;
-        if (!start || !goal) {
-          routeStatus.textContent = 'Start and goal are required.';
-          return;
-        }
-
-        activateTab('route');
-        globalThis.tableVisible = true;
-        routeStatus.textContent = 'Plotting route...';
-        setStatus('Querying API...');
-
-        const params = new URLSearchParams({
-          start,
-          goal,
-          jump_range: String(jumpRange)
-        });
-        const requestUrl = new URL(`/route/bidirectional?${params.toString()}`, globalThis.location.origin);
-
-        try {
-          const res = await fetch(requestUrl.toString());
-          const data = await res.json();
-          if (!res.ok || data.error) {
-            throw new Error(data.error || `HTTP ${res.status}`);
-          }
-
-          const route = Array.isArray(data.route) ? data.route : [];
-          if (!route.length) {
-            routeStatus.textContent = 'No route found.';
-            showResult(requestUrl.toString(), route);
-            return;
-          }
-
-          const total = computeTotalDistance(route, data.total_distance);
-          const jumpCount = Math.max(route.length - 1, 0);
-          const avg = jumpCount > 0 ? total / jumpCount : Number.NaN;
-          const tableRows = buildRouteRows(route, total).map(row => ({
-            step: row.step,
-            system: row.system,
-            depart_mainstar: row.depart_mainstar ?? '—',
-            arrival_mainstar: row.arrival_mainstar ?? '—',
-            jump_ly: row.jump_ly ?? '—',
-            remaining_ly: row.remaining_ly
-          }));
-
-          showResult(requestUrl.toString(), tableRows);
-
-          routeStatus.textContent = `Route ready: ${jumpCount} jumps · ${route.length} systems · total ${formatLy(total)} ly · avg ${formatLy(avg)} ly.`;
-          setStatus('OK — response received');
-          result.style.display = 'block';
-        } catch (err) {
-          console.error(err);
-          showResult(requestUrl.toString(), { error: err.message });
-          routeStatus.textContent = `Error: ${err.message}`;
-          setStatus('Error');
-        }
-      });
-    }
-
-    </script>
-    <script>
-     const toggleBtn = document.getElementById("toggleViewBtn");
-     const resultTable = document.getElementById("resultTable");
-     const copyIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-copy" viewBox="0 0 16 16">
-  <path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/>
-</svg>`;
-     const systemMapIconSvg = `<svg width="16" height="16" version="1.1" viewBox="0 0 24.77 24.77" xmlns="http://www.w3.org/2000/svg">
-          <path d="m18.976 12.385a6.5907 6.5907 0 0 1-6.5907 6.5907 6.5907 6.5907 0 0 1-6.5907-6.5907 6.5907 6.5907 0 0 1 6.5907-6.5907 6.5907 6.5907 0 0 1 6.5907 6.5907zm5.2941 0a11.885 11.885 0 0 1-11.885 11.885 11.885 11.885 0 0 1-11.885-11.885 11.885 11.885 0 0 1 11.885-11.885 11.885 11.885 0 0 1 11.885 11.885z" fill="none" stroke="currentColor" style="paint-order:stroke markers fill"></path>
-          <path d="m14.495 12.305a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm-10.089 6.7178a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm11.794-0.30414a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm-0.25378-12.724a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm7.9976-0.53351a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898z" fill="currentColor" style="paint-order:stroke markers fill"></path>
-        </svg>`;
-     const galaxyMapIconSvg = `<svg width="16" height="16" version="1.1" viewBox="0 0 6.6237 6.6237" xmlns="http://www.w3.org/2000/svg">
- <defs>
-  <clipPath id="clipPath1240">
-   <circle cx="38.801" cy="36.059" r="2.8145" d="M 41.61542,36.059471 A 2.814471,2.814471 0 0 1 38.800949,38.873942 2.814471,2.814471 0 0 1 35.986478,36.059471 2.814471,2.814471 0 0 1 38.800949,33.245 2.814471,2.814471 0 0 1 41.61542,36.059471 Z" display="none"/>
-   <path class="powerclip" d="m21.17 19.375h33.981v32.301h-33.981zm20.445 16.684a2.8145 2.8145 0 0 0-2.8145-2.8145 2.8145 2.8145 0 0 0-2.8145 2.8145 2.8145 2.8145 0 0 0 2.8145 2.8145 2.8145 2.8145 0 0 0 2.8145-2.8145z"/>
-  </clipPath>
- </defs>
- <path transform="matrix(.26458 0 0 .26458 -6.7848 -6.0877)" d="m38.926 34.569c0.8963 1.4788-2.3745 1.5434-2.5256 3.9958-0.11266 1.7681 0.50361 3.8201 2.3294 5.2908 1.8258 1.4707 8.1248 1.9127 8.1248 1.9127s-4.6011 1.0671-6.5214 0.8882c-1.9203-0.17895-3.6192-0.95569-5.1091-2.1638-1.4899-1.2081-2.6726-3.2119-2.9177-5.0384-0.24511-1.8265 0.16728-3.606 1.4423-4.6802 1.4115-1.2279 4.2811-1.6839 5.1774-0.20507zm0.74206 0.61547c-1.7189 0.18893-0.39785-2.804-2.5577-3.9753-1.5556-0.84792-3.6761-1.1547-5.7796-0.11955-2.1036 1.0351-5.1612 6.5599-5.1612 6.5599s0.97313-4.6219 1.9453-6.2876c0.97222-1.6656 2.3931-2.8784 4.1169-3.7197 1.7238-0.84134 4.0394-1.0685 5.7989-0.52035 1.7595 0.54816 3.199 1.6726 3.6352 3.2818 0.51799 1.7978-0.27898 4.5919-1.9978 4.7808zm-0.51038 0.87536c1.0091-1.4043 2.3507 1.5794 4.666 0.75702 1.6708-0.58947 3.3169-1.9608 3.9542-4.217s-1.4254-8.2243-1.4254-8.2243 2.7854 3.8145 3.3736 5.6513 0.53956 3.7041 0.01221 5.5484c-0.52735 1.8443-1.9071 3.7178-3.4913 4.6593s-3.3829 1.2597-4.871 0.50789c-1.683-0.81718-3.2273-3.2784-2.2183-4.6826z" clip-path="url(#clipPath1240)" fill="#fff"/>
-</svg>
-`;
-
-     function openSystemMap(text, btnElement){
-       const url = `https://elitedangereuse.fr/outils/sysmap.php?system=${text}`;
-       window.open(url, "_blank");
+       try {
+         localStorage.setItem('edgis-active-tab', name);
+       } catch (err) {
+         console.warn('Unable to persist tab selection', err);
+       }
      }
 
-     function openCoordsMap(x, y, z){
-       const url = convertEdUrl(`https://elitedangereuse.fr/outils/ed3ddrawer.php?x=${x}&y=${y}&z=${z}&radius=10`);
-       window.open(url, "_blank");
+     const storedTab = (() => {
+       try {
+         return localStorage.getItem('edgis-active-tab');
+       } catch {
+         return null;
+       }
+     })();
+
+     activateTab(tabPanels[storedTab] ? storedTab : 'lookup');
+
+     for (const btn of tabButtons) {
+       btn.addEventListener('click', () => activateTab(btn.dataset.tab));
      }
 
-     function copyToClipboard(text, btnElement) {
-       navigator.clipboard.writeText(text).then(() => {
-         btnElement.innerHTML = '<span class="text-xs text-green-400">Copied!</span>';
-         setTimeout(() => {
-           btnElement.innerHTML = copyIconSvg;
-         }, 1500);
-       }).catch(err => {
-         console.error('Copy failed:', err);
-         btnElement.innerHTML = '<span class="text-xs text-red-400">Fail</span>';
-         setTimeout(() => {
-           btnElement.innerHTML = copyIconSvg;
-         }, 1500);
+     function submitSearch(){
+       const value = searchInput.value.trim();
+       activateTab('lookup');
+       if(!value) return;
+       callApi('/coords?q=' + encodeURIComponent(value));
+     }
+
+     function submitPredict(){
+       const value = predictInput.value.trim();
+       activateTab('advanced');
+       if(!value) return;
+       callApi('/coords/predict?q=' + encodeURIComponent(value));
+     }
+
+     function submitNeighbors(){
+       const parts = neighborsInput.value.split(',').map(s=>s.trim());
+       activateTab('lookup');
+       if(parts.length < 4 || parts.slice(0,4).includes(p => p === '')) return;
+       callApi(`/neighbors?x=${encodeURIComponent(parts[0])}&y=${encodeURIComponent(parts[1])}&z=${encodeURIComponent(parts[2])}&radius=${encodeURIComponent(parts[3])}`);
+     }
+
+     searchBtn.addEventListener('click', submitSearch);
+     searchInput.addEventListener('keydown', e=>{
+       if(e.key === 'Enter'){
+         e.preventDefault();
+         submitSearch();
+       }
+     });
+
+     predictBtn.addEventListener('click', submitPredict);
+     predictInput.addEventListener('keydown', e=>{
+       if(e.key === 'Enter'){
+         e.preventDefault();
+         submitPredict();
+       }
+     });
+
+     neighborsBtn.addEventListener('click', submitNeighbors);
+     neighborsInput.addEventListener('keydown', e=>{
+       if(e.key === 'Enter'){
+         e.preventDefault();
+         submitNeighbors();
+       }
+     });
+
+     function formatLy(value){
+       return Number.isFinite(value) ? value.toFixed(2) : '—';
+     }
+
+     function computeTotalDistance(route, reported){
+       if (Number.isFinite(reported)) {
+         return reported;
+       }
+       return route.reduce((sum, node, idx) => {
+         if (idx === 0) return sum;
+         const jump = Number(node?.dist ?? 0);
+         return Number.isFinite(jump) ? sum + jump : sum;
+       }, 0);
+     }
+
+     function buildRouteRows(route, totalDistance){
+       if (!Array.isArray(route) || route.length === 0) {
+         return [];
+       }
+
+       const total = computeTotalDistance(route, totalDistance);
+       let traversed = 0;
+
+       return route.map((node, idx) => {
+         const jumpVal = idx === 0 ? 0 : Number(node?.dist ?? 0);
+         if (idx > 0 && Number.isFinite(jumpVal)) {
+           traversed += jumpVal;
+         }
+         const remainingVal = idx === route.length - 1 ? 0 : Math.max(total - traversed, 0);
+         const systemName = node?.name || node?.id64 || `Waypoint ${idx + 1}`;
+
+         const departStar =
+           node?.depart_mainstar ??
+           (idx > 0 ? route[idx - 1]?.mainstar : node?.mainstar);
+         const arrivalStar = node?.mainstar ?? null;
+
+         return {
+           step: idx + 1,
+           system: systemName,
+           depart_mainstar: departStar,
+           arrival_mainstar: arrivalStar,
+           jump_ly: idx === 0 || !Number.isFinite(jumpVal) ? null : Number(jumpVal.toFixed(2)),
+           remaining_ly: Number(remainingVal.toFixed(2))
+         };
        });
      }
 
-     function jsonToTable(data) {
-       if (!Array.isArray(data)) {
-         data = [data]; // wrap single object
-       }
-       if (!data || data.length === 0) {
-         return "<p class='text-gray-400 text-sm'>No data available</p>";
-       }
-
-       const keys = Object.keys(data[0]);
-
-       // 🔹 Only keep the first 100 rows
-       const MAX_ROWS = 100;
-       const limitedData = data.slice(0, MAX_ROWS);
-
-       let html = `
-         <div class="mb-3">
-           <input id="tableSearch" type="text" placeholder="Filter results..."
-                  class="w-full sm:w-1/2 px-2 py-1 glass mono text-xs placeholder:text-gray-500 focus:ring-0 outline-none"
-                  style="border:0">
-         </div>
-         <div class="overflow-x-auto rounded-xl">
-           <table class="w-full border-collapse text-gray-200 text-xs" id="interactiveTable">
-             <thead class="bg-[rgba(255,255,255,0.04)] text-[var(--accent-blue)] uppercase tracking-wide">
-               <tr>
-                 ${keys.map(k => `
-       <th class="px-2 py-1 border-b border-[rgba(255,255,255,0.1)] cursor-pointer hover:text-white transition text-xs"
-       data-key="${k}">
-       ${k} <span class="sort-indicator text-gray-500"></span>
-       </th>`).join("")}
-       <th class="px-2 py-1 border-b border-[rgba(255,255,255,0.1)] text-xs uppercase tracking-wide text-[var(--accent-blue)]">Actions</th>
-          </tr>
-        </thead>
-        <tbody id="tableBody">
-          ${buildRows(limitedData, keys)}
-        </tbody>
-      </table>
-    </div>
-    ${data.length > MAX_ROWS ? `<p class="mt-2 text-xs text-gray-400">Showing first ${MAX_ROWS} of ${data.length} results.</p>` : ""}
-     `;
-
-       // … keep the search/sort logic the same (if you want search to apply to all, you’d still pass full data instead of limitedData)
-       setTimeout(() => {
-         const tbody = document.getElementById("tableBody");
-         const searchInput = document.getElementById("tableSearch");
-         const headerEls = document.querySelectorAll("#interactiveTable th");
-
-         let sortState = {};
-
-         for (const th of headerEls) {
-           th.addEventListener("click", () => {
-             const key = th.dataset.key;
-             if (!key) return;
-             sortState[key] = sortState[key] === "asc" ? "desc" : "asc";
-
-             // Sorting only within limitedData
-             limitedData.sort((a, b) => compareValues(a[key], b[key], sortState[key]));
-             tbody.innerHTML = buildRows(limitedData, keys);
-
-             const indicators = document.querySelectorAll(".sort-indicator");
-             for (const el of indicators) {
-               el.textContent = "";
-             }
-             th.querySelector(".sort-indicator").textContent = sortState[key] === "asc" ? "▲" : "▼";
-           });
+     if (routeForm) {
+       routeForm.addEventListener('submit', async event => {
+         event.preventDefault();
+         const start = routeStart.value.trim();
+         const goal = routeGoal.value.trim();
+         const jumpRange = Number(routeRange.value) || 70;
+         if (!start || !goal) {
+           routeStatus.textContent = 'Start and goal are required.';
+           return;
          }
 
-         searchInput.addEventListener("input", () => {
-           const q = searchInput.value.toLowerCase();
-           const filtered = data.filter(row =>
-             keys.some(k => String(row[k]).toLowerCase().includes(q))
-           ).slice(0, MAX_ROWS);
-           tbody.innerHTML = buildRows(filtered, keys);
+         activateTab('route');
+         globalThis.tableVisible = true;
+         routeStatus.textContent = 'Plotting route...';
+         setStatus('Querying API...');
+
+         const params = new URLSearchParams({
+           start,
+           goal,
+           jump_range: String(jumpRange)
          });
-       }, 0);
+         const requestUrl = new URL(`/route/bidirectional?${params.toString()}`, globalThis.location.origin);
 
-       return html;
+         try {
+           const res = await fetch(requestUrl.toString());
+           const data = await res.json();
+           if (!res.ok || data.error) {
+             throw new Error(data.error || `HTTP ${res.status}`);
+           }
+
+           const route = Array.isArray(data.route) ? data.route : [];
+           if (!route.length) {
+             routeStatus.textContent = 'No route found.';
+             showResult(requestUrl.toString(), route);
+             return;
+           }
+
+           const total = computeTotalDistance(route, data.total_distance);
+           const jumpCount = Math.max(route.length - 1, 0);
+           const avg = jumpCount > 0 ? total / jumpCount : Number.NaN;
+           const tableRows = buildRouteRows(route, total).map(row => ({
+             step: row.step,
+             system: row.system,
+             depart_mainstar: row.depart_mainstar ?? '—',
+             arrival_mainstar: row.arrival_mainstar ?? '—',
+             jump_ly: row.jump_ly ?? '—',
+             remaining_ly: row.remaining_ly
+           }));
+
+           showResult(requestUrl.toString(), tableRows);
+
+           routeStatus.textContent = `Route ready: ${jumpCount} jumps · ${route.length} systems · total ${formatLy(total)} ly · avg ${formatLy(avg)} ly.`;
+           setStatus('OK — response received');
+           result.style.display = 'block';
+         } catch (err) {
+           console.error(err);
+           showResult(requestUrl.toString(), { error: err.message });
+           routeStatus.textContent = `Error: ${err.message}`;
+           setStatus('Error');
+         }
+       });
      }
 
-     function escapeQuotes(str) {
-       return String(str).replaceAll('\'', "&#39;");
-     }
+    </script>
+    <script>
+      const toggleBtn = document.getElementById("toggleViewBtn");
+      const resultTable = document.getElementById("resultTable");
+      const copyIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-copy" viewBox="0 0 16 16">
+      <path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/>
+      </svg>`;
+      const systemMapIconSvg = `<svg width="16" height="16" version="1.1" viewBox="0 0 24.77 24.77" xmlns="http://www.w3.org/2000/svg">
+        <path d="m18.976 12.385a6.5907 6.5907 0 0 1-6.5907 6.5907 6.5907 6.5907 0 0 1-6.5907-6.5907 6.5907 6.5907 0 0 1 6.5907-6.5907 6.5907 6.5907 0 0 1 6.5907 6.5907zm5.2941 0a11.885 11.885 0 0 1-11.885 11.885 11.885 11.885 0 0 1-11.885-11.885 11.885 11.885 0 0 1 11.885-11.885 11.885 11.885 0 0 1 11.885 11.885z" fill="none" stroke="currentColor" style="paint-order:stroke markers fill"></path>
+        <path d="m14.495 12.305a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm-10.089 6.7178a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm11.794-0.30414a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm-0.25378-12.724a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm7.9976-0.53351a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898z" fill="currentColor" style="paint-order:stroke markers fill"></path>
+      </svg>`;
+      const galaxyMapIconSvg = `<svg width="16" height="16" version="1.1" viewBox="0 0 6.6237 6.6237" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <clipPath id="clipPath1240">
+            <circle cx="38.801" cy="36.059" r="2.8145" d="M 41.61542,36.059471 A 2.814471,2.814471 0 0 1 38.800949,38.873942 2.814471,2.814471 0 0 1 35.986478,36.059471 2.814471,2.814471 0 0 1 38.800949,33.245 2.814471,2.814471 0 0 1 41.61542,36.059471 Z" display="none"/>
+            <path class="powerclip" d="m21.17 19.375h33.981v32.301h-33.981zm20.445 16.684a2.8145 2.8145 0 0 0-2.8145-2.8145 2.8145 2.8145 0 0 0-2.8145 2.8145 2.8145 2.8145 0 0 0 2.8145 2.8145 2.8145 2.8145 0 0 0 2.8145-2.8145z"/>
+          </clipPath>
+        </defs>
+        <path transform="matrix(.26458 0 0 .26458 -6.7848 -6.0877)" d="m38.926 34.569c0.8963 1.4788-2.3745 1.5434-2.5256 3.9958-0.11266 1.7681 0.50361 3.8201 2.3294 5.2908 1.8258 1.4707 8.1248 1.9127 8.1248 1.9127s-4.6011 1.0671-6.5214 0.8882c-1.9203-0.17895-3.6192-0.95569-5.1091-2.1638-1.4899-1.2081-2.6726-3.2119-2.9177-5.0384-0.24511-1.8265 0.16728-3.606 1.4423-4.6802 1.4115-1.2279 4.2811-1.6839 5.1774-0.20507zm0.74206 0.61547c-1.7189 0.18893-0.39785-2.804-2.5577-3.9753-1.5556-0.84792-3.6761-1.1547-5.7796-0.11955-2.1036 1.0351-5.1612 6.5599-5.1612 6.5599s0.97313-4.6219 1.9453-6.2876c0.97222-1.6656 2.3931-2.8784 4.1169-3.7197 1.7238-0.84134 4.0394-1.0685 5.7989-0.52035 1.7595 0.54816 3.199 1.6726 3.6352 3.2818 0.51799 1.7978-0.27898 4.5919-1.9978 4.7808zm-0.51038 0.87536c1.0091-1.4043 2.3507 1.5794 4.666 0.75702 1.6708-0.58947 3.3169-1.9608 3.9542-4.217s-1.4254-8.2243-1.4254-8.2243 2.7854 3.8145 3.3736 5.6513 0.53956 3.7041 0.01221 5.5484c-0.52735 1.8443-1.9071 3.7178-3.4913 4.6593s-3.3829 1.2597-4.871 0.50789c-1.683-0.81718-3.2273-3.2784-2.2183-4.6826z" clip-path="url(#clipPath1240)" fill="#fff"/>
+      </svg>
+      `;
 
-     function fillNeighborsInput(x, y, z) {
-       const neighborsInput = document.getElementById('neighborsInput');
-       neighborsInput.value = `${x},${y},${z},10`;
+      function openSystemMap(text, btnElement){
+      const url = `https://elitedangereuse.fr/outils/sysmap.php?system=${text}`;
+      window.open(url, "_blank");
+      }
 
-       // Optional: auto-scroll to neighbors section
-       neighborsInput.scrollIntoView({ behavior: 'smooth' });
-       neighborsInput.focus();
+      function openCoordsMap(x, y, z){
+      const url = convertEdUrl(`https://elitedangereuse.fr/outils/ed3ddrawer.php?x=${x}&y=${y}&z=${z}&radius=10`);
+      window.open(url, "_blank");
+      }
 
-       // Optional: show status
-       setStatus(`Neighbors input filled: x=${x}, y=${y}, z=${z}, r=10`);
-     }
+      function copyToClipboard(text, btnElement) {
+      navigator.clipboard.writeText(text).then(() => {
+      btnElement.innerHTML = '<span class="text-xs text-green-400">Copied!</span>';
+      setTimeout(() => {
+      btnElement.innerHTML = copyIconSvg;
+      }, 1500);
+      }).catch(err => {
+      console.error('Copy failed:', err);
+      btnElement.innerHTML = '<span class="text-xs text-red-400">Fail</span>';
+      setTimeout(() => {
+      btnElement.innerHTML = copyIconSvg;
+      }, 1500);
+      });
+      }
 
-     function buildRows(rows, keys) {
-       return rows.map((row, i) => `
-    <tr class="group ${i % 2 === 0 ? 'bg-[rgba(255,255,255,0.02)]' : ''} hover:bg-[rgba(255,255,255,0.08)] transition">
-      ${keys.map(k => {
+      function jsonToTable(data) {
+      if (!Array.isArray(data)) {
+      data = [data]; // wrap single object
+      }
+      if (!data || data.length === 0) {
+      return "<p class='text-gray-400 text-sm'>No data available</p>";
+      }
+
+      const keys = Object.keys(data[0]);
+
+      // 🔹 Only keep the first 100 rows
+      const MAX_ROWS = 100;
+      const limitedData = data.slice(0, MAX_ROWS);
+
+      let html = `
+      <div class="mb-3">
+        <input id="tableSearch" type="text" placeholder="Filter results..."
+               class="w-full sm:w-1/2 px-2 py-1 glass mono text-xs placeholder:text-gray-500 focus:ring-0 outline-none"
+               style="border:0">
+      </div>
+      <div class="overflow-x-auto rounded-xl">
+        <table class="w-full border-collapse text-gray-200 text-xs" id="interactiveTable">
+          <thead class="bg-[rgba(255,255,255,0.04)] text-[var(--accent-blue)] uppercase tracking-wide">
+            <tr>
+              ${keys.map(k => `
+              <th class="px-2 py-1 border-b border-[rgba(255,255,255,0.1)] cursor-pointer hover:text-white transition text-xs"
+                  data-key="${k}">
+                ${k} <span class="sort-indicator text-gray-500"></span>
+              </th>`).join("")}
+              <th class="px-2 py-1 border-b border-[rgba(255,255,255,0.1)] text-xs uppercase tracking-wide text-[var(--accent-blue)]">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody">
+            ${buildRows(limitedData, keys)}
+          </tbody>
+        </table>
+      </div>
+      ${data.length > MAX_ROWS ? `<p class="mt-2 text-xs text-gray-400">Showing first ${MAX_ROWS} of ${data.length} results.</p>` : ""}
+      `;
+
+      // … keep the search/sort logic the same (if you want search to apply to all, you’d still pass full data instead of limitedData)
+      setTimeout(() => {
+      const tbody = document.getElementById("tableBody");
+      const searchInput = document.getElementById("tableSearch");
+      const headerEls = document.querySelectorAll("#interactiveTable th");
+
+      let sortState = {};
+
+      for (const th of headerEls) {
+      th.addEventListener("click", () => {
+      const key = th.dataset.key;
+      if (!key) return;
+      sortState[key] = sortState[key] === "asc" ? "desc" : "asc";
+
+      // Sorting only within limitedData
+      limitedData.sort((a, b) => compareValues(a[key], b[key], sortState[key]));
+      tbody.innerHTML = buildRows(limitedData, keys);
+
+      const indicators = document.querySelectorAll(".sort-indicator");
+      for (const el of indicators) {
+      el.textContent = "";
+      }
+      th.querySelector(".sort-indicator").textContent = sortState[key] === "asc" ? "▲" : "▼";
+      });
+      }
+
+      searchInput.addEventListener("input", () => {
+      const q = searchInput.value.toLowerCase();
+      const filtered = data.filter(row =>
+      keys.some(k => String(row[k]).toLowerCase().includes(q))
+      ).slice(0, MAX_ROWS);
+      tbody.innerHTML = buildRows(filtered, keys);
+      });
+      }, 0);
+
+      return html;
+      }
+
+      function escapeQuotes(str) {
+      return String(str)
+      .replaceAll('\\', String.raw`\\`)
+      .replaceAll('\'', String.raw`\'`);
+      }
+
+      function fillNeighborsInput(x, y, z) {
+      const neighborsInput = document.getElementById('neighborsInput');
+      neighborsInput.value = `${x},${y},${z},10`;
+
+      // Optional: auto-scroll to neighbors section
+      neighborsInput.scrollIntoView({ behavior: 'smooth' });
+      neighborsInput.focus();
+
+      // Optional: show status
+      setStatus(`Neighbors input filled: x=${x}, y=${y}, z=${z}, r=10`);
+      }
+
+      function buildRows(rows, keys) {
+      return rows.map((row, i) => `
+      <tr class="group ${i % 2 === 0 ? 'bg-[rgba(255,255,255,0.02)]' : ''} hover:bg-[rgba(255,255,255,0.08)] transition">
+        ${keys.map(k => {
         let v = row[k];
         if (k === "distance" && typeof v === "number") v = v.toFixed(1);
 
         // Special handling: coords
-if (k === "coords" && typeof v === "object" && v !== null) {
-  const { x, y, z } = v;
-  const formatted = `${x.toFixed(3)},${y.toFixed(3)},${z.toFixed(3)}`;
-  const fullPrecision = `${x},${y},${z}`;
+        if (k === "coords" && typeof v === "object" && v !== null) {
+        const { x, y, z } = v;
+        const formatted = `${x.toFixed(3)},${y.toFixed(3)},${z.toFixed(3)}`;
+        const fullPrecision = `${x},${y},${z}`;
 
-  return `
-         <td
-         class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] font-mono text-xs leading-tight"
-         title="x: ${fullPrecision}"
-         >
-         <span class="text-gray-300 tabular-nums">${formatted}</span>
-         </td>
-         `;
-}
+        return `
+        <td
+          class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] font-mono text-xs leading-tight"
+          title="x: ${fullPrecision}"
+        >
+          <span class="text-gray-300 tabular-nums">${formatted}</span>
+        </td>
+        `;
+        }
         // Special handling: 'name' field (copy button)
         if (k === "name" && typeof v === "string") {
-          return `
-         <td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono">
-         <div class="flex items-center gap-2">
-         <span class="flex-1">${v}</span>
-         <button
-         title="Copy name"
-         class="copy-name-btn opacity-20 group-hover:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
-         onclick="copyToClipboard('${escapeQuotes(v)}', this)"
-         >
-         ${copyIconSvg}
-         </button>
-         </div>
-         </td>
-         `;
+        return `
+        <td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono">
+          <div class="flex items-center gap-2">
+            <span class="flex-1">${v}</span>
+            <button
+              title="Copy name"
+              class="copy-name-btn opacity-20 group-hover:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+              onclick="copyToClipboard('${escapeQuotes(v)}', this)"
+            >
+              ${copyIconSvg}
+            </button>
+          </div>
+        </td>
+        `;
         }
 
         // Default cell
         if (typeof v === "object" && v !== null) v = JSON.stringify(v);
         return `<td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono">${v ?? ""}</td>`;
-      }).join("")}
-    <td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)]">
-      ${buildActionsCell(row)}
-    </td>
-    </tr>
-        `).join("");
-     }
+        }).join("")}
+        <td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)]">
+          ${buildActionsCell(row)}
+        </td>
+      </tr>
+      `).join("");
+      }
 
-     function buildActionsCell(row) {
-       const parts = [];
+      function buildActionsCell(row) {
+      const parts = [];
 
-       if (typeof row.name === "string" && row.name.trim()) {
-         parts.push(`
-         <button
-         title="View system map"
-         class="opacity-30 hover:opacity-100 group-hover:opacity-100 focus:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
-         onclick="openSystemMap('${escapeQuotes(row.name)}', this)"
-         >
-         ${systemMapIconSvg}
-         </button>
-         `);
-       }
+      if (typeof row.name === "string" && row.name.trim()) {
+      parts.push(`
+      <button
+        title="View system map"
+        class="opacity-30 hover:opacity-100 group-hover:opacity-100 focus:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+        onclick="openSystemMap('${escapeQuotes(row.name)}', this)"
+      >
+        ${systemMapIconSvg}
+      </button>
+      `);
+      }
 
-       if (row.coords && typeof row.coords === "object") {
-         const { x, y, z } = row.coords;
-         if ([x, y, z].every(val => typeof val === "number")) {
-           parts.push(`
-         <button
-         type="button"
-         title="Open galaxy map"
-         class="opacity-30 hover:opacity-100 group-hover:opacity-100 focus:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
-         onclick="openCoordsMap('${x}','${y}','${z}')"
-         >
-         ${galaxyMapIconSvg}
-         </button>
-         `, `
-         <button
-         type="button"
-         title="Search neighbors within 10 ly"
-         class="opacity-30 hover:opacity-100 group-hover:opacity-100 focus:opacity-100 transition-all duration-200 px-2 py-1 text-xs rounded focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
-         onclick="fillNeighborsInput('${x}','${y}','${z}')"
-         >
-         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-compass" viewBox="0 0 16 16">
-         <path d="M8 16.016a7.5 7.5 0 0 0 1.962-14.74A1 1 0 0 0 9 0H7a1 1 0 0 0-.962 1.276A7.5 7.5 0 0 0 8 16.016m6.5-7.5a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0"/>
-         <path d="m6.94 7.44 4.95-2.83-2.83 4.95-4.949 2.83 2.828-4.95z"/>
-         </svg>
-         </button>
-         `);
-         }
-       }
+      if (row.coords && typeof row.coords === "object") {
+      const { x, y, z } = row.coords;
+      if ([x, y, z].every(val => typeof val === "number")) {
+      parts.push(`
+      <button
+        type="button"
+        title="Open galaxy map"
+        class="opacity-30 hover:opacity-100 group-hover:opacity-100 focus:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+        onclick="openCoordsMap('${x}','${y}','${z}')"
+      >
+        ${galaxyMapIconSvg}
+      </button>
+      `, `
+      <button
+        type="button"
+        title="Search neighbors within 10 ly"
+        class="opacity-30 hover:opacity-100 group-hover:opacity-100 focus:opacity-100 transition-all duration-200 px-2 py-1 text-xs rounded focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+        onclick="fillNeighborsInput('${x}','${y}','${z}')"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-compass" viewBox="0 0 16 16">
+          <path d="M8 16.016a7.5 7.5 0 0 0 1.962-14.74A1 1 0 0 0 9 0H7a1 1 0 0 0-.962 1.276A7.5 7.5 0 0 0 8 16.016m6.5-7.5a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0"/>
+          <path d="m6.94 7.44 4.95-2.83-2.83 4.95-4.949 2.83 2.828-4.95z"/>
+        </svg>
+      </button>
+      `);
+      }
+      }
 
-       if (!parts.length) {
-         return `<span class="text-gray-500 text-xs">—</span>`;
-       }
+      if (!parts.length) {
+      return `<span class="text-gray-500 text-xs">—</span>`;
+      }
 
-       return `<div class="flex items-center gap-2">${parts.join("")}</div>`;
-     }
+      return `<div class="flex items-center gap-2">${parts.join("")}</div>`;
+      }
 
-     function compareValues(a, b, dir) {
-       if (typeof a === "string") a = a.toLowerCase();
-       if (typeof b === "string") b = b.toLowerCase();
-       if (a < b) return dir === "asc" ? -1 : 1;
-       if (a > b) return dir === "asc" ? 1 : -1;
-       return 0;
-     }
+      function compareValues(a, b, dir) {
+      if (typeof a === "string") a = a.toLowerCase();
+      if (typeof b === "string") b = b.toLowerCase();
+      if (a < b) return dir === "asc" ? -1 : 1;
+      if (a > b) return dir === "asc" ? 1 : -1;
+      return 0;
+      }
 
-    toggleBtn.addEventListener("click", ()=>{
+      toggleBtn.addEventListener("click", ()=>{
       globalThis.tableVisible = !globalThis.tableVisible;
       if (globalThis.tableVisible) {
-        resultTable.style.display = 'block';
-        resultPre.style.display = 'none';
+      resultTable.style.display = 'block';
+      resultPre.style.display = 'none';
       } else {
-        resultTable.style.display = 'none';
-        resultPre.style.display = 'block';
+      resultTable.style.display = 'none';
+      resultPre.style.display = 'block';
       }
-    });
+      });
     </script>
   </body>
 </html>
