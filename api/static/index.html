@@ -38,8 +38,8 @@
         <hr style="border-color: #6b6b6b;">
 
         <div class="mt-6 flex flex-wrap gap-3" role="tablist" aria-label="EDGIS tools">
-          <button type="button" id="tab-lookup" role="tab" aria-selected="true" tabindex="0" aria-controls="panel-lookup" data-tab="lookup" class="tool-tab active">System lookup</button>
-          <button type="button" id="tab-advanced" role="tab" aria-selected="false" tabindex="-1" aria-controls="panel-advanced" data-tab="advanced" class="tool-tab">Advanced queries</button>
+          <button type="button" id="tab-lookup" role="tab" aria-selected="true" tabindex="0" aria-controls="panel-lookup" data-tab="lookup" class="tool-tab active w-full sm:w-auto">System lookup</button>
+          <button type="button" id="tab-advanced" role="tab" aria-selected="false" tabindex="-1" aria-controls="panel-advanced" data-tab="advanced" class="tool-tab w-full sm:w-auto">Advanced queries</button>
         </div>
 
         <section id="panel-lookup" class="tool-panel mt-6" role="tabpanel" aria-labelledby="tab-lookup">
@@ -52,7 +52,7 @@
               <div class="flex flex-wrap items-center gap-3">
                 <input id="searchInput" required type="text" autofocus placeholder="Search a system — e.g. Kamadhenu"
                        class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
-                <button id="searchBtn" type="button" class="tool-tab active">
+                <button id="searchBtn" type="button" class="tool-tab active w-full sm:w-auto">
                   <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" fill="currentColor" style="display: inline; vertical-align: text-bottom; margin-right: 5px;" class="bi-search" viewBox="0 0 16 16">   <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/> </svg>
                   Search system
                 </button>
@@ -74,7 +74,7 @@
               <div class="flex flex-wrap items-center gap-3">
                 <input id="neighborsInput" type="text" placeholder="0,0,0,15"
                        class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
-                <button id="neighborsBtn" type="button" class="tool-tab active">
+                <button id="neighborsBtn" type="button" class="tool-tab active w-full sm:w-auto">
                   <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" fill="currentColor" style="display: inline; vertical-align: text-bottom; margin-right: 5px;" class="bi-search" viewBox="0 0 16 16">   <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/> </svg>
                   Find neighbors
                 </button>
@@ -93,7 +93,7 @@
               <div class="flex flex-wrap items-center gap-3">
                 <input id="predictInput" type="text" placeholder="Swoilz GG-B b5-3"
                        class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
-                <button id="predictBtn" type="button" class="inline-flex items-center justify-center px-4 py-2 rounded bg-[var(--accent-blue)] text-white hover:bg-[#107CB2] hover:text-white transition-colors duration-200 flex-none min-w-[130px]">
+                <button id="predictBtn" type="button" class="inline-flex items-center justify-center px-4 py-2 rounded bg-[var(--accent-blue)] text-white hover:bg-[#107CB2] hover:text-white transition-colors duration-200 flex-none min-w-[130px] w-full sm:w-auto">
                   <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" fill="currentColor" style="display: inline; vertical-align: text-bottom; margin-right: 5px;" class="bi-search" viewBox="0 0 16 16">   <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/> </svg>
                   Predict system
                 </button>
@@ -125,6 +125,15 @@
       </div>
     </main>
     <script>
+     const COLUMN_LABELS = {
+       mainstar: 'type',
+       distance: 'LY',
+     };
+
+     function getColumnLabel(key) {
+       return COLUMN_LABELS[key] ?? key;
+     }
+
      function convertEdUrl(u) {
        const src = new URL(u);
        const dst = new URL("https://elitedangereuse.fr/outils/ed3ddrawer.php");
@@ -572,16 +581,20 @@
                class="w-full sm:w-1/2 px-2 py-1 glass mono text-xs placeholder:text-gray-500 focus:ring-0 outline-none"
                style="border:0">
       </div>
-      <div class="overflow-x-auto rounded-xl">
-        <table class="w-full border-collapse text-gray-200 text-xs" id="interactiveTable">
+      <div class="responsive-table-container rounded-xl">
+        <table class="responsive-table w-full text-gray-200 text-xs" id="interactiveTable">
           <thead class="bg-[rgba(255,255,255,0.04)] text-[var(--accent-blue)] uppercase tracking-wide">
             <tr>
-              ${keys.map(k => `
+              ${keys.map(k => {
+              const safeKey = escapeAttr(k);
+              const headerLabel = escapeAttr(getColumnLabel(k));
+              return `
               <th class="px-2 py-1 border-b border-[rgba(255,255,255,0.1)] cursor-pointer hover:text-white transition text-xs"
-                  data-key="${k}">
-                ${k} <span class="sort-indicator text-gray-500"></span>
-              </th>`).join("")}
-              <th class="px-2 py-1 border-b border-[rgba(255,255,255,0.1)] text-xs uppercase tracking-wide text-[var(--accent-blue)]">Actions</th>
+                  data-key="${safeKey}">
+                ${headerLabel} <span class="sort-indicator text-gray-500"></span>
+              </th>`;
+              }).join("")}
+              <th class="px-2 py-1 border-b border-[rgba(255,255,255,0.1)] text-xs uppercase tracking-wide text-[var(--accent-blue)] actions-head">Actions</th>
             </tr>
           </thead>
           <tbody id="tableBody">
@@ -636,6 +649,13 @@
       .replaceAll('\'', String.raw`\'`);
       }
 
+      function escapeAttr(str) {
+      return String(str)
+      .replaceAll('&', "&amp;")
+      .replaceAll('<', "&lt;")
+      .replaceAll('"', "&quot;");
+      }
+
       function fillNeighborsInput(x, y, z) {
       const neighborsInput = document.getElementById('neighborsInput');
       neighborsInput.value = `${x},${y},${z},10`;
@@ -652,28 +672,39 @@
       return rows.map((row, i) => `
       <tr class="group ${i % 2 === 0 ? 'bg-[rgba(255,255,255,0.02)]' : ''} hover:bg-[rgba(255,255,255,0.08)] transition">
         ${keys.map(k => {
+        const labelAttr = escapeAttr(getColumnLabel(k));
         let v = row[k];
         if (k === "distance" && typeof v === "number") v = v.toFixed(1);
 
         // Special handling: coords
         if (k === "coords" && typeof v === "object" && v !== null) {
         const { x, y, z } = v;
-        const formatted = `${x.toFixed(3)},${y.toFixed(3)},${z.toFixed(3)}`;
+        const formatted = `${x.toFixed(1)},${y.toFixed(1)},${z.toFixed(1)}`;
         const fullPrecision = `${x},${y},${z}`;
 
         return `
         <td
           class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] font-mono text-xs leading-tight"
           title="x: ${fullPrecision}"
+          data-label="${labelAttr}"
         >
-          <span class="text-gray-300 tabular-nums">${formatted}</span>
+          <div class="flex items-center gap-2">
+            <span class="text-gray-300 tabular-nums">${formatted}</span>
+            <button
+              title="Copy coords"
+              class="copy-name-btn opacity-20 group-hover:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+              onclick="copyToClipboard('${fullPrecision}', this)"
+            >
+              ${copyIconSvg}
+            </button>
+          </div>
         </td>
         `;
         }
         // Special handling: 'name' field (copy button)
         if (k === "name" && typeof v === "string") {
         return `
-        <td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono">
+        <td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono" data-label="${labelAttr}">
           <div class="flex items-center gap-2">
             <span class="flex-1">${v}</span>
             <button
@@ -690,9 +721,9 @@
 
         // Default cell
         if (typeof v === "object" && v !== null) v = JSON.stringify(v);
-        return `<td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono">${v ?? ""}</td>`;
+        return `<td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono" data-label="${labelAttr}">${v ?? ""}</td>`;
         }).join("")}
-        <td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)]">
+        <td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] table-actions-cell" data-label="Actions">
           ${buildActionsCell(row)}
         </td>
       </tr>
@@ -746,7 +777,7 @@
       return `<span class="text-gray-500 text-xs">—</span>`;
       }
 
-      return `<div class="flex items-center gap-2">${parts.join("")}</div>`;
+      return `<div class="table-actions">${parts.join("")}</div>`;
       }
 
       function compareValues(a, b, dir) {
