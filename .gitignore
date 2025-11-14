@@ -12,3 +12,5 @@
 AGENTS.md
 .pnpm-store
 /.coveragerc
+/api/coverage.xml
+/api/.coverage
