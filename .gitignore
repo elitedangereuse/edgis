@@ -11,3 +11,4 @@
 /gm/journal_cache/*
 AGENTS.md
 .pnpm-store
+/.coveragerc
