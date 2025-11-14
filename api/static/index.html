@@ -5,13 +5,12 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>EDGIS — Elite Dangerous Galactic Information System</title>
     <meta name="description" content="EDGIS helps Elite Dangerous commanders find, predict, and understand star systems with fast search, curated data, and playful guidance." />
-    <link rel="preload" href="/static/tailwind.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
-    <noscript><link rel="stylesheet" href="/static/tailwind.css"></noscript>
-    <link rel="preload" href="/static/milkyway.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
-    <noscript><link rel="stylesheet" href="/static/milkyway.css"></noscript>
+    <link rel="preload" href="/static/tailwind.css" as="style">
+    <link rel="stylesheet" href="/static/tailwind.css">
+    <link rel="preload" href="/static/milkyway.css" as="style">
+    <link rel="stylesheet" href="/static/milkyway.css">
   </head>
   <body class="text-gray-200 antialiased">
-    <canvas id="starsCanvas"></canvas>
     <main class="relative z-10 max-w-3xl mx-auto px-6 py-12">
       <div class="glass rounded-2xl p-8 shadow-xl">
         <h1 class="text-5xl sm:text-5xl font-extrabold tracking-tight">
@@ -550,7 +549,7 @@
          return;
        }
        const [x, y, z, maybeRadius] = parts;
-       if([x,y,z].some(v => v === '')){
+       if([x,y,z].includes('')){
          setStatus('Provide at least X,Y,Z values');
          return;
        }
@@ -591,7 +590,7 @@
 
        if (mode === 'coords') {
          const parts = value.split(',').map(s => s.trim());
-         if (parts.length < 3 || parts.slice(0, 3).some(v => v === '')) {
+         if (parts.length < 3 || parts.slice(0, 3).includes('')) {
            setStatus('Provide X,Y,Z coordinates to find the closest neutron star');
            return;
          }
@@ -646,7 +645,9 @@
      }
 
      if (neutronModeRadios.length) {
-       neutronModeRadios.forEach(radio => radio.addEventListener('change', updateNeutronPlaceholder));
+       for (const radio of neutronModeRadios) {
+         radio.addEventListener('change', updateNeutronPlaceholder);
+       }
        updateNeutronPlaceholder();
      }
 
@@ -1025,73 +1026,98 @@
       }
 
       function buildRows(rows, keys, kind = null) {
-      return rows.map((row, i) => `
+      return rows.map((row, i) => {
+      const cells = keys.map(k => renderTableCell(row, k, kind)).join("");
+      return `
       <tr class="group ${i % 2 === 0 ? 'bg-[rgba(255,255,255,0.02)]' : ''} hover:bg-[rgba(255,255,255,0.08)] transition">
-        ${keys.map(k => {
-        const labelAttr = escapeAttr(getColumnLabel(k));
-        let v = row[k];
-
-        // Special handling: coords
-        if (k === "coords" && typeof v === "object" && v !== null) {
-        const { x, y, z } = v;
-        const formatted = `${x.toFixed(1)},${y.toFixed(1)},${z.toFixed(1)}`;
-        const fullPrecision = `${x},${y},${z}`;
-
-        return `
-        <td
-          class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] font-mono text-xs leading-tight"
-          title="x: ${fullPrecision}"
-          data-label="${labelAttr}"
-        >
-          <div class="flex items-center gap-2">
-            <span class="text-gray-300 tabular-nums">${formatted}</span>
-            <button
-              title="Copy coords"
-              class="copy-name-btn opacity-20 group-hover:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
-              onclick="copyToClipboard('${fullPrecision}', this)"
-            >
-              ${copyIconSvg}
-            </button>
-          </div>
-        </td>
-        `;
-        }
-        // Special handling: 'name' field (copy button)
-        v = formatScalarValue(k, v);
-
-        const isBodyNameColumn = kind === 'bodies' && k === "body_name" && typeof v === "string";
-        const isNeutronNameColumn = k === "neutron_name" && typeof v === "string";
-        if ((k === "name" && typeof v === "string") || isBodyNameColumn || isNeutronNameColumn) {
-        const copyTitle = isBodyNameColumn
-          ? 'Copy body name'
-          : isNeutronNameColumn
-            ? 'Copy neutron name'
-            : 'Copy name';
-        return `
-        <td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono" data-label="${labelAttr}">
-          <div class="flex items-center gap-2">
-            <span class="flex-1">${v}</span>
-            <button
-              title="${copyTitle}"
-              class="copy-name-btn opacity-20 group-hover:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
-              onclick="copyToClipboard('${escapeQuotes(v)}', this)"
-            >
-              ${copyIconSvg}
-            </button>
-          </div>
-        </td>
-        `;
-        }
-
-        // Default cell
-        if (typeof v === "object" && v !== null) v = JSON.stringify(v);
-        return `<td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono" data-label="${labelAttr}">${v ?? ""}</td>`;
-      }).join("")}
+        ${cells}
         <td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] table-actions-cell" data-label="Actions">
           ${buildActionsCell(row, kind)}
         </td>
       </tr>
-      `).join("");
+      `;
+      }).join("");
+      }
+
+      function renderTableCell(row, key, kind) {
+      const labelAttr = escapeAttr(getColumnLabel(key));
+      let value = row[key];
+
+      if (key === 'planet_class' && kind === 'bodies') {
+        value = formatStarClass(row);
+      }
+
+      if (key === "coords" && typeof value === "object" && value !== null) {
+        return renderCoordsCell(labelAttr, value);
+      }
+
+      value = formatScalarValue(key, value);
+
+      if (shouldRenderCopyCell(key, value, kind)) {
+        return renderCopyCell(labelAttr, value, kind, key);
+      }
+
+      if (typeof value === "object" && value !== null) {
+        value = JSON.stringify(value);
+      }
+
+      return `<td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono" data-label="${labelAttr}">${value ?? ""}</td>`;
+      }
+
+      function renderCoordsCell(labelAttr, coords) {
+      const { x, y, z } = coords;
+      const formatted = `${x.toFixed(1)},${y.toFixed(1)},${z.toFixed(1)}`;
+      const fullPrecision = `${x},${y},${z}`;
+
+      return `
+      <td
+        class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] font-mono text-xs leading-tight"
+        title="x: ${fullPrecision}"
+        data-label="${labelAttr}"
+      >
+        <div class="flex items-center gap-2">
+          <span class="text-gray-300 tabular-nums">${formatted}</span>
+          <button
+            title="Copy coords"
+            class="copy-name-btn opacity-20 group-hover:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+            onclick="copyToClipboard('${fullPrecision}', this)"
+          >
+            ${copyIconSvg}
+          </button>
+        </div>
+      </td>
+      `;
+      }
+
+      function shouldRenderCopyCell(key, value, kind) {
+      const isString = typeof value === "string";
+      if (!isString) return false;
+      if (key === "name" || key === "neutron_name") return true;
+      return kind === 'bodies' && key === "body_name";
+      }
+
+      function renderCopyCell(labelAttr, value, kind, key) {
+      let copyTitle = 'Copy name';
+      if (kind === 'bodies' && key === "body_name") {
+        copyTitle = 'Copy body name';
+      } else if (key === "neutron_name") {
+        copyTitle = 'Copy neutron name';
+      }
+
+      return `
+      <td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono" data-label="${labelAttr}">
+        <div class="flex items-center gap-2">
+          <span class="flex-1">${value}</span>
+          <button
+            title="${copyTitle}"
+            class="copy-name-btn opacity-20 group-hover:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+            onclick="copyToClipboard('${escapeQuotes(value)}', this)"
+          >
+            ${copyIconSvg}
+          </button>
+        </div>
+      </td>
+      `;
       }
 
       function buildActionsCell(row, kind = null) {
@@ -1191,3 +1217,12 @@
     </script>
   </body>
 </html>
+      function formatStarClass(row) {
+      const starType = row?.star_type;
+      if (typeof starType !== 'string' || !starType.trim()) {
+        return row.planet_class;
+      }
+      const trimmed = starType.trim();
+      const luminosity = typeof row?.luminosity === 'string' ? row.luminosity.trim() : '';
+      return luminosity ? `${trimmed} (${luminosity})` : trimmed;
+      }
