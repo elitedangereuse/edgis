@@ -312,34 +312,51 @@ def _is_star(record: dict[str, Any]) -> bool:
 def _apply_mode_scaling(
     records: list[dict[str, Any]], mode: Optional[str]
 ) -> list[dict[str, Any]]:
-    if mode == "edsm":
-        conversions = {
-            "gravity": 9.807,
-            "surface_gravity": 9.807,
-            "semiMajorAxis": 149597870700,
-            "semi_major_axis": 149597870700,
-            "surfacePressure": 101325,
-            "surface_pressure": 101325,
-        }
+    result_records = records
+    should_scale = mode == "edsm"
 
+    if should_scale:
+        conversions = _build_conversion_map()
         numeric_types = (int, float, Decimal)
 
-        for record in records:
-            radius = record.get("radius")
-            if isinstance(radius, numeric_types):
-                if isinstance(radius, Decimal):
-                    radius = float(radius)
-                divisor = 695500000 if _is_star(record) else 1000
-                record["radius"] = radius / divisor
+        for record in result_records:
+            _scale_radius(record, numeric_types)
+            _scale_fields(record, conversions, numeric_types)
 
-            for key, divisor in conversions.items():
-                value = record.get(key)
-                if isinstance(value, numeric_types):
-                    if isinstance(value, Decimal):
-                        value = float(value)
-                    record[key] = value / divisor
+    return result_records
 
-    return records
+
+def _build_conversion_map() -> dict[str, float]:
+    return {
+        "gravity": 9.807,
+        "surface_gravity": 9.807,
+        "semiMajorAxis": 149597870700,
+        "semi_major_axis": 149597870700,
+        "surfacePressure": 101325,
+        "surface_pressure": 101325,
+    }
+
+
+def _scale_radius(record: dict[str, Any], numeric_types: tuple[type, ...]) -> None:
+    radius = record.get("radius")
+    if not isinstance(radius, numeric_types):
+        return
+    radius_value = float(radius) if isinstance(radius, Decimal) else radius
+    divisor = 695500000 if _is_star(record) else 1000
+    record["radius"] = radius_value / divisor
+
+
+def _scale_fields(
+    record: dict[str, Any],
+    conversions: dict[str, float],
+    numeric_types: tuple[type, ...],
+) -> None:
+    for key, divisor in conversions.items():
+        value = record.get(key)
+        if not isinstance(value, numeric_types):
+            continue
+        scalar = float(value) if isinstance(value, Decimal) else value
+        record[key] = scalar / divisor
 
 
 def fetch_bodies_from_db(
