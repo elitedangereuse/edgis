@@ -340,7 +340,7 @@
        }
 
        // Update reference
-       resultPre = cleanPre; // Still useful for other logic?
+       resultPre = cleanPre;
 
        // --- Update count and map link ---
        const countEl = document.getElementById('resultCount');
@@ -349,10 +349,10 @@
          count = json.length;
        }
 
-       if (count !== null) {
-         countEl.textContent = `Found ${count} system${count !== 1 ? 's' : ''}.`;
-       } else {
+       if (count === null) {
          countEl.textContent = '';
+       } else {
+         countEl.textContent = `Found ${count} system${count !== 1 ? 's' : ''}.`;
        }
 
        result.style.display = 'block';
