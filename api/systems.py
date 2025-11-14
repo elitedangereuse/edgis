@@ -59,6 +59,10 @@ DB_NAME = os.getenv("DB_NAME")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 
+REDIS_HOST = os.getenv("REDIS_HOST") or "localhost"
+REDIS_PORT = int(os.getenv("REDIS_PORT") or "6379")
+ONE_DAY_SECONDS = 60 * 60 * 24
+
 from aiocache import cached
 from aiocache.serializers import PickleSerializer
 from aiocache.backends.redis import RedisCache
@@ -66,9 +70,9 @@ from aiocache.backends.redis import RedisCache
 
 @cached(
     cache=RedisCache,
-    endpoint="localhost",
-    port=6379,
-    ttl=86400,
+    endpoint=REDIS_HOST,
+    port=REDIS_PORT,
+    ttl=ONE_DAY_SECONDS,
     namespace="coords_batch",
     serializer=PickleSerializer(),
 )
@@ -105,9 +109,9 @@ async def fetch_coords_for_systems(id64_list: list[int]):
 
 @cached(
     cache=RedisCache,
-    endpoint="localhost",  # or your Redis host
-    port=6379,
-    ttl=86400,  # one day cache
+    endpoint=REDIS_HOST,  # or your Redis host
+    port=REDIS_PORT,
+    ttl=ONE_DAY_SECONDS,  # one day cache
     namespace="neighbors",
     serializer=PickleSerializer(),  # Or JsonSerializer if you prefer
 )
@@ -180,9 +184,9 @@ async def get_neighbors(
 
 @cached(
     cache=RedisCache,
-    endpoint="localhost",
-    port=6379,
-    ttl=86400,  # cache for one day
+    endpoint=REDIS_HOST,
+    port=REDIS_PORT,
+    ttl=ONE_DAY_SECONDS,  # cache for one day
     namespace="coords",
     serializer=PickleSerializer(),
 )
@@ -234,6 +238,68 @@ async def fetch_system_from_db(name_or_id: str):
         "mainstar": row[2],
         "coords": {"x": x_coord, "y": y_coord, "z": z_coord},
     }
+
+
+def _format_neutron_result(row: Optional[tuple[Any, Any, Any]]):
+    if row is None:
+        return None
+
+    neutron_id64, neutron_name, distance_ly = row
+    if distance_ly is None:
+        formatted_distance: Optional[float] = None
+    elif isinstance(distance_ly, (int, float, Decimal)):
+        formatted_distance = float(distance_ly)
+    else:
+        formatted_distance = None
+
+    return {
+        "neutron_id64": int(neutron_id64) if neutron_id64 is not None else None,
+        "neutron_name": neutron_name,
+        "distance_ly": formatted_distance,
+    }
+
+
+@cached(
+    cache=RedisCache,
+    endpoint=REDIS_HOST,
+    port=REDIS_PORT,
+    ttl=ONE_DAY_SECONDS,
+    namespace="nearest_neutron_system",
+    serializer=PickleSerializer(),
+)
+async def fetch_nearest_neutron_star(system_name: str):
+    conn = psycopg.connect(
+        dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST
+    )
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM nearest_neutron_star(%s);", (system_name,))
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return _format_neutron_result(row)
+
+
+@cached(
+    cache=RedisCache,
+    endpoint=REDIS_HOST,
+    port=REDIS_PORT,
+    ttl=ONE_DAY_SECONDS,
+    namespace="nearest_neutron_coords",
+    serializer=PickleSerializer(),
+)
+async def fetch_nearest_neutron_star_at_coords(x: float, y: float, z: float):
+    conn = psycopg.connect(
+        dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST
+    )
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM nearest_neutron_star_at_coords(%s, %s, %s);",
+        (x, y, z),
+    )
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return _format_neutron_result(row)
 
 
 def _is_star(record: dict[str, Any]) -> bool:
@@ -535,9 +601,9 @@ def bodies(
 @app.get("/edsm/bodies", include_in_schema=False)
 @cached(
     cache=RedisCache,
-    endpoint="localhost",
-    port=6379,
-    ttl=86400,  # cache for 1 day
+    endpoint=REDIS_HOST,
+    port=REDIS_PORT,
+    ttl=ONE_DAY_SECONDS,  # cache for 1 day
     namespace="edsm_bodies",
     serializer=PickleSerializer(),
 )
@@ -597,6 +663,12 @@ class SystemResponse(BaseModel):
     prediction: Optional[bool] = False
 
 
+class NeutronStarResponse(BaseModel):
+    neutron_id64: Optional[int]
+    neutron_name: Optional[str]
+    distance_ly: Optional[float]
+
+
 @app.get("/coords/predict", response_model=SystemResponse)
 async def get_coords(name_or_id: str = Query(..., alias="q")):
     try:
@@ -626,6 +698,37 @@ async def get_coords(name_or_id: str = Query(..., alias="q")):
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
+@app.get("/nearest-neutron-star", response_model=NeutronStarResponse)
+async def get_nearest_neutron_star(
+    system_name: str = Query(
+        ..., description="Exact system name used to seed the search"
+    )
+):
+    result = await fetch_nearest_neutron_star(system_name)
+    if result is None:
+        return JSONResponse(
+            content={"error": "No neutron star found"}, status_code=404
+        )
+    return result
+
+
+@app.get(
+    "/nearest-neutron-star/coords",
+    response_model=NeutronStarResponse,
+)
+async def get_nearest_neutron_star_from_coords(
+    x: float = Query(..., description="Cartesian X coordinate"),
+    y: float = Query(..., description="Cartesian Y coordinate"),
+    z: float = Query(..., description="Cartesian Z coordinate"),
+):
+    result = await fetch_nearest_neutron_star_at_coords(x, y, z)
+    if result is None:
+        return JSONResponse(
+            content={"error": "No neutron star found"}, status_code=404
+        )
+    return result
+
+
 @app.get("/spansh/system/{system_id}", include_in_schema=False)
 async def proxy_spansh_system(system_id: int):
     url = f"https://spansh.co.uk/api/system/{system_id}"
@@ -645,9 +748,9 @@ async def proxy_spansh_system(system_id: int):
 @app.get("/spansh/faction_presence", include_in_schema=False)
 @cached(
     cache=RedisCache,
-    endpoint="localhost",
-    port=6379,
-    ttl=86400,
+    endpoint=REDIS_HOST,
+    port=REDIS_PORT,
+    ttl=ONE_DAY_SECONDS,
     namespace="faction_presence",
     serializer=PickleSerializer(),
 )
