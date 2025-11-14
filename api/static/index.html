@@ -5,13 +5,12 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>EDGIS — Elite Dangerous Galactic Information System</title>
     <meta name="description" content="EDGIS helps Elite Dangerous commanders find, predict, and understand star systems with fast search, curated data, and playful guidance." />
-    <link rel="preload" href="/static/tailwind.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
-    <noscript><link rel="stylesheet" href="/static/tailwind.css"></noscript>
-    <link rel="preload" href="/static/milkyway.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
-    <noscript><link rel="stylesheet" href="/static/milkyway.css"></noscript>
+    <link rel="preload" href="/static/tailwind.css" as="style">
+    <link rel="stylesheet" href="/static/tailwind.css">
+    <link rel="preload" href="/static/milkyway.css" as="style">
+    <link rel="stylesheet" href="/static/milkyway.css">
   </head>
   <body class="text-gray-200 antialiased">
-    <canvas id="starsCanvas"></canvas>
     <main class="relative z-10 max-w-3xl mx-auto px-6 py-12">
       <div class="glass rounded-2xl p-8 shadow-xl">
         <h1 class="text-5xl sm:text-5xl font-extrabold tracking-tight">
@@ -77,13 +76,43 @@
                 Find neighbors (x,y,z,radius)
               </label>
               <div class="flex flex-wrap items-center gap-3">
-                <input id="neighborsInput" type="text" placeholder="0,0,0,15"
+                <input id="neighborsInput" type="text" placeholder="0,0,0,30"
                        class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
                 <button id="neighborsBtn" type="button" class="tool-tab active w-full sm:w-auto">
                   <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" fill="currentColor" style="display: inline; vertical-align: text-bottom; margin-right: 5px;" class="bi-search" viewBox="0 0 16 16">   <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/> </svg>
                   Find neighbors
                 </button>
               </div>
+              <p class="text-xs text-gray-400">Leave radius blank to default to 30 ly.</p>
+            </form>
+            <form id="neutronForm" class="flex flex-col gap-2" style="margin-top:10px">
+              <label for="neutronInput" class="text-sm font-semibold flex items-center gap-2">
+                <svg width="16" height="16" version="1.1" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="display: inline;" fill="currentColor">
+                  <path d="m9.4034 7.3455a1.5488 1.5488 0 0 1-0.7491 2.0582 1.5488 1.5488 0 0 1-2.0582-0.7491 1.5488 1.5488 0 0 1 0.7491-2.0582 1.5488 1.5488 0 0 1 2.0582 0.7491zm-1.4036 0.65455 5.3781 6.0364-4.2109 1.9636zm0 0-5.3781-6.0364 4.2109-1.9636z" fill="#1294d6" stroke-width=".054153"/>
+                </svg>
+                Nearest neutron star
+              </label>
+              <div class="flex flex-wrap gap-4 text-xs text-gray-400">
+                <label class="inline-flex items-center gap-2">
+                  <input type="radio" name="neutronMode" value="system" id="neutronModeSystem" checked class="h-4 w-4 rounded border-gray-500 bg-transparent text-[var(--accent-blue)] focus:ring-[var(--accent-blue)]" />
+                  <span>By system name</span>
+                </label>
+                <label class="inline-flex items-center gap-2">
+                  <input type="radio" name="neutronMode" value="coords" id="neutronModeCoords" class="h-4 w-4 rounded border-gray-500 bg-transparent text-[var(--accent-blue)] focus:ring-[var(--accent-blue)]" />
+                  <span>By coordinates (x,y,z)</span>
+                </label>
+              </div>
+              <div class="flex flex-wrap items-center gap-3">
+                <input id="neutronInput" type="text" placeholder="HIP 87621"
+                       class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+                <button id="neutronBtn" type="button" class="tool-tab active w-full sm:w-auto">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" fill="currentColor" style="display: inline; vertical-align: text-bottom; margin-right: 5px;" class="bi-search" viewBox="0 0 16 16">
+                    <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/>
+                  </svg>
+                  Find neutron
+                </button>
+              </div>
+              <p class="text-xs text-gray-400">Switch modes to search by exact system name or comma-separated coordinates.</p>
             </form>
           </div>
         </section>
@@ -345,6 +374,42 @@
        return null;
      }
 
+     async function ensureCoordsIfNeeded(payload, path) {
+       if (!payload || typeof payload !== 'object') {
+         return payload;
+       }
+
+       if (typeof path !== 'string' || !path.startsWith('/nearest-neutron-star')) {
+         return payload;
+       }
+
+       if (payload.coords && typeof payload.coords === 'object') {
+         return payload;
+       }
+
+       const lookupName = payload.neutron_name || payload.name;
+       if (!lookupName) {
+         return payload;
+       }
+
+       try {
+         const base = globalThis.location.origin;
+         const coordsUrl = `${base}/coords?q=${encodeURIComponent(lookupName)}`;
+         const coordsRes = await fetch(coordsUrl);
+         if (!coordsRes.ok) {
+           return payload;
+         }
+         const coordsJson = await coordsRes.json();
+         if (coordsJson?.coords) {
+           payload.coords = coordsJson.coords;
+         }
+       } catch (err) {
+         console.warn('Unable to fetch coords for neutron result', err);
+       }
+
+       return payload;
+     }
+
      async function callApi(path, kindHint = null){
        setStatus('Querying API...');
        try{
@@ -356,7 +421,8 @@
            throw new Error(json.error || ('HTTP ' + res.status));
          }
          const kind = kindHint ?? detectResultKind(path);
-         showResult(url, json, kind);
+         const enriched = await ensureCoordsIfNeeded(json, path);
+         showResult(url, enriched, kind);
          setStatus('OK — response received');
          result.style.display = 'block';
        }catch(err){
@@ -375,6 +441,9 @@
      const predictBtn = document.getElementById('predictBtn');
      const neighborsInput = document.getElementById('neighborsInput');
      const neighborsBtn = document.getElementById('neighborsBtn');
+     const neutronInput = document.getElementById('neutronInput');
+     const neutronBtn = document.getElementById('neutronBtn');
+     const neutronModeRadios = Array.from(document.querySelectorAll('input[name="neutronMode"]'));
      const routeForm = document.getElementById('routeForm');
      const routeStart = document.getElementById('routeStart');
      const routeGoal = document.getElementById('routeGoal');
@@ -467,10 +536,68 @@
      }
 
      function submitNeighbors(){
-       const parts = neighborsInput.value.split(',').map(s=>s.trim());
+       if (!neighborsInput) return;
+       const raw = neighborsInput.value.trim();
        activateTab('lookup');
-       if(parts.length < 4 || parts.slice(0,4).includes(p => p === '')) return;
-       callApi(`/neighbors?x=${encodeURIComponent(parts[0])}&y=${encodeURIComponent(parts[1])}&z=${encodeURIComponent(parts[2])}&radius=${encodeURIComponent(parts[3])}`);
+       if(!raw){
+         setStatus('Provide coordinates to search for neighbors');
+         return;
+       }
+       const parts = raw.split(',').map(s=>s.trim());
+       if(parts.length < 3){
+         setStatus('Provide at least X,Y,Z values');
+         return;
+       }
+       const [x, y, z, maybeRadius] = parts;
+       if([x,y,z].includes('')){
+         setStatus('Provide at least X,Y,Z values');
+         return;
+       }
+       const radius = maybeRadius && maybeRadius !== '' ? maybeRadius : '30';
+       callApi(`/neighbors?x=${encodeURIComponent(x)}&y=${encodeURIComponent(y)}&z=${encodeURIComponent(z)}&radius=${encodeURIComponent(radius)}`);
+     }
+
+     function getNeutronMode(){
+       const current = neutronModeRadios.find(r => r.checked);
+       return current ? current.value : 'system';
+     }
+
+     function updateNeutronPlaceholder(){
+       if (!neutronInput) return;
+       const mode = getNeutronMode();
+       if (mode === 'coords') {
+         neutronInput.placeholder = '-220.34,112.12,328.71';
+         neutronInput.setAttribute('inputmode', 'decimal');
+       } else {
+         neutronInput.placeholder = 'HIP 87621';
+         neutronInput.setAttribute('inputmode', 'text');
+       }
+     }
+
+     function submitNearestNeutron(){
+       if (!neutronInput) return;
+       const mode = getNeutronMode();
+       const value = neutronInput.value.trim();
+       activateTab('lookup');
+       if(!value){
+         setStatus(
+           mode === 'coords'
+             ? 'Provide X,Y,Z coordinates to find the closest neutron star'
+             : 'Enter a system name to find its nearest neutron star'
+         );
+         return;
+       }
+
+       if (mode === 'coords') {
+         const parts = value.split(',').map(s => s.trim());
+         if (parts.length < 3 || parts.slice(0, 3).includes('')) {
+           setStatus('Provide X,Y,Z coordinates to find the closest neutron star');
+           return;
+         }
+         callApi(`/nearest-neutron-star/coords?x=${encodeURIComponent(parts[0])}&y=${encodeURIComponent(parts[1])}&z=${encodeURIComponent(parts[2])}`);
+       } else {
+         callApi('/nearest-neutron-star?system_name=' + encodeURIComponent(value));
+       }
      }
 
      searchBtn.addEventListener('click', submitSearch);
@@ -506,6 +633,23 @@
          submitNeighbors();
        }
      });
+
+     if (neutronBtn && neutronInput) {
+       neutronBtn.addEventListener('click', submitNearestNeutron);
+       neutronInput.addEventListener('keydown', e=>{
+         if(e.key === 'Enter'){
+           e.preventDefault();
+           submitNearestNeutron();
+         }
+       });
+     }
+
+     if (neutronModeRadios.length) {
+       for (const radio of neutronModeRadios) {
+         radio.addEventListener('change', updateNeutronPlaceholder);
+       }
+       updateNeutronPlaceholder();
+     }
 
      function formatLy(value){
        return Number.isFinite(value) ? value.toFixed(2) : '—';
@@ -882,79 +1026,119 @@
       }
 
       function buildRows(rows, keys, kind = null) {
-      return rows.map((row, i) => `
+      return rows.map((row, i) => {
+      const cells = keys.map(k => renderTableCell(row, k, kind)).join("");
+      return `
       <tr class="group ${i % 2 === 0 ? 'bg-[rgba(255,255,255,0.02)]' : ''} hover:bg-[rgba(255,255,255,0.08)] transition">
-        ${keys.map(k => {
-        const labelAttr = escapeAttr(getColumnLabel(k));
-        let v = row[k];
-
-        // Special handling: coords
-        if (k === "coords" && typeof v === "object" && v !== null) {
-        const { x, y, z } = v;
-        const formatted = `${x.toFixed(1)},${y.toFixed(1)},${z.toFixed(1)}`;
-        const fullPrecision = `${x},${y},${z}`;
-
-        return `
-        <td
-          class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] font-mono text-xs leading-tight"
-          title="x: ${fullPrecision}"
-          data-label="${labelAttr}"
-        >
-          <div class="flex items-center gap-2">
-            <span class="text-gray-300 tabular-nums">${formatted}</span>
-            <button
-              title="Copy coords"
-              class="copy-name-btn opacity-20 group-hover:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
-              onclick="copyToClipboard('${fullPrecision}', this)"
-            >
-              ${copyIconSvg}
-            </button>
-          </div>
-        </td>
-        `;
-        }
-        // Special handling: 'name' field (copy button)
-        v = formatScalarValue(k, v);
-
-        const isBodyNameColumn = kind === 'bodies' && k === "body_name" && typeof v === "string";
-        if ((k === "name" && typeof v === "string") || isBodyNameColumn) {
-        const copyTitle = isBodyNameColumn ? 'Copy body name' : 'Copy name';
-        return `
-        <td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono" data-label="${labelAttr}">
-          <div class="flex items-center gap-2">
-            <span class="flex-1">${v}</span>
-            <button
-              title="${copyTitle}"
-              class="copy-name-btn opacity-20 group-hover:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
-              onclick="copyToClipboard('${escapeQuotes(v)}', this)"
-            >
-              ${copyIconSvg}
-            </button>
-          </div>
-        </td>
-        `;
-        }
-
-        // Default cell
-        if (typeof v === "object" && v !== null) v = JSON.stringify(v);
-        return `<td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono" data-label="${labelAttr}">${v ?? ""}</td>`;
-      }).join("")}
+        ${cells}
         <td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] table-actions-cell" data-label="Actions">
           ${buildActionsCell(row, kind)}
         </td>
       </tr>
-      `).join("");
+      `;
+      }).join("");
+      }
+
+      function renderTableCell(row, key, kind) {
+      const labelAttr = escapeAttr(getColumnLabel(key));
+      let value = row[key];
+
+      if (key === 'planet_class' && kind === 'bodies') {
+        value = formatStarClass(row);
+      }
+
+      if (key === "coords" && typeof value === "object" && value !== null) {
+        return renderCoordsCell(labelAttr, value);
+      }
+
+      value = formatScalarValue(key, value);
+
+      if (shouldRenderCopyCell(key, value, kind)) {
+        return renderCopyCell(labelAttr, value, kind, key);
+      }
+
+      if (typeof value === "object" && value !== null) {
+        value = JSON.stringify(value);
+      }
+
+      return `<td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono" data-label="${labelAttr}">${value ?? ""}</td>`;
+      }
+
+      function renderCoordsCell(labelAttr, coords) {
+      const { x, y, z } = coords;
+      const formatted = `${x.toFixed(1)},${y.toFixed(1)},${z.toFixed(1)}`;
+      const fullPrecision = `${x},${y},${z}`;
+
+      return `
+      <td
+        class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] font-mono text-xs leading-tight"
+        title="x: ${fullPrecision}"
+        data-label="${labelAttr}"
+      >
+        <div class="flex items-center gap-2">
+          <span class="text-gray-300 tabular-nums">${formatted}</span>
+          <button
+            title="Copy coords"
+            class="copy-name-btn opacity-20 group-hover:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+            onclick="copyToClipboard('${fullPrecision}', this)"
+          >
+            ${copyIconSvg}
+          </button>
+        </div>
+      </td>
+      `;
+      }
+
+      function shouldRenderCopyCell(key, value, kind) {
+      const isString = typeof value === "string";
+      if (!isString) return false;
+      if (key === "name" || key === "neutron_name") return true;
+      return kind === 'bodies' && key === "body_name";
+      }
+
+      function renderCopyCell(labelAttr, value, kind, key) {
+      let copyTitle = 'Copy name';
+      if (kind === 'bodies' && key === "body_name") {
+        copyTitle = 'Copy body name';
+      } else if (key === "neutron_name") {
+        copyTitle = 'Copy neutron name';
+      }
+
+      return `
+      <td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono" data-label="${labelAttr}">
+        <div class="flex items-center gap-2">
+          <span class="flex-1">${value}</span>
+          <button
+            title="${copyTitle}"
+            class="copy-name-btn opacity-20 group-hover:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+            onclick="copyToClipboard('${escapeQuotes(value)}', this)"
+          >
+            ${copyIconSvg}
+          </button>
+        </div>
+      </td>
+      `;
       }
 
       function buildActionsCell(row, kind = null) {
       const parts = [];
 
-      if (typeof row.name === "string" && row.name.trim()) {
+      const displayName = (() => {
+        if (typeof row.name === "string" && row.name.trim()) {
+          return row.name;
+        }
+        if (typeof row.neutron_name === "string" && row.neutron_name.trim()) {
+          return row.neutron_name;
+        }
+        return null;
+      })();
+
+      if (displayName) {
       parts.push(`
       <button
         title="View system map"
         class="opacity-30 hover:opacity-100 group-hover:opacity-100 focus:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
-        onclick="openSystemMap('${escapeQuotes(row.name)}', this)"
+        onclick="openSystemMap('${escapeQuotes(displayName)}', this)"
       >
         ${systemMapIconSvg}
       </button>
@@ -1033,3 +1217,12 @@
     </script>
   </body>
 </html>
+      function formatStarClass(row) {
+      const starType = row?.star_type;
+      if (typeof starType !== 'string' || !starType.trim()) {
+        return row.planet_class;
+      }
+      const trimmed = starType.trim();
+      const luminosity = typeof row?.luminosity === 'string' ? row.luminosity.trim() : '';
+      return luminosity ? `${trimmed} (${luminosity})` : trimmed;
+      }
