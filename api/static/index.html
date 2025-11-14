@@ -5,8 +5,10 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>EDGIS — Elite Dangerous Galactic Information System</title>
     <meta name="description" content="EDGIS helps Elite Dangerous commanders find, predict, and understand star systems with fast search, curated data, and playful guidance." />
-    <link rel="stylesheet" href="/static/tailwind.css">
-    <link rel="stylesheet" href="/static/milkyway.css">
+    <link rel="preload" href="/static/tailwind.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="/static/tailwind.css"></noscript>
+    <link rel="preload" href="/static/milkyway.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="/static/milkyway.css"></noscript>
   </head>
   <body class="text-gray-200 antialiased">
     <canvas id="starsCanvas"></canvas>
