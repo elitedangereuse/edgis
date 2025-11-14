@@ -276,7 +276,9 @@ def _apply_mode_scaling(
     return records
 
 
-def fetch_bodies_from_db(name_or_id: str, mode: Optional[str] = None):
+def fetch_bodies_from_db(
+    name_or_id: str, mode: Optional[str] = None, body_id: Optional[int] = None
+):
     import psycopg
 
     conn = psycopg.connect(
@@ -287,7 +289,13 @@ def fetch_bodies_from_db(name_or_id: str, mode: Optional[str] = None):
     if name_or_id.isdigit() or (
         name_or_id.startswith("-") and name_or_id[1:].isdigit()
     ):
-        query = """
+        body_filter = ""
+        params: list[Any] = [name_or_id]
+        if body_id is not None:
+            body_filter = " AND b.body_id = %s"
+            params.append(body_id)
+
+        query = f"""
                 SELECT
                 b.system_id64,
                 b.body_id,
@@ -367,16 +375,23 @@ def fetch_bodies_from_db(name_or_id: str, mode: Optional[str] = None):
             LEFT JOIN body_atmospheres ba ON b.system_id64 = ba.system_id64 AND b.body_id = ba.body_id
             LEFT JOIN atmosphere_gases g ON ba.gas_id = g.id
 
-            WHERE b.system_id64 = %s
-            GROUP BY
+            WHERE b.system_id64 = %s{body_filter}
+        GROUP BY
                 b.system_id64, b.body_id, b.body_name,
                 bt.name, pc.name, ts.name, at.name, a.name,
                 v.name, rc.name, l.name, st.name
             ORDER BY b.body_id;
         """
-        cursor.execute(query, (name_or_id,))
+
+        cursor.execute(query, tuple(params))
     else:
-        query = """
+        body_filter = ""
+        params = [name_or_id]
+        if body_id is not None:
+            body_filter = " AND b.body_id = %s"
+            params.append(body_id)
+
+        query = f"""
                 SELECT
                 b.system_id64,
                 b.body_id,
@@ -457,14 +472,15 @@ def fetch_bodies_from_db(name_or_id: str, mode: Optional[str] = None):
             LEFT JOIN body_atmospheres ba ON b.system_id64 = ba.system_id64 AND b.body_id = ba.body_id
             LEFT JOIN atmosphere_gases g ON ba.gas_id = g.id
             WHERE LOWER(s.name) = LOWER(%s)
-            AND s.id64 = b.system_id64
-            GROUP BY
+            AND s.id64 = b.system_id64{body_filter}
+        GROUP BY
                 b.system_id64, b.body_id, b.body_name,
                 bt.name, pc.name, ts.name, at.name, a.name,
                 v.name, rc.name, l.name, st.name
             ORDER by body_id;
         """
-        cursor.execute(query, (name_or_id,))
+
+        cursor.execute(query, tuple(params))
 
     rows = cursor.fetchall()
     if not rows:
@@ -498,11 +514,17 @@ def fetch_bodies_from_db(name_or_id: str, mode: Optional[str] = None):
 @app.get("/bodies", include_in_schema=True)
 def bodies(
     name_or_id: str = Query(..., description="The name or id64 of the system"),
+    body_id: Optional[int] = Query(
+        None, description="Optional body_id to narrow to a single body"
+    ),
     mode: Optional[str] = Query(
         None, description="Optional response mode adjustments"
     ),
 ):
-    result = fetch_bodies_from_db(name_or_id, mode=mode)
+    if body_id is None:
+        result = fetch_bodies_from_db(name_or_id, mode=mode)
+    else:
+        result = fetch_bodies_from_db(name_or_id, mode=mode, body_id=body_id)
     if result is None:
         return JSONResponse(
             content={"error": SYSTEM_NOT_FOUND}, status_code=404

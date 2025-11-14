@@ -13,7 +13,7 @@ test:
 	pytest tests/ --ignore-glob="edts*" --ignore=edts
 
 test-with-coverage:
-	pytest --cov=api tests/ --ignore-glob="edts*" --ignore=edts --cov-report=html --cov-config=.coveragerc
+	pytest --cov=api tests/ --ignore-glob="edts*" --ignore=edts --cov-report=html --cov-report=xml --cov-config=.coveragerc
 
 # Open the coverage report in the default web browser
 coverage: test-with-coverage
