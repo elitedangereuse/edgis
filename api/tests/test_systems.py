@@ -762,6 +762,54 @@ async def test_proxy_spansh_faction_presence(monkeypatch):
     assert payload["results"][0]["coords"] == {"x": 0, "y": 0, "z": 0}
 
 
+@pytest.mark.anyio("asyncio")
+async def test_proxy_spansh_autocomplete_controlling_minor_faction(monkeypatch):
+    class DummyResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    class DummyClient:
+        async def __aenter__(self):
+            return self
+
+    async def _aexit(self, exc_type, exc, tb):
+        return False
+
+    async def _get(self, url, params):
+        assert params["q"] == "med"
+        return DummyResponse({"values": ["Med"]})
+
+    DummyClient.__aexit__ = _aexit  # type: ignore[attr-defined]
+    DummyClient.get = _get  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(
+        systems.httpx,
+        "AsyncClient",
+        lambda *args, **kwargs: DummyClient(),
+    )
+
+    payload = await systems.proxy_spansh_autocomplete_controlling_minor_faction.__wrapped__(  # type: ignore[attr-defined]
+        q=" med "
+    )
+    assert payload == {"values": ["Med"]}
+
+
+@pytest.mark.anyio("asyncio")
+async def test_proxy_spansh_autocomplete_controlling_minor_faction_empty_query():
+    with pytest.raises(HTTPException) as excinfo:
+        await systems.proxy_spansh_autocomplete_controlling_minor_faction.__wrapped__(  # type: ignore[attr-defined]
+            q="  "
+        )
+
+    assert excinfo.value.status_code == 400
+
+
 def test_favicon_and_index_routes(tmp_path, monkeypatch):
     # ensure static dir accessible
     static_dir = tmp_path / "static"
