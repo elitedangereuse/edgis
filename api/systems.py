@@ -851,6 +851,49 @@ async def proxy_spansh_faction_presence(
     return {"results": simplified_results}
 
 
+@app.get(
+    "/spansh/autocomplete_controlling_minor_faction",
+    include_in_schema=False,
+)
+@cached(
+    cache=RedisCache,
+    endpoint=REDIS_HOST,
+    port=REDIS_PORT,
+    ttl=ONE_DAY_SECONDS,
+    namespace="controlling_faction_autocomplete",
+    serializer=PickleSerializer(),
+)
+async def proxy_spansh_autocomplete_controlling_minor_faction(
+    q: str = Query(..., description="Search fragment for the controlling faction name"),
+):
+    query = q.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Query must not be empty")
+
+    url = (
+        "https://spansh.co.uk/api/systems/field_values/"
+        "autocomplete_controlling_minor_faction"
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(url, params={"q": query})
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict) or "values" not in payload:
+                raise HTTPException(
+                    status_code=502,
+                    detail="Unexpected response from Spansh",
+                )
+            return payload
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 from fastapi.staticfiles import StaticFiles
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
