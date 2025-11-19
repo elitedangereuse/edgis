@@ -22,7 +22,6 @@ MAX_XYZ = 70000  # Light years
 MAX_Y = 35000
 INACTIVITY_TIMEOUT_SECONDS = int(os.getenv("EDDN_INACTIVITY_TIMEOUT", "900"))
 
-
 def is_valid_coordinates(x, y, z):
     """Check if coordinates are within plausible bounds and not suspicious test values."""
     if not (-MAX_XYZ <= x <= MAX_XYZ):
@@ -37,7 +36,6 @@ def is_valid_coordinates(x, y, z):
         return x == 0 and y == 0 and z == 0  # Only allow (0,0,0) = Sol
 
     return True
-
 
 def is_valid_system_name(name):
     """Reject obviously fake or placeholder system names."""
@@ -57,11 +55,9 @@ def is_valid_system_name(name):
         return False
     return True
 
-
 def is_trusted_source(software_name):
     """Check if the data comes from a trusted software client."""
     return software_name in TRUSTED_CLIENTS
-
 
 # === Database Connection ===
 load_dotenv()
@@ -74,7 +70,6 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 conn = psycopg.connect(
     host=DB_HOST, port=5432, dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD
 )
-
 
 def record_systems_processed(cur, amount=1, is_new=False):
     minute_bucket = datetime.now(timezone.utc).replace(second=0, microsecond=0)
@@ -99,7 +94,6 @@ def record_systems_processed(cur, amount=1, is_new=False):
             (minute_bucket, amount),
         )
 
-
 # === UPSERT Query ===
 UPSERT_QUERY = """
     INSERT INTO systems_big (id64, name, mainstar, updatetime, coords)
@@ -118,12 +112,10 @@ socket = context.socket(zmq.SUB)
 socket.connect("tcp://eddn.edcd.io:9500")
 socket.setsockopt_string(zmq.SUBSCRIBE, "")
 
-print("✅ Listening for EDDN star scans and NavRoutes from trusted clients...")
-
+print("✅ Listening for EDDN FSDJumps and NavRoutes from trusted clients...")
 
 class StreamStalledError(RuntimeError):
     """Raised when no events are received for an extended period."""
-
 
 def recv_with_watchdog(sock: zmq.Socket, timeout_seconds: int) -> bytes:
     if timeout_seconds <= 0:
@@ -137,7 +129,6 @@ def recv_with_watchdog(sock: zmq.Socket, timeout_seconds: int) -> bytes:
         f"No EDDN systems events received in {timeout_seconds} seconds"
     )
 
-
 def _parse_timestamp(raw: Optional[str], context: str) -> Optional[datetime]:
     if not raw:
         print(f"Warning: {context}: Missing timestamp")
@@ -147,7 +138,6 @@ def _parse_timestamp(raw: Optional[str], context: str) -> Optional[datetime]:
     except (ValueError, TypeError):
         print(f"Warning: {context}: Invalid timestamp: {raw}")
         return None
-
 
 def _coords_from_starpos(
     star_pos: Optional[list[Any]],
@@ -171,7 +161,6 @@ def _coords_from_starpos(
         )
         return None
     return coords
-
 
 def _upsert_system(
     system_address: int,
@@ -198,11 +187,11 @@ def _upsert_system(
         record_systems_processed(cur, amount=1, is_new=is_new)
     conn.commit()
 
-
 def _handle_scan_event(msg_data: dict) -> None:
     system_address = msg_data.get("SystemAddress")
     star_system = msg_data.get("StarSystem")
     star_type = msg_data.get("StarType")
+    distance_from_arrival = msg_data.get("DistanceFromArrivalLS")
     star_pos = msg_data.get("StarPos")
     timestamp = msg_data.get("timestamp")
 
@@ -226,9 +215,10 @@ def _handle_scan_event(msg_data: dict) -> None:
     if not updatetime:
         return
 
-    _upsert_system(system_address, star_system, star_type, updatetime, coords)
-    print(f"Scan: {star_system} [{system_address}] | Type: {star_type}")
+    mainstar_type = star_type if distance_from_arrival == 0 else None
 
+    _upsert_system(system_address, star_system, mainstar_type, updatetime, coords)
+    print(f"Scan: {star_system} [{system_address}] | Type: {star_type}")
 
 def _handle_navroute_event(msg_data: dict) -> None:
     route = msg_data.get("Route")
@@ -269,7 +259,6 @@ def _handle_navroute_event(msg_data: dict) -> None:
     if systems_added:
         print(f"NavRoute completed: {systems_added} systems upserted")
 
-
 def _handle_fsdjump_event(msg_data: dict) -> None:
     system_address = msg_data.get("SystemAddress")
     star_system = msg_data.get("StarSystem")
@@ -301,13 +290,11 @@ def _handle_fsdjump_event(msg_data: dict) -> None:
         f"FSDJump: {star_system} [{system_address}] | Pos: {coords[0]}, {coords[1]}, {coords[2]}"
     )
 
-
 EVENT_HANDLERS: dict[str, Callable[[dict], None]] = {
     "Scan": _handle_scan_event,
     "NavRoute": _handle_navroute_event,
     "FSDJump": _handle_fsdjump_event,
 }
-
 
 def _process_event(message: dict) -> None:
     header = message.get("header", {})
