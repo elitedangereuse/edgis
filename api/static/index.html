@@ -201,7 +201,7 @@
         </div>
       </div>
     </main>
-    <script type="module">
+    <script>
      const COLUMN_LABELS = {
        mainstar: 'type',
        distance: 'LY',
@@ -307,28 +307,30 @@
      }
 
      if (totalSystemsEl) {
-       try {
-         const statsUrl = new URL('/stats/total-systems', globalThis.location.origin);
-         const response = await fetch(statsUrl);
-         if (!response.ok) {
-           throw new Error('Request failed');
-         }
+       const statsUrl = new URL('/stats/total-systems', globalThis.location.origin);
+       fetch(statsUrl)
+         .then(response => {
+           if (!response.ok) {
+             throw new Error('Request failed');
+           }
+           return response.json();
+         })
+         .then(payload => {
+           const total = payload && typeof payload.total_systems === 'number'
+             ? payload.total_systems
+             : null;
 
-         const payload = await response.json();
-         const total = payload && typeof payload.total_systems === 'number'
-           ? payload.total_systems
-           : null;
+           if (total === null) {
+             throw new Error('Missing total');
+           }
 
-         if (total === null) {
-           throw new Error('Missing total');
-         }
-
-         const formatter = new Intl.NumberFormat();
-         totalSystemsEl.textContent = `${formatter.format(total)} known systems indexed`;
-       } catch (error) {
-         console.warn('Unable to load total systems', error);
-         totalSystemsEl.textContent = 'Total known systems unavailable';
-       }
+           const formatter = new Intl.NumberFormat();
+           totalSystemsEl.textContent = `${formatter.format(total)} known systems indexed`;
+         })
+         .catch(error => {
+           console.warn('Unable to load total systems', error);
+           totalSystemsEl.textContent = 'Total known systems unavailable';
+         });
      }
 
      function setStatus(txt){ statusEl.textContent = txt; }
