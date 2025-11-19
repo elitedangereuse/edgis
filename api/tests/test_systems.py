@@ -1,6 +1,7 @@
 import os
 import pathlib
 import sys
+import types
 from decimal import Decimal
 
 from fastapi import FastAPI, HTTPException
@@ -168,7 +169,9 @@ def test_coords_lookup_not_found(monkeypatch):
     async def fake_fetch_system_from_db(name_or_id):
         return None
 
-    monkeypatch.setattr(systems, "fetch_system_from_db", fake_fetch_system_from_db)
+    monkeypatch.setattr(
+        systems, "fetch_system_from_db", fake_fetch_system_from_db
+    )
 
     response = client.get("/coords", params={"q": "Kubeo"})
     assert response.status_code == 404
@@ -184,7 +187,9 @@ def test_coords_lookup_success(monkeypatch):
             "coords": {"x": -33.65625, "y": 72.46875, "z": -20.65625},
         }
 
-    monkeypatch.setattr(systems, "fetch_system_from_db", fake_fetch_system_from_db)
+    monkeypatch.setattr(
+        systems, "fetch_system_from_db", fake_fetch_system_from_db
+    )
 
     response = client.get("/coords", params={"q": "Alioth"})
     assert response.status_code == 200
@@ -195,9 +200,13 @@ def test_apply_mode_scaling_no_mode():
     import math
 
     sample = [{"radius": 2000, "gravity": 9.807}]
-    result = systems._apply_mode_scaling([body.copy() for body in sample], None)
+    result = systems._apply_mode_scaling(
+        [body.copy() for body in sample], None
+    )
     assert result[0]["radius"] == 2000
-    assert math.isclose(result[0]["gravity"], 9.807, rel_tol=1e-09, abs_tol=1e-09)
+    assert math.isclose(
+        result[0]["gravity"], 9.807, rel_tol=1e-09, abs_tol=1e-09
+    )
 
 
 def test_format_neutron_result_handles_decimal():
@@ -254,6 +263,48 @@ async def test_fetch_total_systems_from_db_hits_db(monkeypatch):
     query, params = cursor.executed[0]
     assert "reltuples" in query.lower()
     assert params is None
+
+
+def test_manual_name_suggestions(monkeypatch):
+    monkeypatch.setattr(
+        systems,
+        "_load_manual_system_names",
+        lambda: (
+            ["sol", "solitude", "wolf 359"],
+            ["Sol", "Solitude", "Wolf 359"],
+        ),
+    )
+
+    assert systems._manual_name_suggestions("so", 5) == ["Sol", "Solitude"]
+    assert systems._manual_name_suggestions("wolf", 5) == ["Wolf 359"]
+
+
+def test_load_manual_system_names_uses_cache(monkeypatch):
+    pkg = types.ModuleType("edtslib")
+    id_module = types.ModuleType("edtslib.id64data")
+    id_module.known_systems = {"sol": 1, "wolf 359": 2}
+
+    pg_module = types.ModuleType("edtslib.pgnames")
+    pg_module.get_canonical_name = lambda name: name.title()
+    pkg.id64data = id_module
+    pkg.pgnames = pg_module
+
+    monkeypatch.setitem(sys.modules, "edtslib", pkg)
+    monkeypatch.setitem(sys.modules, "edtslib.id64data", id_module)
+    monkeypatch.setitem(sys.modules, "edtslib.pgnames", pg_module)
+    monkeypatch.setattr(
+        systems, "_MANUAL_AUTOCOMPLETE_CACHE", None, raising=False
+    )
+
+    lowers, canonicals = systems._load_manual_system_names()
+
+    assert lowers == ["sol", "wolf 359"]
+    assert canonicals == ["Sol", "Wolf 359"]
+
+    # Modify the source data and ensure cached copy is reused
+    id_module.known_systems["new place"] = 3
+    cached = systems._load_manual_system_names()
+    assert cached == (lowers, canonicals)
 
 
 def test_nearest_neutron_star_endpoint_success(monkeypatch):
@@ -342,6 +393,25 @@ def test_total_systems_endpoint_success(monkeypatch):
     assert response.json() == {"total_systems": 250000000}
 
 
+def test_autocomplete_endpoint_short_query():
+    response = client.get("/systems/autocomplete", params={"q": "s"})
+    assert response.status_code == 200
+    assert response.json() == {"suggestions": []}
+
+
+def test_autocomplete_endpoint_success(monkeypatch):
+    async def fake_fetch(term):
+        assert term == "Sol"
+        return ["Sol", "Solitude"]
+
+    monkeypatch.setattr(systems, "fetch_system_name_suggestions", fake_fetch)
+
+    response = client.get("/systems/autocomplete", params={"q": " Sol"})
+
+    assert response.status_code == 200
+    assert response.json()["suggestions"] == ["Sol", "Solitude"]
+
+
 def test_apply_mode_scaling_edsm_handles_units():
     source = [
         {
@@ -364,7 +434,9 @@ def test_apply_mode_scaling_edsm_handles_units():
         },
     ]
 
-    scaled = systems._apply_mode_scaling([body.copy() for body in source], "edsm")
+    scaled = systems._apply_mode_scaling(
+        [body.copy() for body in source], "edsm"
+    )
     star, planet = scaled
     assert star["radius"] == pytest.approx(1.0)
     assert star["gravity"] == pytest.approx(2.0)
@@ -383,9 +455,13 @@ def test_bodies_mode_query_passthrough(monkeypatch):
     def fake_fetch_bodies_from_db(name_or_id, mode=None):
         return [{"name_or_id": name_or_id, "mode": mode}]
 
-    monkeypatch.setattr(systems, "fetch_bodies_from_db", fake_fetch_bodies_from_db)
+    monkeypatch.setattr(
+        systems, "fetch_bodies_from_db", fake_fetch_bodies_from_db
+    )
 
-    response = client.get("/bodies", params={"name_or_id": "Sol", "mode": "edsm"})
+    response = client.get(
+        "/bodies", params={"name_or_id": "Sol", "mode": "edsm"}
+    )
     assert response.status_code == 200
     payload = response.json()
     assert payload[0]["mode"] == "edsm"
@@ -398,7 +474,9 @@ def test_bodies_with_explicit_body_id(monkeypatch):
         captured["args"] = (name_or_id, mode, body_id)
         return [{"name_or_id": name_or_id, "body_id": body_id}]
 
-    monkeypatch.setattr(systems, "fetch_bodies_from_db", fake_fetch_bodies_from_db)
+    monkeypatch.setattr(
+        systems, "fetch_bodies_from_db", fake_fetch_bodies_from_db
+    )
 
     response = client.get(
         "/bodies", params={"name_or_id": "Sol", "body_id": 42}
@@ -411,7 +489,10 @@ def test_bodies_with_explicit_body_id(monkeypatch):
 
 def test_load_cors_origins_respects_env(monkeypatch):
     monkeypatch.setenv("CORS_ORIGINS", " https://a.example ,http://b.local ")
-    assert systems._load_cors_origins() == ["https://a.example", "http://b.local"]
+    assert systems._load_cors_origins() == [
+        "https://a.example",
+        "http://b.local",
+    ]
 
 
 def test_get_neighbors_returns_500_on_error(monkeypatch):
@@ -610,7 +691,9 @@ async def test_proxy_edsm_bodies_non_200(monkeypatch):
     DummyClient.__aexit__ = _aexit  # type: ignore[attr-defined]
     DummyClient.get = _get  # type: ignore[attr-defined]
 
-    monkeypatch.setattr(systems.httpx, "AsyncClient", lambda *args, **kwargs: DummyClient())
+    monkeypatch.setattr(
+        systems.httpx, "AsyncClient", lambda *args, **kwargs: DummyClient()
+    )
 
     with pytest.raises(HTTPException) as excinfo:
         await systems.proxy_edsm_bodies.__wrapped__(systemName="Sol")  # type: ignore[attr-defined]
@@ -635,7 +718,9 @@ async def test_proxy_edsm_bodies_timeout(monkeypatch):
     DummyClient.__aexit__ = _aexit  # type: ignore[attr-defined]
     DummyClient.get = _get  # type: ignore[attr-defined]
 
-    monkeypatch.setattr(systems.httpx, "AsyncClient", lambda *args, **kwargs: DummyClient())
+    monkeypatch.setattr(
+        systems.httpx, "AsyncClient", lambda *args, **kwargs: DummyClient()
+    )
 
     with pytest.raises(HTTPException) as excinfo:
         await systems.proxy_edsm_bodies.__wrapped__(systemName="Sol")  # type: ignore[attr-defined]
@@ -697,7 +782,9 @@ async def test_proxy_spansh_system_success(monkeypatch):
     DummyClient.__aexit__ = _aexit  # type: ignore[attr-defined]
     DummyClient.get = _get  # type: ignore[attr-defined]
 
-    monkeypatch.setattr(systems.httpx, "AsyncClient", lambda *args, **kwargs: DummyClient())
+    monkeypatch.setattr(
+        systems.httpx, "AsyncClient", lambda *args, **kwargs: DummyClient()
+    )
 
     payload = await systems.proxy_spansh_system(system_id=1)
     assert payload == ["a"]
@@ -707,7 +794,11 @@ async def test_proxy_spansh_system_success(monkeypatch):
 async def test_proxy_spansh_system_http_error(monkeypatch):
     class DummyResponse:
         def raise_for_status(self):
-            raise systems.httpx.HTTPStatusError("fail", request=None, response=type("R", (), {"status_code": 403})())
+            raise systems.httpx.HTTPStatusError(
+                "fail",
+                request=None,
+                response=type("R", (), {"status_code": 403})(),
+            )
 
     class DummyClient:
         def __init__(self, *args, **kwargs):
@@ -725,7 +816,9 @@ async def test_proxy_spansh_system_http_error(monkeypatch):
     DummyClient.__aexit__ = _aexit  # type: ignore[attr-defined]
     DummyClient.get = _get  # type: ignore[attr-defined]
 
-    monkeypatch.setattr(systems.httpx, "AsyncClient", lambda *args, **kwargs: DummyClient())
+    monkeypatch.setattr(
+        systems.httpx, "AsyncClient", lambda *args, **kwargs: DummyClient()
+    )
 
     with pytest.raises(HTTPException) as excinfo:
         await systems.proxy_spansh_system(system_id=1)
@@ -776,7 +869,10 @@ async def test_proxy_spansh_faction_presence(monkeypatch):
     DummyClient.get = _get  # type: ignore[attr-defined]
 
     dummy_client = DummyClient()
-    monkeypatch.setattr(systems.httpx, "AsyncClient", lambda *args, **kwargs: dummy_client)
+    monkeypatch.setattr(
+        systems.httpx, "AsyncClient", lambda *args, **kwargs: dummy_client
+    )
+
     async def fake_fetch_coords(id64_list):
         return {500: {"x": 0, "y": 0, "z": 0}}
 
@@ -787,7 +883,9 @@ async def test_proxy_spansh_faction_presence(monkeypatch):
 
 
 @pytest.mark.anyio("asyncio")
-async def test_proxy_spansh_autocomplete_controlling_minor_faction(monkeypatch):
+async def test_proxy_spansh_autocomplete_controlling_minor_faction(
+    monkeypatch,
+):
     class DummyResponse:
         def __init__(self, payload):
             self._payload = payload
