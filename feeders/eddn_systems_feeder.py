@@ -323,6 +323,8 @@ def stream_events() -> None:
                 decompressed = zlib.decompress(compressed)
                 message = json.loads(decompressed.decode("utf-8"))
                 _process_event(message)
+            except StreamStalledError:
+                raise
             except Exception as e:
                 print(f"Error processing message: {e}")
                 continue
