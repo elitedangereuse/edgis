@@ -800,8 +800,6 @@
        });
      }
 
-    </script>
-    <script>
      const toggleBtn = document.getElementById("toggleViewBtn");
      const resultTable = document.getElementById("resultTable");
      const copyIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-copy" viewBox="0 0 16 16">
@@ -831,11 +829,13 @@
        const url = `https://elitedangereuse.fr/outils/sysmap.php?system=${text}`;
        window.open(url, "_blank");
      }
+     globalThis.openSystemMap = openSystemMap;
 
      function openCoordsMap(x, y, z){
        const url = convertEdUrl(`https://elitedangereuse.fr/outils/ed3ddrawer.php?x=${x}&y=${y}&z=${z}&radius=30`);
        window.open(url, "_blank");
      }
+     globalThis.openCoordsMap = openCoordsMap;
 
      function copyToClipboard(text, btnElement) {
        navigator.clipboard.writeText(text).then(() => {
@@ -851,6 +851,7 @@
          }, 1500);
        });
      }
+     globalThis.copyToClipboard = copyToClipboard;
 
      function jsonToTable(data, kind = null) {
        const rows = normalizeTableData(data);
@@ -1063,6 +1064,7 @@
        // Optional: show status
        setStatus(`Neighbors input filled: x=${x}, y=${y}, z=${z}, r=30`);
      }
+     globalThis.fillNeighborsInput = fillNeighborsInput;
 
      function buildRows(rows, keys, kind = null) {
        return rows.map((row, i) => {
