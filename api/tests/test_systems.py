@@ -27,7 +27,7 @@ class _CursorStub:
         self.executed = []
         self.closed = False
 
-    def execute(self, query, params):
+    def execute(self, query, params=None):
         self.executed.append((query, params))
 
     def fetchall(self):
@@ -244,6 +244,18 @@ async def test_fetch_nearest_neutron_star_at_coords_hits_db(monkeypatch):
     assert params == (-10.0, 5.0, 42.0)
 
 
+@pytest.mark.anyio
+async def test_fetch_total_systems_from_db_hits_db(monkeypatch):
+    cursor = _patch_db(monkeypatch, first=(123456789,))
+
+    total = await systems.fetch_total_systems_from_db.__wrapped__()
+
+    assert total == 123456789
+    query, params = cursor.executed[0]
+    assert "reltuples" in query.lower()
+    assert params is None
+
+
 def test_nearest_neutron_star_endpoint_success(monkeypatch):
     async def fake_fetch(system_name):
         assert system_name == "HIP 87621"
@@ -316,6 +328,18 @@ def test_nearest_neutron_star_coords_endpoint_not_found(monkeypatch):
 
     assert response.status_code == 404
     assert response.json()["error"] == "No neutron star found"
+
+
+def test_total_systems_endpoint_success(monkeypatch):
+    async def fake_fetch():
+        return 250000000
+
+    monkeypatch.setattr(systems, "fetch_total_systems_from_db", fake_fetch)
+
+    response = client.get("/stats/total-systems")
+
+    assert response.status_code == 200
+    assert response.json() == {"total_systems": 250000000}
 
 
 def test_apply_mode_scaling_edsm_handles_units():

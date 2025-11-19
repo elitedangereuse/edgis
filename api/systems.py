@@ -107,6 +107,38 @@ async def fetch_coords_for_systems(id64_list: list[int]):
     return coords_map
 
 
+TOTAL_SYSTEMS_QUERY = """
+    SELECT c.reltuples::bigint AS total_systems
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE c.relname IN ('systems_big')
+      AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+"""
+
+
+@cached(
+    cache=RedisCache,
+    endpoint=REDIS_HOST,
+    port=REDIS_PORT,
+    ttl=ONE_DAY_SECONDS,
+    namespace="stats_total_systems",
+    serializer=PickleSerializer(),
+)
+async def fetch_total_systems_from_db() -> int:
+    conn = psycopg.connect(
+        dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST
+    )
+    cursor = conn.cursor()
+    cursor.execute(TOTAL_SYSTEMS_QUERY)
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if not row or row[0] is None:
+        raise RuntimeError("Total systems count unavailable")
+    return int(row[0])
+
+
 @cached(
     cache=RedisCache,
     endpoint=REDIS_HOST,  # or your Redis host
@@ -892,6 +924,17 @@ async def proxy_spansh_autocomplete_controlling_minor_faction(
         raise HTTPException(status_code=e.response.status_code, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/stats/total-systems")
+async def get_total_systems():
+    try:
+        total = await fetch_total_systems_from_db()
+        return {"total_systems": total}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail="Failed to retrieve total systems"
+        ) from exc
 
 
 from fastapi.staticfiles import StaticFiles
