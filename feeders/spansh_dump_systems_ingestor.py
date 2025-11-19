@@ -63,7 +63,7 @@ def insert_batch(cursor, batch):
         INSERT INTO systems_big (id64, name, mainstar, coords, updatetime)
         VALUES %s
         ON CONFLICT (id64) DO UPDATE
-        SET mainstar = COALESCE(systems_big.mainstar, EXCLUDED.mainstar),
+        SET mainstar = COALESCE(EXCLUDED.mainstar, systems_big.mainstar),
             name = EXCLUDED.name,
             coords = EXCLUDED.coords,
             updatetime = EXCLUDED.updatetime;
