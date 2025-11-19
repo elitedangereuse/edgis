@@ -838,6 +838,8 @@ def stream_events(verbose: bool = True) -> None:
                 outcome = process_message(message, connection=conn, verbose=verbose)
                 if outcome.status != "success":
                     continue
+            except StreamStalledError:
+                raise
             except Exception as exc:
                 print(f"Error processing message: {exc}")
                 try:
