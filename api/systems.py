@@ -62,7 +62,9 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 REDIS_HOST = os.getenv("REDIS_HOST") or "localhost"
 REDIS_PORT = int(os.getenv("REDIS_PORT") or "6379")
 ONE_DAY_SECONDS = 60 * 60 * 24
+AUTOCOMPLETE_LIMIT = 15
 
+from bisect import bisect_left
 from aiocache import cached
 from aiocache.serializers import PickleSerializer
 from aiocache.backends.redis import RedisCache
@@ -105,6 +107,83 @@ async def fetch_coords_for_systems(id64_list: list[int]):
         }
 
     return coords_map
+
+
+AUTOCOMPLETE_QUERY = """
+    SELECT name
+    FROM systems_big
+    WHERE lower(name) LIKE %s
+    ORDER BY name
+    LIMIT %s
+"""
+
+
+_MANUAL_AUTOCOMPLETE_CACHE: tuple[list[str], list[str]] | None = None
+
+
+def _load_manual_system_names() -> tuple[list[str], list[str]]:
+    """Load the manually renamed systems shipped with EDTS."""
+
+    global _MANUAL_AUTOCOMPLETE_CACHE
+    if _MANUAL_AUTOCOMPLETE_CACHE is not None:
+        return _MANUAL_AUTOCOMPLETE_CACHE
+
+    from edtslib import id64data, pgnames  # type: ignore[attr-defined]
+
+    entries: list[tuple[str, str]] = []
+    for raw_name in id64data.known_systems.keys():
+        canonical = pgnames.get_canonical_name(raw_name)
+        cleaned = canonical if canonical else raw_name.strip().title()
+        if not cleaned:
+            continue
+        entries.append((cleaned.lower(), cleaned))
+
+    entries.sort()
+    if entries:
+        lowers, canonicals = zip(*entries)
+        _MANUAL_AUTOCOMPLETE_CACHE = (list(lowers), list(canonicals))
+    else:
+        _MANUAL_AUTOCOMPLETE_CACHE = ([], [])
+    return _MANUAL_AUTOCOMPLETE_CACHE
+
+
+def _manual_name_suggestions(term: str, limit: int) -> list[str]:
+    if limit <= 0:
+        return []
+    prefix = term.strip().lower()
+    if len(prefix) < 2:
+        return []
+
+    lowers, canonicals = _load_manual_system_names()
+    start = bisect_left(lowers, prefix)
+    results: list[str] = []
+    seen: set[str] = set()
+    idx = start
+    while idx < len(lowers) and lowers[idx].startswith(prefix):
+        name = canonicals[idx]
+        if name not in seen:
+            results.append(name)
+            seen.add(name)
+            if len(results) >= limit:
+                break
+        idx += 1
+    return results
+
+
+@cached(
+    cache=RedisCache,
+    endpoint=REDIS_HOST,
+    port=REDIS_PORT,
+    ttl=600,
+    namespace="systems_autocomplete",
+    serializer=PickleSerializer(),
+)
+async def fetch_system_name_suggestions(term: str) -> list[str]:
+    manual = _manual_name_suggestions(term, AUTOCOMPLETE_LIMIT)
+    if len(manual) >= AUTOCOMPLETE_LIMIT:
+        return manual[:AUTOCOMPLETE_LIMIT]
+
+    return manual
 
 
 TOTAL_SYSTEMS_QUERY = """
@@ -285,7 +364,9 @@ def _format_neutron_result(row: Optional[tuple[Any, Any, Any]]):
         formatted_distance = None
 
     return {
-        "neutron_id64": int(neutron_id64) if neutron_id64 is not None else None,
+        "neutron_id64": int(neutron_id64)
+        if neutron_id64 is not None
+        else None,
         "neutron_name": neutron_name,
         "distance_ly": formatted_distance,
     }
@@ -369,7 +450,9 @@ def _build_conversion_map() -> dict[str, float]:
     }
 
 
-def _scale_radius(record: dict[str, Any], numeric_types: tuple[type, ...]) -> None:
+def _scale_radius(
+    record: dict[str, Any], numeric_types: tuple[type, ...]
+) -> None:
     radius = record.get("radius")
     if not isinstance(radius, numeric_types):
         return
@@ -896,7 +979,9 @@ async def proxy_spansh_faction_presence(
     serializer=PickleSerializer(),
 )
 async def proxy_spansh_autocomplete_controlling_minor_faction(
-    q: str = Query(..., description="Search fragment for the controlling faction name"),
+    q: str = Query(
+        ..., description="Search fragment for the controlling faction name"
+    ),
 ):
     query = q.strip()
     if not query:
@@ -924,6 +1009,22 @@ async def proxy_spansh_autocomplete_controlling_minor_faction(
         raise HTTPException(status_code=e.response.status_code, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/systems/autocomplete")
+async def autocomplete_systems(
+    q: str = Query(..., description="System name prefix")
+):
+    query = q.strip()
+    if len(query) < 2:
+        return {"suggestions": []}
+    try:
+        suggestions = await fetch_system_name_suggestions(query)
+        return {"suggestions": suggestions}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail="Autocomplete failed"
+        ) from exc
 
 
 @app.get("/stats/total-systems")
