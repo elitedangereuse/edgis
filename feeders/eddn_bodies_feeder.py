@@ -19,6 +19,7 @@ TRUSTED_CLIENTS = {
 }
 ERROR_LOG_FILE = "error_log.jsonl"
 TIMEZONE = "+00:00"
+INACTIVITY_TIMEOUT_SECONDS = int(os.getenv("EDDN_INACTIVITY_TIMEOUT", "900"))
 
 # === Coordinate Bounds (for validation) ===
 MAX_XYZ = 70000  # Light years
@@ -181,6 +182,24 @@ socket.connect("tcp://eddn.edcd.io:9500")
 socket.setsockopt_string(zmq.SUBSCRIBE, "")
 
 print("Listening for EDDN body events from trusted clients...")
+
+
+class StreamStalledError(RuntimeError):
+    """Raised when no events are received within the configured timeout."""
+
+
+def recv_with_watchdog(sock: zmq.Socket, timeout_seconds: int) -> bytes:
+    """Block for a message but raise when the stream stalls."""
+    if timeout_seconds <= 0:
+        return sock.recv()
+    poller = zmq.Poller()
+    poller.register(sock, zmq.POLLIN)
+    events = dict(poller.poll(timeout_seconds * 1000))
+    if events.get(sock) == zmq.POLLIN:
+        return sock.recv()
+    raise StreamStalledError(
+        f"No EDDN bodies events received in {timeout_seconds} seconds"
+    )
 
 # === Lookup Cache ===
 lookup_cache = {
@@ -811,7 +830,7 @@ def stream_events(verbose: bool = True) -> None:
             header = {}
             msg_data = {}
             try:
-                compressed = socket.recv()
+                compressed = recv_with_watchdog(socket, INACTIVITY_TIMEOUT_SECONDS)
                 decompressed = zlib.decompress(compressed)
                 message = json.loads(decompressed.decode("utf-8"))
                 header = message.get("header", {})
@@ -838,10 +857,15 @@ def stream_events(verbose: bool = True) -> None:
                     print(f"Failed to log error: {log_error}")
                 conn.rollback()
                 continue
+    except StreamStalledError as stalled:
+        print(f"Watchdog detected stalled EDDN feed: {stalled}")
+        raise SystemExit(2) from stalled
     except KeyboardInterrupt:
         print("Stopping feeder bodies listener...")
     finally:
         conn.close()
+        socket.close(0)
+        context.term()
 
 
 # === Cleanup ===
