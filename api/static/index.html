@@ -55,7 +55,9 @@
               </label>
               <div class="flex flex-wrap items-center gap-3">
                 <input id="searchInput" required type="text" autofocus placeholder="Search a system — e.g. Kamadhenu"
+                       list="systemSuggestions"
                        class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+                <datalist id="systemSuggestions"></datalist>
                 <button id="searchBtn" type="button" class="tool-tab active w-full sm:w-auto">
                   <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" fill="currentColor" style="display: inline; vertical-align: text-bottom; margin-right: 5px;" class="bi-search" viewBox="0 0 16 16">   <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/> </svg>
                   Search system
@@ -472,6 +474,8 @@
      }
 
      const searchInput = document.getElementById('searchInput');
+     const systemSuggestions = document.getElementById('systemSuggestions');
+     let autocompleteTimer = null;
      const searchBtn = document.getElementById('searchBtn');
      const bodiesInput = document.getElementById('bodiesInput');
      const bodiesBtn = document.getElementById('bodiesBtn');
@@ -531,6 +535,55 @@
 
      for (const btn of tabButtons) {
        btn.addEventListener('click', () => activateTab(btn.dataset.tab));
+     }
+
+     function clearSystemSuggestions() {
+       if (systemSuggestions) {
+         systemSuggestions.innerHTML = '';
+       }
+     }
+
+     async function requestSystemAutocomplete(value) {
+       if (!systemSuggestions) {
+          return;
+       }
+       const trimmed = value.trim();
+       if (trimmed.length < 2) {
+         clearSystemSuggestions();
+         return;
+       }
+
+       try {
+         const url = new URL('/systems/autocomplete', globalThis.location.origin);
+         url.searchParams.set('q', trimmed);
+         const response = await fetch(url.toString());
+         if (!response.ok) {
+           throw new Error(`HTTP ${response.status}`);
+         }
+         const payload = await response.json();
+         const suggestions = Array.isArray(payload?.suggestions)
+           ? payload.suggestions
+           : [];
+         systemSuggestions.innerHTML = suggestions
+           .map(name => `<option value="${escapeAttr(name)}"></option>`)
+           .join('');
+       } catch (error) {
+         console.warn('Autocomplete failed', error);
+       }
+     }
+
+     if (searchInput) {
+       searchInput.addEventListener('input', () => {
+         if (autocompleteTimer) {
+           clearTimeout(autocompleteTimer);
+         }
+         const value = searchInput.value;
+         if (!value || value.trim().length < 2) {
+           clearSystemSuggestions();
+           return;
+         }
+         autocompleteTimer = setTimeout(() => requestSystemAutocomplete(value), 200);
+       });
      }
 
      function submitSearch(){
