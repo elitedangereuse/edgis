@@ -19,6 +19,7 @@ TRUSTED_CLIENTS = {
 # === Coordinate Bounds ===
 MAX_XYZ = 70000  # Light years
 MAX_Y = 35000
+INACTIVITY_TIMEOUT_SECONDS = int(os.getenv("EDDN_INACTIVITY_TIMEOUT", "900"))
 
 
 def is_valid_coordinates(x, y, z):
@@ -118,195 +119,213 @@ socket.setsockopt_string(zmq.SUBSCRIBE, "")
 
 print("✅ Listening for EDDN star scans and NavRoutes from trusted clients...")
 
-# === Main Loop ===
-while True:
+
+class StreamStalledError(RuntimeError):
+    """Raised when no events are received for an extended period."""
+
+
+def recv_with_watchdog(sock: zmq.Socket, timeout_seconds: int) -> bytes:
+    if timeout_seconds <= 0:
+        return sock.recv()
+    poller = zmq.Poller()
+    poller.register(sock, zmq.POLLIN)
+    events = dict(poller.poll(timeout_seconds * 1000))
+    if events.get(sock) == zmq.POLLIN:
+        return sock.recv()
+    raise StreamStalledError(
+        f"No EDDN systems events received in {timeout_seconds} seconds"
+    )
+
+def stream_events() -> None:
     try:
-        # Receive and decompress message
-        compressed = socket.recv()
-        decompressed = zlib.decompress(compressed)
-        message = json.loads(decompressed.decode("utf-8"))
-
-        # Extract header and message
-        header = message.get("header", {})
-        msg_data = message.get("message", {})
-        event = msg_data.get("event")
-
-        # --- SECURITY FILTERS ---
-        software_name = header.get("softwareName")
-        if not is_trusted_source(software_name):
-            # Optional: log untrusted sources occasionally
-            print(f"Warning: Untrusted source ignored: {software_name}")
-            continue
-
-        # --- Handle Scan Events (Stars) ---
-        if event == "Scan" and "StarType" in msg_data:
-            system_address = msg_data.get("SystemAddress")
-            star_system = msg_data.get("StarSystem")
-            star_type = msg_data.get("StarType")
-            star_pos = msg_data.get("StarPos")
-            timestamp = msg_data.get("timestamp")
-
-            if not all([system_address, star_system, star_pos, timestamp]):
-                continue
-
-            if not is_valid_system_name(star_system):
-                print(f"Warning: Invalid system name, skipping: {star_system}")
-                continue
-
-            if len(star_pos) != 3:
-                continue
-
-            x, y, z = (
-                float(star_pos[0]),
-                float(star_pos[1]),
-                float(star_pos[2]),
-            )
-            if not is_valid_coordinates(x, y, z):
-                print(
-                    f"Warning: Invalid or suspicious coordinates, skipping: {star_system} [{x}, {y}, {z}]"
-                )
-                continue
-
+        while True:
             try:
-                updatetime = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-            except ValueError:
-                print(f"Warning: Invalid timestamp format: {timestamp}")
-                continue
+                compressed = recv_with_watchdog(socket, INACTIVITY_TIMEOUT_SECONDS)
+                decompressed = zlib.decompress(compressed)
+                message = json.loads(decompressed.decode("utf-8"))
 
-            # Upsert star scan
-            with conn.cursor() as cur:
-                cur.execute(
-                    UPSERT_QUERY,
-                    (
-                        system_address,
-                        star_system,
-                        star_type,
-                        updatetime,
-                        x,
-                        y,
-                        z,
-                    ),
-                )
-                result = cur.fetchone()
-                is_new = result[0] if result else False
-                record_systems_processed(cur, amount=1, is_new=is_new)
-            conn.commit()
-            print(f"Scan: {star_system} [{system_address}] | Type: {star_type}")
+                header = message.get("header", {})
+                msg_data = message.get("message", {})
+                event = msg_data.get("event")
 
-        # --- Handle NavRoute Events ---
-        elif event == "NavRoute" and "Route" in msg_data:
-            route = msg_data["Route"]
-            timestamp = msg_data.get("timestamp")
-
-            try:
-                updatetime = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-            except (ValueError, TypeError):
-                print(f"Warning: Invalid timestamp in NavRoute: {timestamp}")
-                continue
-
-            systems_added = 0
-            for star in route:
-                system_address = star.get("SystemAddress")
-                star_system = star.get("StarSystem")
-                star_class = star.get("StarClass")  # e.g., "K", "N", "M"
-                star_pos = star.get("StarPos")  # [x, y, z]
-
-                if not all([system_address, star_system, star_pos]):
+                software_name = header.get("softwareName")
+                if not is_trusted_source(software_name):
+                    print(f"Warning: Untrusted source ignored: {software_name}")
                     continue
 
-                if not is_valid_system_name(star_system):
-                    continue
+                if event == "Scan" and "StarType" in msg_data:
+                    system_address = msg_data.get("SystemAddress")
+                    star_system = msg_data.get("StarSystem")
+                    star_type = msg_data.get("StarType")
+                    star_pos = msg_data.get("StarPos")
+                    timestamp = msg_data.get("timestamp")
 
-                if len(star_pos) != 3:
-                    continue
+                    if not all([system_address, star_system, star_pos, timestamp]):
+                        continue
 
-                x, y, z = (
-                    float(star_pos[0]),
-                    float(star_pos[1]),
-                    float(star_pos[2]),
-                )
-                if not is_valid_coordinates(x, y, z):
-                    print(
-                        f"Warning: NavRoute: Invalid coords, skipping: {star_system} [{x}, {y}, {z}]"
+                    if not is_valid_system_name(star_system):
+                        print(f"Warning: Invalid system name, skipping: {star_system}")
+                        continue
+
+                    if len(star_pos) != 3:
+                        continue
+
+                    x, y, z = (
+                        float(star_pos[0]),
+                        float(star_pos[1]),
+                        float(star_pos[2]),
                     )
-                    continue
+                    if not is_valid_coordinates(x, y, z):
+                        print(
+                            f"Warning: Invalid or suspicious coordinates, skipping: {star_system} [{x}, {y}, {z}]"
+                        )
+                        continue
 
-                # Upsert this system
-                with conn.cursor() as cur:
-                    cur.execute(
-                        UPSERT_QUERY,
-                        (
-                            system_address,
-                            star_system,
-                            star_class,
-                            updatetime,
-                            x,
-                            y,
-                            z,
-                        ),
+                    try:
+                        updatetime = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                    except ValueError:
+                        print(f"Warning: Invalid timestamp format: {timestamp}")
+                        continue
+
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            UPSERT_QUERY,
+                            (
+                                system_address,
+                                star_system,
+                                star_type,
+                                updatetime,
+                                x,
+                                y,
+                                z,
+                            ),
+                        )
+                        result = cur.fetchone()
+                        is_new = result[0] if result else False
+                        record_systems_processed(cur, amount=1, is_new=is_new)
+                    conn.commit()
+                    print(f"Scan: {star_system} [{system_address}] | Type: {star_type}")
+
+                elif event == "NavRoute" and "Route" in msg_data:
+                    route = msg_data["Route"]
+                    timestamp = msg_data.get("timestamp")
+
+                    try:
+                        updatetime = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                    except (ValueError, TypeError):
+                        print(f"Warning: Invalid timestamp in NavRoute: {timestamp}")
+                        continue
+
+                    systems_added = 0
+                    for star in route:
+                        system_address = star.get("SystemAddress")
+                        star_system = star.get("StarSystem")
+                        star_class = star.get("StarClass")
+                        star_pos = star.get("StarPos")
+
+                        if not all([system_address, star_system, star_pos]):
+                            continue
+
+                        if not is_valid_system_name(star_system):
+                            continue
+
+                        if len(star_pos) != 3:
+                            continue
+
+                        x, y, z = (
+                            float(star_pos[0]),
+                            float(star_pos[1]),
+                            float(star_pos[2]),
+                        )
+                        if not is_valid_coordinates(x, y, z):
+                            print(
+                                f"Warning: NavRoute: Invalid coords, skipping: {star_system} [{x}, {y}, {z}]"
+                            )
+                            continue
+
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                UPSERT_QUERY,
+                                (
+                                    system_address,
+                                    star_system,
+                                    star_class,
+                                    updatetime,
+                                    x,
+                                    y,
+                                    z,
+                                ),
+                            )
+                            result = cur.fetchone()
+                            is_new = result[0] if result else False
+                            record_systems_processed(cur, amount=1, is_new=is_new)
+
+                        conn.commit()
+                        systems_added += 1
+                        print(
+                            f"NavRoute: {star_system} [{system_address}] | Class: {star_class}"
+                        )
+
+                    print(f"NavRoute completed: {systems_added} systems upserted")
+
+                elif event == "FSDJump":
+                    system_address = msg_data.get("SystemAddress")
+                    star_system = msg_data.get("StarSystem")
+                    star_pos = msg_data.get("StarPos")
+                    timestamp = msg_data.get("timestamp")
+
+                    if not all([system_address, star_system, star_pos, timestamp]):
+                        continue
+
+                    if not is_valid_system_name(star_system):
+                        print(f"Warning: Invalid system name in FSDJump: {star_system}")
+                        continue
+
+                    if len(star_pos) != 3:
+                        continue
+
+                    x, y, z = (
+                        float(star_pos[0]),
+                        float(star_pos[1]),
+                        float(star_pos[2]),
                     )
-                    result = cur.fetchone()
-                    is_new = result[0] if result else False
-                    record_systems_processed(cur, amount=1, is_new=is_new)
+                    if not is_valid_coordinates(x, y, z):
+                        print(
+                            f"Warning: FSDJump: Invalid coords, skipping: {star_system} [{x}, {y}, {z}]"
+                        )
+                        continue
 
-                conn.commit()
-                systems_added += 1
-                print(
-                    f"NavRoute: {star_system} [{system_address}] | Class: {star_class}"
-                )
+                    try:
+                        updatetime = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                    except ValueError:
+                        print(f"Warning: Invalid timestamp format in FSDJump: {timestamp}")
+                        continue
 
-            print(f"NavRoute completed: {systems_added} systems upserted")
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            UPSERT_QUERY,
+                            (system_address, star_system, None, updatetime, x, y, z),
+                        )
+                        result = cur.fetchone()
+                        is_new = result[0] if result else False
+                        record_systems_processed(cur, amount=1, is_new=is_new)
 
-        # --- Handle FSDJump Events ---
-        elif event == "FSDJump":
-            system_address = msg_data.get("SystemAddress")
-            star_system = msg_data.get("StarSystem")
-            star_pos = msg_data.get("StarPos")
-            timestamp = msg_data.get("timestamp")
+                    conn.commit()
+                    print(f"FSDJump: {star_system} [{system_address}] | Pos: {x}, {y}, {z}")
 
-            if not all([system_address, star_system, star_pos, timestamp]):
+            except Exception as e:
+                print(f"Error processing message: {e}")
                 continue
+    except StreamStalledError as stalled:
+        print(f"Watchdog detected stalled EDDN systems feed: {stalled}")
+        raise SystemExit(2) from stalled
+    except KeyboardInterrupt:
+        print("Stopping systems feeder listener...")
+    finally:
+        conn.close()
+        socket.close(0)
+        context.term()
 
-            if not is_valid_system_name(star_system):
-                print(f"Warning: Invalid system name in FSDJump: {star_system}")
-                continue
 
-            if len(star_pos) != 3:
-                continue
-
-            x, y, z = (
-                float(star_pos[0]),
-                float(star_pos[1]),
-                float(star_pos[2]),
-            )
-            if not is_valid_coordinates(x, y, z):
-                print(
-                    f"Warning: FSDJump: Invalid coords, skipping: {star_system} [{x}, {y}, {z}]"
-                )
-                continue
-
-            try:
-                updatetime = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-            except ValueError:
-                print(f"Warning: Invalid timestamp format in FSDJump: {timestamp}")
-                continue
-
-            # Upsert the system (mainstar unknown here)
-            with conn.cursor() as cur:
-                cur.execute(
-                    UPSERT_QUERY,
-                    (system_address, star_system, None, updatetime, x, y, z),
-                )
-                result = cur.fetchone()
-                is_new = result[0] if result else False
-                record_systems_processed(cur, amount=1, is_new=is_new)
-
-            conn.commit()
-            print(f"FSDJump: {star_system} [{system_address}] | Pos: {x}, {y}, {z}")
-
-    except Exception as e:
-        print(f"Error processing message: {e}")
-        continue
-
-# === Cleanup (unreachable in infinite loop, but good practice) ===
-conn.close()
+if __name__ == "__main__":
+    stream_events()
