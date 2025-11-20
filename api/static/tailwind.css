@@ -659,7 +659,7 @@
     }
   }
 }
-.tool-tab {
+.tool-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -675,18 +675,18 @@
 }
 
 @media (width >= 40rem) {
-  .tool-tab {
+  .tool-action {
     width: auto;
     min-width: 10rem;
   }
 }
 
-.tool-tab:hover {
+.tool-action:hover {
   background: #107CB2;
   color: #ffffff;
 }
 
-.tool-tab.active {
+.tool-action.active {
   background: var(--accent-blue);
   color: #ffffff;
 }
