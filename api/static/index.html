@@ -12,27 +12,37 @@
   </head>
   <body class="text-gray-200 antialiased">
     <main class="relative z-10 max-w-3xl mx-auto px-6 py-12">
-      <div class="glass rounded-2xl p-8 shadow-xl">
-        <h1 class="text-5xl sm:text-5xl font-extrabold tracking-tight">
-          <svg width="60" height="60" version="1.1" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" style="display: inline;margin-right: 5px;">
-            <defs>
-              <clipPath id="clipPath1257">
-                <circle cx=".88424" cy=".81788" r=".19725" d="M 1.0814924,0.81788176 A 0.19724794,0.19724794 0 0 1 0.88424444,1.0151297 0.19724794,0.19724794 0 0 1 0.6869965,0.81788176 0.19724794,0.19724794 0 0 1 0.88424444,0.62063383 0.19724794,0.19724794 0 0 1 1.0814924,0.81788176 Z" display="none" style="paint-order:stroke markers fill"/>
-                <path class="powerclip" d="m-5.0925-4.878h12.068v11.895h-12.068zm6.174 5.6959a0.19725 0.19725 0 0 0-0.19725-0.19725 0.19725 0.19725 0 0 0-0.19725 0.19725 0.19725 0.19725 0 0 0 0.19725 0.19725 0.19725 0.19725 0 0 0 0.19725-0.19725z" style="paint-order:stroke markers fill"/>
-              </clipPath>
-            </defs>
-            <path transform="matrix(15.476 0 0 15.476 1.4315 -.40001)" d="m0.87444 2.0171 0.59711-1.2805-0.5873 0.081246 0.27355 0.10095zm-0.96694-1.8951 0.70644 1.2236 0.27031-0.52769-0.2396 0.16618zm2.0678 0.19796-1.4129 4e-8 0.32184 0.49794-0.024115-0.29059z" clip-path="url(#clipPath1257)" fill="#1294d6"/>
-          </svg>EDGIS
-        </h1>
-        <h2 class="mt-5"><b>E</b>lite <b>D</b>angerous <b>G</b>alactic <b>I</b>nformation <b>S</b>ystem</h2>
-
-        <div class="mt-6 flex flex-wrap gap-3" role="tablist" aria-label="EDGIS tools">
-          <button type="button" id="tab-lookup" role="tab" aria-selected="true" tabindex="0" aria-controls="panel-lookup" data-tab="lookup" class="tool-tab active w-full sm:w-auto">System lookup</button>
-          <button type="button" id="tab-bodies" role="tab" aria-selected="false" tabindex="-1" aria-controls="panel-bodies" data-tab="bodies" class="tool-tab w-full sm:w-auto">Bodies lookup</button>
-          <button type="button" id="tab-advanced" role="tab" aria-selected="false" tabindex="-1" aria-controls="panel-advanced" data-tab="advanced" class="tool-tab w-full sm:w-auto">Advanced queries</button>
+      <div id="queryPanel" class="glass rounded-2xl p-8 shadow-xl">
+        <div class="hero-header">
+          <h1 class="text-5xl sm:text-5xl font-extrabold tracking-tight">
+            <svg width="60" height="60" version="1.1" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" style="display: inline;margin-right: 5px;">
+              <defs>
+                <clipPath id="clipPath1257">
+                  <circle cx=".88424" cy=".81788" r=".19725" d="M 1.0814924,0.81788176 A 0.19724794,0.19724794 0 0 1 0.88424444,1.0151297 0.19724794,0.19724794 0 0 1 0.6869965,0.81788176 0.19724794,0.19724794 0 0 1 0.88424444,0.62063383 0.19724794,0.19724794 0 0 1 1.0814924,0.81788176 Z" display="none" style="paint-order:stroke markers fill"/>
+                  <path class="powerclip" d="m-5.0925-4.878h12.068v11.895h-12.068zm6.174 5.6959a0.19725 0.19725 0 0 0-0.19725-0.19725 0.19725 0.19725 0 0 0-0.19725 0.19725 0.19725 0.19725 0 0 0 0.19725 0.19725 0.19725 0.19725 0 0 0 0.19725-0.19725z" style="paint-order:stroke markers fill"/>
+                </clipPath>
+              </defs>
+              <path transform="matrix(15.476 0 0 15.476 1.4315 -.40001)" d="m0.87444 2.0171 0.59711-1.2805-0.5873 0.081246 0.27355 0.10095zm-0.96694-1.8951 0.70644 1.2236 0.27031-0.52769-0.2396 0.16618zm2.0678 0.19796-1.4129 4e-8 0.32184 0.49794-0.024115-0.29059z" clip-path="url(#clipPath1257)" fill="#1294d6"/>
+            </svg>EDGIS
+          </h1>
+          <div class="tool-menu" aria-label="Tool menu">
+            <button id="toolMenuToggle" type="button" class="tool-menu__toggle" aria-label="Choose an EDGIS tool" aria-haspopup="true" aria-expanded="false" aria-controls="toolMenuDropdown" title="Choose a tool">
+              <span class="tool-menu__bars" aria-hidden="true">
+                <span></span>
+                <span></span>
+                <span></span>
+              </span>
+            </button>
+            <div id="toolMenuDropdown" class="tool-menu__dropdown" role="menu" aria-hidden="true">
+              <p class="tool-menu__title">Tools</p>
+              <button type="button" class="tool-menu__item" data-tool="lookup" role="menuitem">System lookup</button>
+              <button type="button" class="tool-menu__item" data-tool="advanced" role="menuitem">Explorer tools</button>
+              <button type="button" class="tool-menu__item" data-tool="route" role="menuitem">Route plotting</button>
+            </div>
+          </div>
         </div>
-
-        <section id="panel-lookup" class="tool-panel mt-6" role="tabpanel" aria-labelledby="tab-lookup">
+        <h2 class="mt-5 hero-tagline"><b>E</b>lite <b>D</b>angerous <b>G</b>alactic <b>I</b>nformation <b>S</b>ystem</h2>
+        <section id="panel-lookup" class="tool-panel mt-6" role="tabpanel" aria-labelledby="toolMenuToggle">
           <div class="flex flex-col gap-6">
             <form id="searchForm" class="flex flex-col gap-2">
               <label for="searchInput" class="text-sm font-semibold flex items-center gap-2">
@@ -44,7 +54,7 @@
                        list="systemSuggestions"
                        class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
                 <datalist id="systemSuggestions"></datalist>
-                <button id="searchBtn" type="button" class="tool-tab active w-full sm:w-auto">
+                <button id="searchBtn" type="button" class="tool-action active w-full sm:w-auto">
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" style="color: #1294d6;" class="bi-search" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/></svg>
                   Search
                 </button>
@@ -66,7 +76,7 @@
               <div class="flex flex-wrap items-center gap-3">
                 <input id="neighborsInput" type="text" placeholder="0,0,0,30 (x,y,z,[radius])"
                        class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
-                <button id="neighborsBtn" type="button" class="tool-tab active w-full sm:w-auto">
+                <button id="neighborsBtn" type="button" class="tool-action active w-full sm:w-auto">
                   <svg width="16" height="16" version="1.1" viewBox="0 0 6.6237 6.6237" xmlns="http://www.w3.org/2000/svg" style="color: #1294d6;" fill="currentColor" >
                     <defs>
                       <clipPath id="clipPathGalaxyIcon">
@@ -83,7 +93,7 @@
           </div>
         </section>
 
-        <section id="panel-bodies" class="tool-panel mt-6 hidden" role="tabpanel" aria-labelledby="tab-bodies" aria-hidden="true">
+        <section id="panel-advanced" class="tool-panel mt-6 hidden" role="tabpanel" aria-labelledby="toolMenuToggle" aria-hidden="true">
           <div class="flex flex-col gap-6">
             <div class="flex flex-col gap-2">
               <label for="bodiesInput" class="text-sm font-semibold flex items-center gap-2">
@@ -96,7 +106,7 @@
               <div class="flex flex-wrap items-center gap-3">
                 <input id="bodiesInput" type="text" placeholder="Sol or 10477373803"
                        class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
-                <button id="bodiesBtn" type="button" class="tool-tab active w-full sm:w-auto">
+                <button id="bodiesBtn" type="button" class="tool-action active w-full sm:w-auto">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" style="display: inline;" fill="none" stroke="currentColor" stroke-width="1.5" style="color: #1294d6;">
                   <circle cx="12" cy="12" r="3" stroke="#1294d6"/>
                   <ellipse cx="12" cy="12" rx="10" ry="4.5" stroke="#1294d6"/>
@@ -110,12 +120,7 @@
                 <span>Apply EDSM scaling</span>
               </label>
             </div>
-          </div>
-        </section>
-
-        <section id="panel-advanced" class="tool-panel mt-6 hidden" role="tabpanel" aria-labelledby="tab-advanced" aria-hidden="true">
-          <div class="flex flex-col gap-6">
-            <form id="neutronForm" class="flex flex-col gap-2">
+            <form id="neutronForm" class="flex flex-col gap-2" style="margin-top:10px">
               <label for="neutronInput" class="text-sm font-semibold flex items-center gap-2">
                 <svg width="16" height="16" version="1.1" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="display: inline;" fill="currentColor">
                   <path d="m9.4034 7.3455a1.5488 1.5488 0 0 1-0.7491 2.0582 1.5488 1.5488 0 0 1-2.0582-0.7491 1.5488 1.5488 0 0 1 0.7491-2.0582 1.5488 1.5488 0 0 1 2.0582 0.7491zm-1.4036 0.65455 5.3781 6.0364-4.2109 1.9636zm0 0-5.3781-6.0364 4.2109-1.9636z" fill="#1294d6" stroke-width=".054153"/>
@@ -125,7 +130,7 @@
               <div class="flex flex-wrap items-center gap-3">
                 <input id="neutronInput" type="text" placeholder="HIP 87621"
                        class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
-                <button id="neutronBtn" type="button" class="tool-tab active w-full sm:w-auto">
+                <button id="neutronBtn" type="button" class="tool-action active w-full sm:w-auto">
                 <svg width="16" height="16" version="1.1" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="display: inline;" fill="currentColor">
                   <path d="m9.4034 7.3455a1.5488 1.5488 0 0 1-0.7491 2.0582 1.5488 1.5488 0 0 1-2.0582-0.7491 1.5488 1.5488 0 0 1 0.7491-2.0582 1.5488 1.5488 0 0 1 2.0582 0.7491zm-1.4036 0.65455 5.3781 6.0364-4.2109 1.9636zm0 0-5.3781-6.0364 4.2109-1.9636z" fill="#1294d6" stroke-width=".054153"/>
                 </svg>
@@ -141,7 +146,7 @@
               <div class="flex flex-wrap items-center gap-3">
                 <input id="predictInput" type="text" placeholder="Swoilz GG-B b5-3"
                        class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
-                <button id="predictBtn" type="button" class="tool-tab active w-full sm:w-auto">
+                <button id="predictBtn" type="button" class="tool-action active w-full sm:w-auto">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" style="display: inline;" fill="currentColor" style="color: #1294d6;" class="bi bi-magic" viewBox="0 0 16 16"><path d="M9.5 2.672a.5.5 0 1 0 1 0V.843a.5.5 0 0 0-1 0zm4.5.035A.5.5 0 0 0 13.293 2L12 3.293a.5.5 0 1 0 .707.707zM7.293 4A.5.5 0 1 0 8 3.293L6.707 2A.5.5 0 0 0 6 2.707zm-.621 2.5a.5.5 0 1 0 0-1H4.843a.5.5 0 1 0 0 1zm8.485 0a.5.5 0 1 0 0-1h-1.829a.5.5 0 0 0 0 1zM13.293 10A.5.5 0 1 0 14 9.293L12.707 8a.5.5 0 1 0-.707.707zM9.5 11.157a.5.5 0 0 0 1 0V9.328a.5.5 0 0 0-1 0zm1.854-5.097a.5.5 0 0 0 0-.706l-.708-.708a.5.5 0 0 0-.707 0L8.646 5.94a.5.5 0 0 0 0 .707l.708.708a.5.5 0 0 0 .707 0l1.293-1.293Zm-3 3a.5.5 0 0 0 0-.706l-.708-.708a.5.5 0 0 0-.707 0L.646 13.94a.5.5 0 0 0 0 .707l.708.708a.5.5 0 0 0 .707 0z" fill="#1294d6"/></svg>
                 Search
                 </button>
@@ -457,35 +462,49 @@
      const routeRange = document.getElementById('routeRange');
      const routeStatus = document.getElementById('routeStatus');
 
-     const tabButtons = Array.from(document.querySelectorAll('button[role="tab"].tool-tab'));
-     const tabPanels = {
-       lookup: document.getElementById('panel-lookup'),
-       bodies: document.getElementById('panel-bodies'),
-       advanced: document.getElementById('panel-advanced'),
-       route: document.getElementById('panel-route'),
-     };
+    const toolMenuToggle = document.getElementById('toolMenuToggle');
+    const toolMenuDropdown = document.getElementById('toolMenuDropdown');
+    const toolMenuItems = Array.from(document.querySelectorAll('.tool-menu__item[data-tool]'));
+    const tabPanels = {
+      lookup: document.getElementById('panel-lookup'),
+      advanced: document.getElementById('panel-advanced'),
+      route: document.getElementById('panel-route'),
+    };
 
-     function activateTab(name) {
-       for (const btn of tabButtons) {
-         const isActive = btn.dataset.tab === name;
-         btn.classList.toggle('active', isActive);
-         btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
-         btn.tabIndex = isActive ? 0 : -1;
-       }
+    let isToolMenuOpen = false;
 
-       for (const [key, panel] of Object.entries(tabPanels)) {
-         if (!panel) continue;
-         const isActive = key === name;
-         panel.classList.toggle('hidden', !isActive);
-         panel.setAttribute('aria-hidden', isActive ? 'false' : 'true');
-       }
+    function setToolMenuOpen(open) {
+      if (!toolMenuToggle || !toolMenuDropdown) {
+        return;
+      }
+      isToolMenuOpen = open;
+      toolMenuToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      toolMenuDropdown.setAttribute('aria-hidden', open ? 'false' : 'true');
+      toolMenuDropdown.classList.toggle('is-open', open);
+    }
 
-       try {
-         localStorage.setItem('edgis-active-tab', name);
-       } catch (err) {
-         console.warn('Unable to persist tab selection', err);
-       }
-     }
+    function activateTab(name) {
+      const resolved = tabPanels[name] ? name : 'lookup';
+
+      for (const [key, panel] of Object.entries(tabPanels)) {
+        if (!panel) continue;
+        const isActive = key === resolved;
+        panel.classList.toggle('hidden', !isActive);
+        panel.setAttribute('aria-hidden', isActive ? 'false' : 'true');
+      }
+
+      if (toolMenuItems.length) {
+        for (const item of toolMenuItems) {
+          item.classList.toggle('active', item.dataset.tool === resolved);
+        }
+      }
+
+      try {
+        localStorage.setItem('edgis-active-tab', resolved);
+      } catch (err) {
+        console.warn('Unable to persist tab selection', err);
+      }
+    }
 
      const storedTab = (() => {
        try {
@@ -495,11 +514,51 @@
        }
      })();
 
-     activateTab(tabPanels[storedTab] ? storedTab : 'lookup');
+    const initialTab = tabPanels[storedTab] ? storedTab : 'lookup';
+    activateTab(initialTab);
 
-     for (const btn of tabButtons) {
-       btn.addEventListener('click', () => activateTab(btn.dataset.tab));
-     }
+    if (toolMenuItems.length) {
+      const routeItem = toolMenuItems.find(item => item.dataset.tool === 'route');
+      if (routeItem && !tabPanels.route) {
+        routeItem.disabled = true;
+        routeItem.classList.add('is-disabled');
+        routeItem.textContent = 'Route plotting (coming soon)';
+      }
+
+      for (const item of toolMenuItems) {
+        item.addEventListener('click', () => {
+          if (item.disabled || item.classList.contains('is-disabled')) {
+            return;
+          }
+          setToolMenuOpen(false);
+          activateTab(item.dataset.tool);
+        });
+      }
+    }
+
+    if (toolMenuToggle) {
+      toolMenuToggle.addEventListener('click', () => {
+        setToolMenuOpen(!isToolMenuOpen);
+      });
+    }
+
+    if (toolMenuDropdown && toolMenuToggle) {
+      document.addEventListener('click', event => {
+        if (!isToolMenuOpen) {
+          return;
+        }
+        if (toolMenuDropdown.contains(event.target) || toolMenuToggle.contains(event.target)) {
+          return;
+        }
+        setToolMenuOpen(false);
+      });
+
+      document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && isToolMenuOpen) {
+          setToolMenuOpen(false);
+        }
+      });
+    }
 
      function clearSystemSuggestions() {
        if (systemSuggestions) {
@@ -560,7 +619,7 @@
      function submitBodies(){
        if (!bodiesInput) return;
        const value = bodiesInput.value.trim();
-       activateTab('bodies');
+       activateTab('advanced');
        if(!value) return;
        let path = '/bodies?name_or_id=' + encodeURIComponent(value);
        if (bodiesModeEdsm?.checked) {
@@ -572,7 +631,7 @@
      function fetchBodyDetails(systemId64, bodyId){
        if (systemId64 === undefined || systemId64 === null) return;
        if (bodyId === undefined || bodyId === null) return;
-       activateTab('bodies');
+       activateTab('advanced');
        const sys = encodeURIComponent(String(systemId64));
        const body = encodeURIComponent(String(bodyId));
        let path = `/bodies?name_or_id=${sys}&body_id=${body}`;
@@ -1032,6 +1091,7 @@
        neighborsInput.value = `${x},${y},${z},30`;
 
        // Optional: auto-scroll to neighbors section
+       activateTab('lookup');
        neighborsInput.scrollIntoView({ behavior: 'smooth' });
        neighborsInput.focus();
 
