@@ -15,15 +15,18 @@
       <div id="queryPanel" class="glass rounded-2xl p-8 shadow-xl">
         <div class="hero-header">
           <h1 class="text-5xl sm:text-5xl font-extrabold tracking-tight">
-            <svg width="60" height="60" version="1.1" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" style="display: inline;margin-right: 5px;">
-              <defs>
-                <clipPath id="clipPath1257">
-                  <circle cx=".88424" cy=".81788" r=".19725" d="M 1.0814924,0.81788176 A 0.19724794,0.19724794 0 0 1 0.88424444,1.0151297 0.19724794,0.19724794 0 0 1 0.6869965,0.81788176 0.19724794,0.19724794 0 0 1 0.88424444,0.62063383 0.19724794,0.19724794 0 0 1 1.0814924,0.81788176 Z" display="none" style="paint-order:stroke markers fill"/>
-                  <path class="powerclip" d="m-5.0925-4.878h12.068v11.895h-12.068zm6.174 5.6959a0.19725 0.19725 0 0 0-0.19725-0.19725 0.19725 0.19725 0 0 0-0.19725 0.19725 0.19725 0.19725 0 0 0 0.19725 0.19725 0.19725 0.19725 0 0 0 0.19725-0.19725z" style="paint-order:stroke markers fill"/>
-                </clipPath>
-              </defs>
-              <path transform="matrix(15.476 0 0 15.476 1.4315 -.40001)" d="m0.87444 2.0171 0.59711-1.2805-0.5873 0.081246 0.27355 0.10095zm-0.96694-1.8951 0.70644 1.2236 0.27031-0.52769-0.2396 0.16618zm2.0678 0.19796-1.4129 4e-8 0.32184 0.49794-0.024115-0.29059z" clip-path="url(#clipPath1257)" fill="#1294d6"/>
-            </svg>EDGIS
+            <button id="heroHomeButton" type="button" class="hero-title" aria-label="Back to system lookup">
+              <svg width="60" height="60" version="1.1" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <clipPath id="clipPath1257">
+                    <circle cx=".88424" cy=".81788" r=".19725" d="M 1.0814924,0.81788176 A 0.19724794,0.19724794 0 0 1 0.88424444,1.0151297 0.19724794,0.19724794 0 0 1 0.6869965,0.81788176 0.19724794,0.19724794 0 0 1 0.88424444,0.62063383 0.19724794,0.19724794 0 0 1 1.0814924,0.81788176 Z" display="none" style="paint-order:stroke markers fill"/>
+                    <path class="powerclip" d="m-5.0925-4.878h12.068v11.895h-12.068zm6.174 5.6959a0.19725 0.19725 0 0 0-0.19725-0.19725 0.19725 0.19725 0 0 0-0.19725 0.19725 0.19725 0.19725 0 0 0 0.19725 0.19725 0.19725 0.19725 0 0 0 0.19725-0.19725z" style="paint-order:stroke markers fill"/>
+                  </clipPath>
+                </defs>
+                <path transform="matrix(15.476 0 0 15.476 1.4315 -.40001)" d="m0.87444 2.0171 0.59711-1.2805-0.5873 0.081246 0.27355 0.10095zm-0.96694-1.8951 0.70644 1.2236 0.27031-0.52769-0.2396 0.16618zm2.0678 0.19796-1.4129 4e-8 0.32184 0.49794-0.024115-0.29059z" clip-path="url(#clipPath1257)" fill="#1294d6"/>
+              </svg>
+              <span>EDGIS</span>
+            </button>
           </h1>
           <div class="tool-menu" aria-label="Tool menu">
             <button id="toolMenuToggle" type="button" class="tool-menu__toggle" aria-label="Choose an EDGIS tool" aria-haspopup="true" aria-expanded="false" aria-controls="toolMenuDropdown" title="Choose a tool">
@@ -171,6 +174,22 @@
           </div>
         </div>
         <div id="resultTable" class="mt-3 text-sm text-gray-100 bg-transparent mono overflow-x-auto" style="display:none;"></div>
+        <div id="systemLookupActions" class="lookup-actions" hidden>
+          <button type="button" id="galaxyMapBtn" class="lookup-action is-disabled" aria-label="Open galaxy map" disabled>
+            <img src="/static/assets/galaxymap.webp" alt="Galaxy map" loading="lazy" decoding="async" />
+            <span class="lookup-action__tooltip" role="tooltip">
+              <span class="lookup-action__tooltip-icon" data-tooltip-icon="galaxy"></span>
+              <span class="lookup-action__tooltip-label">Galaxy Map</span>
+            </span>
+          </button>
+          <button type="button" id="systemMapBtn" class="lookup-action is-disabled" aria-label="Open system map" disabled>
+            <img src="/static/assets/systemmap.webp" alt="System map" loading="lazy" decoding="async" />
+            <span class="lookup-action__tooltip" role="tooltip">
+              <span class="lookup-action__tooltip-icon" data-tooltip-icon="system"></span>
+              <span class="lookup-action__tooltip-label">System Map</span>
+            </span>
+          </button>
+        </div>
         <div id="resultPreContainer" class="mt-3" style="display:none;">
           <pre id="resultPre" class="text-sm text-gray-100 bg-transparent mono"></pre>
         </div>
@@ -298,7 +317,40 @@
        }
      }
 
-     function setStatus(txt){ statusEl.textContent = txt; }
+     function stripTrailingDots(str) {
+       let end = str.length;
+       while (end > 0 && str.codePointAt(end - 1) === 46) {
+         end -= 1;
+       }
+       return end === str.length ? str : str.slice(0, end);
+     }
+
+     function setStatus(txt){
+       if (!statusEl) return;
+       if (!txt) {
+         statusEl.textContent = '';
+         statusEl.classList.remove('status--loading');
+         statusEl.removeAttribute('aria-label');
+         return;
+       }
+
+       const isLoading = typeof txt === 'string' && txt.toLowerCase().includes('querying api');
+       statusEl.classList.toggle('status--loading', isLoading);
+
+       if (isLoading) {
+         const base = stripTrailingDots(txt).trim() || 'Querying API';
+         const dotMatches = txt.match(/\./g);
+         const dotCount = Math.max(dotMatches ? dotMatches.length : 0, 3);
+         const dotsMarkup = Array.from({ length: dotCount }, (_, idx) =>
+           `<span class="status-dot status-dot--${idx + 1}" aria-hidden="true">.</span>`
+         ).join('');
+         statusEl.innerHTML = `<span class="status-label">${escapeHtml(base)}</span>${dotsMarkup}`;
+         statusEl.setAttribute('aria-label', `${base}${'.'.repeat(dotCount)}`);
+       } else {
+         statusEl.textContent = txt;
+         statusEl.removeAttribute('aria-label');
+       }
+     }
      function showResult(url, json, kind = null) {
        const jsonString = JSON.stringify(json, null, 2);
        if (quotePlaceholder) {
@@ -373,10 +425,12 @@
          resultPre.style.display = 'none';
          resultTable.innerHTML = jsonToTable(json, kind);
        } else {
-         resultTable.style.display = 'none';
-         resultPre.style.display = 'block';
-       }
-     }
+       resultTable.style.display = 'none';
+        resultPre.style.display = 'block';
+      }
+
+      updateLookupActionButtons(json, kind);
+    }
 
      function detectResultKind(path){
        if (typeof path !== 'string') return null;
@@ -445,7 +499,7 @@
      const searchInput = document.getElementById('searchInput');
      const systemSuggestions = document.getElementById('systemSuggestions');
      let autocompleteTimer = null;
-     const searchBtn = document.getElementById('searchBtn');
+    const searchBtn = document.getElementById('searchBtn');
      const bodiesInput = document.getElementById('bodiesInput');
      const bodiesBtn = document.getElementById('bodiesBtn');
      const bodiesModeEdsm = document.getElementById('bodiesModeEdsm');
@@ -460,7 +514,11 @@
      const routeStart = document.getElementById('routeStart');
      const routeGoal = document.getElementById('routeGoal');
      const routeRange = document.getElementById('routeRange');
-     const routeStatus = document.getElementById('routeStatus');
+    const routeStatus = document.getElementById('routeStatus');
+    const heroHomeButton = document.getElementById('heroHomeButton');
+    const lookupActions = document.getElementById('systemLookupActions');
+    const galaxyMapBtn = document.getElementById('galaxyMapBtn');
+    const systemMapBtn = document.getElementById('systemMapBtn');
 
     const toolMenuToggle = document.getElementById('toolMenuToggle');
     const toolMenuDropdown = document.getElementById('toolMenuDropdown');
@@ -560,6 +618,13 @@
       });
     }
 
+    if (heroHomeButton) {
+      heroHomeButton.addEventListener('click', () => {
+        setToolMenuOpen(false);
+        activateTab('lookup');
+      });
+    }
+
      function clearSystemSuggestions() {
        if (systemSuggestions) {
          systemSuggestions.innerHTML = '';
@@ -612,9 +677,9 @@
      function submitSearch(){
        const value = searchInput.value.trim();
        activateTab('lookup');
-       if(!value) return;
-       callApi('/coords?q=' + encodeURIComponent(value));
-     }
+      if(!value) return;
+      callApi('/coords?q=' + encodeURIComponent(value), 'system-lookup');
+    }
 
      function submitBodies(){
        if (!bodiesInput) return;
@@ -697,13 +762,33 @@
        });
      }
 
-     predictBtn.addEventListener('click', submitPredict);
-     predictInput.addEventListener('keydown', e=>{
-       if(e.key === 'Enter'){
-         e.preventDefault();
-         submitPredict();
-       }
-     });
+    predictBtn.addEventListener('click', submitPredict);
+    predictInput.addEventListener('keydown', e=>{
+      if(e.key === 'Enter'){
+        e.preventDefault();
+        submitPredict();
+      }
+    });
+
+    if (galaxyMapBtn) {
+      galaxyMapBtn.addEventListener('click', () => {
+        if (galaxyMapBtn.disabled) return;
+        const { x, y, z } = galaxyMapBtn.dataset;
+        if (x !== undefined && y !== undefined && z !== undefined) {
+          openCoordsMap(x, y, z);
+        }
+      });
+    }
+
+    if (systemMapBtn) {
+      systemMapBtn.addEventListener('click', () => {
+        if (systemMapBtn.disabled) return;
+        const systemName = systemMapBtn.dataset.systemName;
+        if (systemName) {
+          openSystemMap(systemName);
+        }
+      });
+    }
 
      neighborsBtn.addEventListener('click', submitNeighbors);
      neighborsInput.addEventListener('keydown', e=>{
@@ -833,9 +918,9 @@
        });
      }
 
-     const toggleBtn = document.getElementById("toggleViewBtn");
-     const resultTable = document.getElementById("resultTable");
-     const copyIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-copy" viewBox="0 0 16 16">
+    const toggleBtn = document.getElementById("toggleViewBtn");
+    const resultTable = document.getElementById("resultTable");
+    const copyIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-copy" viewBox="0 0 16 16">
       <path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/>
       </svg>`;
      const systemMapIconSvg = `<svg width="16" height="16" version="1.1" viewBox="0 0 24.77 24.77" xmlns="http://www.w3.org/2000/svg">
@@ -852,11 +937,21 @@
         <path transform="matrix(.26458 0 0 .26458 -6.7848 -6.0877)" d="m38.926 34.569c0.8963 1.4788-2.3745 1.5434-2.5256 3.9958-0.11266 1.7681 0.50361 3.8201 2.3294 5.2908 1.8258 1.4707 8.1248 1.9127 8.1248 1.9127s-4.6011 1.0671-6.5214 0.8882c-1.9203-0.17895-3.6192-0.95569-5.1091-2.1638-1.4899-1.2081-2.6726-3.2119-2.9177-5.0384-0.24511-1.8265 0.16728-3.606 1.4423-4.6802 1.4115-1.2279 4.2811-1.6839 5.1774-0.20507zm0.74206 0.61547c-1.7189 0.18893-0.39785-2.804-2.5577-3.9753-1.5556-0.84792-3.6761-1.1547-5.7796-0.11955-2.1036 1.0351-5.1612 6.5599-5.1612 6.5599s0.97313-4.6219 1.9453-6.2876c0.97222-1.6656 2.3931-2.8784 4.1169-3.7197 1.7238-0.84134 4.0394-1.0685 5.7989-0.52035 1.7595 0.54816 3.199 1.6726 3.6352 3.2818 0.51799 1.7978-0.27898 4.5919-1.9978 4.7808zm-0.51038 0.87536c1.0091-1.4043 2.3507 1.5794 4.666 0.75702 1.6708-0.58947 3.3169-1.9608 3.9542-4.217s-1.4254-8.2243-1.4254-8.2243 2.7854 3.8145 3.3736 5.6513 0.53956 3.7041 0.01221 5.5484c-0.52735 1.8443-1.9071 3.7178-3.4913 4.6593s-3.3829 1.2597-4.871 0.50789c-1.683-0.81718-3.2273-3.2784-2.2183-4.6826z" clip-path="url(#clipPathGalaxyIcon)" fill="#fff"/>
       </svg>
      `;
-     const bodyDetailsIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-card-text" viewBox="0 0 16 16">
-        <path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5z" fill="none" stroke="currentColor"/>
-        <path d="M14 4.5V5H9a1 1 0 0 1-1-1V0h.5z" fill="currentColor"/>
-        <path d="M4.5 7a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 0 1h-6a.5.5 0 0 1-.5-.5zm0 2.5a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 0 1h-6a.5.5 0 0 1-.5-.5zm0 2.5a.5.5 0 0 1 .5-.5h3.5a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5z"/>
+    const bodyDetailsIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-card-text" viewBox="0 0 16 16">
+       <path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5z" fill="none" stroke="currentColor"/>
+       <path d="M14 4.5V5H9a1 1 0 0 1-1-1V0h.5z" fill="currentColor"/>
+       <path d="M4.5 7a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 0 1h-6a.5.5 0 0 1-.5-.5zm0 2.5a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 0 1h-6a.5.5 0 0 1-.5-.5zm0 2.5a.5.5 0 0 1 .5-.5h3.5a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5z"/>
       </svg>`;
+
+    const tooltipIconTargets = document.querySelectorAll('[data-tooltip-icon]');
+    tooltipIconTargets.forEach(el => {
+      const kind = el.dataset.tooltipIcon;
+      if (kind === 'system') {
+        el.innerHTML = systemMapIconSvg;
+      } else if (kind === 'galaxy') {
+        el.innerHTML = galaxyMapIconSvg;
+      }
+    });
 
      function openSystemMap(text, btnElement){
        const url = `https://elitedangereuse.fr/outils/sysmap.php?system=${text}`;
@@ -927,8 +1022,108 @@
      }
 
      function limitRows(rows, max) {
-       return rows.slice(0, max);
-     }
+     return rows.slice(0, max);
+    }
+
+    function hideLookupActionButtons() {
+      if (!lookupActions) {
+        return;
+      }
+      lookupActions.hidden = true;
+      if (systemMapBtn) {
+        systemMapBtn.disabled = true;
+        systemMapBtn.classList.add('is-disabled');
+        delete systemMapBtn.dataset.systemName;
+      }
+      if (galaxyMapBtn) {
+        galaxyMapBtn.disabled = true;
+        galaxyMapBtn.classList.add('is-disabled');
+        delete galaxyMapBtn.dataset.x;
+        delete galaxyMapBtn.dataset.y;
+        delete galaxyMapBtn.dataset.z;
+      }
+    }
+
+    function getLookupTarget(payload) {
+      const rows = normalizeTableData(payload);
+      return rows.find(row => row && typeof row === 'object') ?? null;
+    }
+
+    function extractSystemName(target) {
+      if (!target) return '';
+      if (typeof target.name === 'string' && target.name.trim()) {
+        return target.name.trim();
+      }
+      if (typeof target.neutron_name === 'string' && target.neutron_name.trim()) {
+        return target.neutron_name.trim();
+      }
+      return '';
+    }
+
+    function extractCoords(target) {
+      const coords = target?.coords;
+      if (!coords) return null;
+      const { x, y, z } = coords;
+      return [x, y, z].every(val => Number.isFinite(val)) ? { x, y, z } : null;
+    }
+
+    function applySystemMapState(systemName) {
+      if (!systemMapBtn) return false;
+      const hasName = Boolean(systemName);
+      systemMapBtn.disabled = !hasName;
+      systemMapBtn.classList.toggle('is-disabled', !hasName);
+      if (hasName) {
+        systemMapBtn.dataset.systemName = systemName;
+      } else {
+        delete systemMapBtn.dataset.systemName;
+      }
+      return hasName;
+    }
+
+    function applyGalaxyMapState(coords) {
+      if (!galaxyMapBtn) return false;
+      const hasCoords = Boolean(coords);
+      galaxyMapBtn.disabled = !hasCoords;
+      galaxyMapBtn.classList.toggle('is-disabled', !hasCoords);
+      if (hasCoords) {
+        galaxyMapBtn.dataset.x = coords.x;
+        galaxyMapBtn.dataset.y = coords.y;
+        galaxyMapBtn.dataset.z = coords.z;
+      } else {
+        delete galaxyMapBtn.dataset.x;
+        delete galaxyMapBtn.dataset.y;
+        delete galaxyMapBtn.dataset.z;
+      }
+      return hasCoords;
+    }
+
+    function updateLookupActionButtons(payload, kind) {
+      if (!lookupActions) {
+        return;
+      }
+      if (kind !== 'system-lookup') {
+        hideLookupActionButtons();
+        return;
+      }
+
+      const target = getLookupTarget(payload);
+      if (!target) {
+        hideLookupActionButtons();
+        return;
+      }
+
+      const systemName = extractSystemName(target);
+      const coords = extractCoords(target);
+      const hasName = applySystemMapState(systemName);
+      const hasCoords = applyGalaxyMapState(coords);
+
+      if (!hasName && !hasCoords) {
+        hideLookupActionButtons();
+        return;
+      }
+
+      lookupActions.hidden = false;
+    }
 
      function buildTableShell(keys, limitedData, kind, totalCount) {
        const MAX_ROWS = limitedData.length;
@@ -1205,8 +1400,9 @@
        return luminosity ? `${trimmed} (${luminosity})` : trimmed;
      }
 
-     function buildActionsCell(row, kind = null) {
-       const parts = [];
+    function buildActionsCell(row, kind = null) {
+      const parts = [];
+      const isSystemLookup = kind === 'system-lookup';
 
        const displayName = (() => {
          if (typeof row.name === "string" && row.name.trim()) {
@@ -1218,8 +1414,8 @@
          return null;
        })();
 
-       if (displayName) {
-         parts.push(`
+      if (displayName && !isSystemLookup) {
+        parts.push(`
       <button
         title="View system map"
         class="opacity-30 hover:opacity-100 group-hover:opacity-100 focus:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
@@ -1227,13 +1423,14 @@
       >
         ${systemMapIconSvg}
       </button>
-         `);
-       }
+        `);
+      }
 
-       if (row.coords && typeof row.coords === "object") {
-         const { x, y, z } = row.coords;
-         if ([x, y, z].every(val => typeof val === "number")) {
-           parts.push(`
+      if (row.coords && typeof row.coords === "object") {
+        const { x, y, z } = row.coords;
+        if ([x, y, z].every(val => typeof val === "number")) {
+          if (!isSystemLookup) {
+            parts.push(`
       <button
         type="button"
         title="Open galaxy map"
@@ -1242,7 +1439,9 @@
       >
         ${galaxyMapIconSvg}
       </button>
-           `, `
+            `);
+          }
+          parts.push(`
       <button
         type="button"
         title="Search neighbors within 10 ly"
@@ -1254,9 +1453,9 @@
           <path d="m6.94 7.44 4.95-2.83-2.83 4.95-4.949 2.83 2.828-4.95z"/>
         </svg>
       </button>
-           `);
-         }
-       }
+          `);
+        }
+      }
 
        if ((kind === 'bodies' || kind === 'body-detail') &&
            row.system_id64 !== undefined && row.body_id !== undefined) {
