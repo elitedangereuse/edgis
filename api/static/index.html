@@ -25,20 +25,6 @@
           </svg>EDGIS
         </h1>
         <h2 class="mt-5"><b>E</b>lite <b>D</b>angerous <b>G</b>alactic <b>I</b>nformation <b>S</b>ystem</h2>
-        <p class="mt-0 text-gray-400">Plotting courses through the galaxy — one pun at a time.</p>
-
-        <!-- rotating quotes -->
-        <div class="mt-6 quote">
-          <div class="flex items-center gap-3">
-            <!-- Texte -->
-            <div class="flex-1">
-              <blockquote id="quote" class="text-lg italic text-gray-100 mono">...</blockquote>
-              <div class="mt-3 text-xs text-gray-400" id="quote-author">—</div>
-            </div>
-          </div>
-        </div>
-        <br>
-        <hr style="border-color: #6b6b6b;">
 
         <div class="mt-6 flex flex-wrap gap-3" role="tablist" aria-label="EDGIS tools">
           <button type="button" id="tab-lookup" role="tab" aria-selected="true" tabindex="0" aria-controls="panel-lookup" data-tab="lookup" class="tool-tab active w-full sm:w-auto">System lookup</button>
@@ -59,8 +45,8 @@
                        class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
                 <datalist id="systemSuggestions"></datalist>
                 <button id="searchBtn" type="button" class="tool-tab active w-full sm:w-auto">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" fill="currentColor" style="display: inline; vertical-align: text-bottom; margin-right: 5px;" class="bi-search" viewBox="0 0 16 16">   <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/> </svg>
-                  Search system
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" style="color: #1294d6;" class="bi-search" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/></svg>
+                  Search
                 </button>
               </div>
             </form>
@@ -68,53 +54,31 @@
               <label for="neighborsInput" class="text-sm font-semibold flex items-center gap-2">
                 <svg width="16" height="16" version="1.1" viewBox="0 0 6.6237 6.6237" xmlns="http://www.w3.org/2000/svg" style="color: #1294d6;" fill="currentColor" >
                   <defs>
-                    <clipPath id="clipPathGalaxyIcon">
+                    <clipPath id="clipPathGalaxyIconForm">
                       <circle cx="38.801" cy="36.059" r="2.8145" d="M 41.61542,36.059471 A 2.814471,2.814471 0 0 1 38.800949,38.873942 2.814471,2.814471 0 0 1 35.986478,36.059471 2.814471,2.814471 0 0 1 38.800949,33.245 2.814471,2.814471 0 0 1 41.61542,36.059471 Z" display="none"/>
                       <path class="powerclip" d="m21.17 19.375h33.981v32.301h-33.981zm20.445 16.684a2.8145 2.8145 0 0 0-2.8145-2.8145 2.8145 2.8145 0 0 0-2.8145 2.8145 2.8145 2.8145 0 0 0 2.8145 2.8145 2.8145 2.8145 0 0 0 2.8145-2.8145z"/>
                     </clipPath>
                   </defs>
-                  <path transform="matrix(.26458 0 0 .26458 -6.7848 -6.0877)" d="m38.926 34.569c0.8963 1.4788-2.3745 1.5434-2.5256 3.9958-0.11266 1.7681 0.50361 3.8201 2.3294 5.2908 1.8258 1.4707 8.1248 1.9127 8.1248 1.9127s-4.6011 1.0671-6.5214 0.8882c-1.9203-0.17895-3.6192-0.95569-5.1091-2.1638-1.4899-1.2081-2.6726-3.2119-2.9177-5.0384-0.24511-1.8265 0.16728-3.606 1.4423-4.6802 1.4115-1.2279 4.2811-1.6839 5.1774-0.20507zm0.74206 0.61547c-1.7189 0.18893-0.39785-2.804-2.5577-3.9753-1.5556-0.84792-3.6761-1.1547-5.7796-0.11955-2.1036 1.0351-5.1612 6.5599-5.1612 6.5599s0.97313-4.6219 1.9453-6.2876c0.97222-1.6656 2.3931-2.8784 4.1169-3.7197 1.7238-0.84134 4.0394-1.0685 5.7989-0.52035 1.7595 0.54816 3.199 1.6726 3.6352 3.2818 0.51799 1.7978-0.27898 4.5919-1.9978 4.7808zm-0.51038 0.87536c1.0091-1.4043 2.3507 1.5794 4.666 0.75702 1.6708-0.58947 3.3169-1.9608 3.9542-4.217s-1.4254-8.2243-1.4254-8.2243 2.7854 3.8145 3.3736 5.6513 0.53956 3.7041 0.01221 5.5484c-0.52735 1.8443-1.9071 3.7178-3.4913 4.6593s-3.3829 1.2597-4.871 0.50789c-1.683-0.81718-3.2273-3.2784-2.2183-4.6826z" clip-path="url(#clipPathGalaxyIcon)" fill="#1294d6"/>
+                  <path transform="matrix(.26458 0 0 .26458 -6.7848 -6.0877)" d="m38.926 34.569c0.8963 1.4788-2.3745 1.5434-2.5256 3.9958-0.11266 1.7681 0.50361 3.8201 2.3294 5.2908 1.8258 1.4707 8.1248 1.9127 8.1248 1.9127s-4.6011 1.0671-6.5214 0.8882c-1.9203-0.17895-3.6192-0.95569-5.1091-2.1638-1.4899-1.2081-2.6726-3.2119-2.9177-5.0384-0.24511-1.8265 0.16728-3.606 1.4423-4.6802 1.4115-1.2279 4.2811-1.6839 5.1774-0.20507zm0.74206 0.61547c-1.7189 0.18893-0.39785-2.804-2.5577-3.9753-1.5556-0.84792-3.6761-1.1547-5.7796-0.11955-2.1036 1.0351-5.1612 6.5599-5.1612 6.5599s0.97313-4.6219 1.9453-6.2876c0.97222-1.6656 2.3931-2.8784 4.1169-3.7197 1.7238-0.84134 4.0394-1.0685 5.7989-0.52035 1.7595 0.54816 3.199 1.6726 3.6352 3.2818 0.51799 1.7978-0.27898 4.5919-1.9978 4.7808zm-0.51038 0.87536c1.0091-1.4043 2.3507 1.5794 4.666 0.75702 1.6708-0.58947 3.3169-1.9608 3.9542-4.217s-1.4254-8.2243-1.4254-8.2243 2.7854 3.8145 3.3736 5.6513 0.53956 3.7041 0.01221 5.5484c-0.52735 1.8443-1.9071 3.7178-3.4913 4.6593s-3.3829 1.2597-4.871 0.50789c-1.683-0.81718-3.2273-3.2784-2.2183-4.6826z" clip-path="url(#clipPathGalaxyIconForm)" fill="#1294d6"/>
                 </svg>
-                Find neighbors (x,y,z,radius)
+                Find neighbors
               </label>
               <div class="flex flex-wrap items-center gap-3">
-                <input id="neighborsInput" type="text" placeholder="0,0,0,30"
+                <input id="neighborsInput" type="text" placeholder="0,0,0,30 (x,y,z,[radius])"
                        class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
                 <button id="neighborsBtn" type="button" class="tool-tab active w-full sm:w-auto">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" fill="currentColor" style="display: inline; vertical-align: text-bottom; margin-right: 5px;" class="bi-search" viewBox="0 0 16 16">   <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/> </svg>
-                  Find neighbors
-                </button>
-              </div>
-              <p class="text-xs text-gray-400">Leave radius blank to default to 30 ly.</p>
-            </form>
-            <form id="neutronForm" class="flex flex-col gap-2" style="margin-top:10px">
-              <label for="neutronInput" class="text-sm font-semibold flex items-center gap-2">
-                <svg width="16" height="16" version="1.1" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="display: inline;" fill="currentColor">
-                  <path d="m9.4034 7.3455a1.5488 1.5488 0 0 1-0.7491 2.0582 1.5488 1.5488 0 0 1-2.0582-0.7491 1.5488 1.5488 0 0 1 0.7491-2.0582 1.5488 1.5488 0 0 1 2.0582 0.7491zm-1.4036 0.65455 5.3781 6.0364-4.2109 1.9636zm0 0-5.3781-6.0364 4.2109-1.9636z" fill="#1294d6" stroke-width=".054153"/>
-                </svg>
-                Nearest neutron star
-              </label>
-              <div class="flex flex-wrap gap-4 text-xs text-gray-400">
-                <label class="inline-flex items-center gap-2">
-                  <input type="radio" name="neutronMode" value="system" id="neutronModeSystem" checked class="h-4 w-4 rounded border-gray-500 bg-transparent text-[var(--accent-blue)] focus:ring-[var(--accent-blue)]" />
-                  <span>By system name</span>
-                </label>
-                <label class="inline-flex items-center gap-2">
-                  <input type="radio" name="neutronMode" value="coords" id="neutronModeCoords" class="h-4 w-4 rounded border-gray-500 bg-transparent text-[var(--accent-blue)] focus:ring-[var(--accent-blue)]" />
-                  <span>By coordinates (x,y,z)</span>
-                </label>
-              </div>
-              <div class="flex flex-wrap items-center gap-3">
-                <input id="neutronInput" type="text" placeholder="HIP 87621"
-                       class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
-                <button id="neutronBtn" type="button" class="tool-tab active w-full sm:w-auto">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" fill="currentColor" style="display: inline; vertical-align: text-bottom; margin-right: 5px;" class="bi-search" viewBox="0 0 16 16">
-                    <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/>
+                  <svg width="16" height="16" version="1.1" viewBox="0 0 6.6237 6.6237" xmlns="http://www.w3.org/2000/svg" style="color: #1294d6;" fill="currentColor" >
+                    <defs>
+                      <clipPath id="clipPathGalaxyIcon">
+                        <circle cx="38.801" cy="36.059" r="2.8145" d="M 41.61542,36.059471 A 2.814471,2.814471 0 0 1 38.800949,38.873942 2.814471,2.814471 0 0 1 35.986478,36.059471 2.814471,2.814471 0 0 1 38.800949,33.245 2.814471,2.814471 0 0 1 41.61542,36.059471 Z" display="none"/>
+                        <path class="powerclip" d="m21.17 19.375h33.981v32.301h-33.981zm20.445 16.684a2.8145 2.8145 0 0 0-2.8145-2.8145 2.8145 2.8145 0 0 0-2.8145 2.8145 2.8145 2.8145 0 0 0 2.8145 2.8145 2.8145 2.8145 0 0 0 2.8145-2.8145z"/>
+                      </clipPath>
+                    </defs>
+                    <path transform="matrix(.26458 0 0 .26458 -6.7848 -6.0877)" d="m38.926 34.569c0.8963 1.4788-2.3745 1.5434-2.5256 3.9958-0.11266 1.7681 0.50361 3.8201 2.3294 5.2908 1.8258 1.4707 8.1248 1.9127 8.1248 1.9127s-4.6011 1.0671-6.5214 0.8882c-1.9203-0.17895-3.6192-0.95569-5.1091-2.1638-1.4899-1.2081-2.6726-3.2119-2.9177-5.0384-0.24511-1.8265 0.16728-3.606 1.4423-4.6802 1.4115-1.2279 4.2811-1.6839 5.1774-0.20507zm0.74206 0.61547c-1.7189 0.18893-0.39785-2.804-2.5577-3.9753-1.5556-0.84792-3.6761-1.1547-5.7796-0.11955-2.1036 1.0351-5.1612 6.5599-5.1612 6.5599s0.97313-4.6219 1.9453-6.2876c0.97222-1.6656 2.3931-2.8784 4.1169-3.7197 1.7238-0.84134 4.0394-1.0685 5.7989-0.52035 1.7595 0.54816 3.199 1.6726 3.6352 3.2818 0.51799 1.7978-0.27898 4.5919-1.9978 4.7808zm-0.51038 0.87536c1.0091-1.4043 2.3507 1.5794 4.666 0.75702 1.6708-0.58947 3.3169-1.9608 3.9542-4.217s-1.4254-8.2243-1.4254-8.2243 2.7854 3.8145 3.3736 5.6513 0.53956 3.7041 0.01221 5.5484c-0.52735 1.8443-1.9071 3.7178-3.4913 4.6593s-3.3829 1.2597-4.871 0.50789c-1.683-0.81718-3.2273-3.2784-2.2183-4.6826z" clip-path="url(#clipPathGalaxyIcon)" fill="#1294d6"/>
                   </svg>
-                  Find neutron
+                  Search
                 </button>
               </div>
-              <p class="text-xs text-gray-400">Switch modes to search by exact system name or comma-separated coordinates.</p>
             </form>
           </div>
         </section>
@@ -123,45 +87,63 @@
           <div class="flex flex-col gap-6">
             <div class="flex flex-col gap-2">
               <label for="bodiesInput" class="text-sm font-semibold flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color: #1294d6;">
-                  <circle cx="12" cy="12" r="3" fill="currentColor" />
-                  <ellipse cx="12" cy="12" rx="10" ry="4.5" />
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" style="display: inline;" fill="none" stroke="currentColor" stroke-width="1.5" style="color: #1294d6;">
+                  <circle cx="12" cy="12" r="3" stroke="#1294d6"/>
+                  <ellipse cx="12" cy="12" rx="10" ry="4.5" stroke="#1294d6"/>
                 </svg>
                 Fetch system bodies
               </label>
               <div class="flex flex-wrap items-center gap-3">
                 <input id="bodiesInput" type="text" placeholder="Sol or 10477373803"
                        class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
-                <button id="bodiesBtn" type="button" class="inline-flex items-center justify-center px-4 py-2 rounded bg-[var(--accent-blue)] text-white hover:bg-[#107CB2] hover:text-white transition-colors duration-200 flex-none min-w-[130px] w-full sm:w-auto">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" fill="currentColor" style="display: inline; vertical-align: text-bottom; margin-right: 5px;" class="bi-search" viewBox="0 0 16 16">
-                    <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/>
-                  </svg>
-                  Fetch bodies
+                <button id="bodiesBtn" type="button" class="tool-tab active w-full sm:w-auto">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" style="display: inline;" fill="none" stroke="currentColor" stroke-width="1.5" style="color: #1294d6;">
+                  <circle cx="12" cy="12" r="3" stroke="#1294d6"/>
+                  <ellipse cx="12" cy="12" rx="10" ry="4.5" stroke="#1294d6"/>
+                </svg>
+                  Search
                 </button>
               </div>
               <label for="bodiesModeEdsm" class="inline-flex items-center gap-2 text-xs text-gray-400">
                 <input id="bodiesModeEdsm" type="checkbox"
                        class="h-4 w-4 rounded border-gray-500 bg-transparent text-[var(--accent-blue)] focus:ring-[var(--accent-blue)]" />
-                <span>Apply EDSM scaling (adds <span class="font-mono text-gray-200">mode=edsm</span>)</span>
+                <span>Apply EDSM scaling</span>
               </label>
-              <p class="text-xs text-gray-400">Enter a system name or its id64 to inspect every known body.</p>
             </div>
           </div>
         </section>
 
         <section id="panel-advanced" class="tool-panel mt-6 hidden" role="tabpanel" aria-labelledby="tab-advanced" aria-hidden="true">
           <div class="flex flex-col gap-6">
-            <form id="predictForm" class="flex flex-col gap-2">
+            <form id="neutronForm" class="flex flex-col gap-2">
+              <label for="neutronInput" class="text-sm font-semibold flex items-center gap-2">
+                <svg width="16" height="16" version="1.1" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="display: inline;" fill="currentColor">
+                  <path d="m9.4034 7.3455a1.5488 1.5488 0 0 1-0.7491 2.0582 1.5488 1.5488 0 0 1-2.0582-0.7491 1.5488 1.5488 0 0 1 0.7491-2.0582 1.5488 1.5488 0 0 1 2.0582 0.7491zm-1.4036 0.65455 5.3781 6.0364-4.2109 1.9636zm0 0-5.3781-6.0364 4.2109-1.9636z" fill="#1294d6" stroke-width=".054153"/>
+                </svg>
+                Nearest neutron star
+              </label>
+              <div class="flex flex-wrap items-center gap-3">
+                <input id="neutronInput" type="text" placeholder="HIP 87621"
+                       class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+                <button id="neutronBtn" type="button" class="tool-tab active w-full sm:w-auto">
+                <svg width="16" height="16" version="1.1" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="display: inline;" fill="currentColor">
+                  <path d="m9.4034 7.3455a1.5488 1.5488 0 0 1-0.7491 2.0582 1.5488 1.5488 0 0 1-2.0582-0.7491 1.5488 1.5488 0 0 1 0.7491-2.0582 1.5488 1.5488 0 0 1 2.0582 0.7491zm-1.4036 0.65455 5.3781 6.0364-4.2109 1.9636zm0 0-5.3781-6.0364 4.2109-1.9636z" fill="#1294d6" stroke-width=".054153"/>
+                </svg>
+                Search
+                </button>
+              </div>
+            </form>
+            <form id="predictForm" class="flex flex-col gap-2" style="margin-top:10px">
               <label for="predictInput" class="text-sm font-semibold flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" style="color: #1294d6;" class="bi bi-magic" viewBox="0 0 16 16"><path d="M9.5 2.672a.5.5 0 1 0 1 0V.843a.5.5 0 0 0-1 0zm4.5.035A.5.5 0 0 0 13.293 2L12 3.293a.5.5 0 1 0 .707.707zM7.293 4A.5.5 0 1 0 8 3.293L6.707 2A.5.5 0 0 0 6 2.707zm-.621 2.5a.5.5 0 1 0 0-1H4.843a.5.5 0 1 0 0 1zm8.485 0a.5.5 0 1 0 0-1h-1.829a.5.5 0 0 0 0 1zM13.293 10A.5.5 0 1 0 14 9.293L12.707 8a.5.5 0 1 0-.707.707zM9.5 11.157a.5.5 0 0 0 1 0V9.328a.5.5 0 0 0-1 0zm1.854-5.097a.5.5 0 0 0 0-.706l-.708-.708a.5.5 0 0 0-.707 0L8.646 5.94a.5.5 0 0 0 0 .707l.708.708a.5.5 0 0 0 .707 0l1.293-1.293Zm-3 3a.5.5 0 0 0 0-.706l-.708-.708a.5.5 0 0 0-.707 0L.646 13.94a.5.5 0 0 0 0 .707l.708.708a.5.5 0 0 0 .707 0z"/></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" style="display: inline;" fill="currentColor" style="color: #1294d6;" class="bi bi-magic" viewBox="0 0 16 16"><path d="M9.5 2.672a.5.5 0 1 0 1 0V.843a.5.5 0 0 0-1 0zm4.5.035A.5.5 0 0 0 13.293 2L12 3.293a.5.5 0 1 0 .707.707zM7.293 4A.5.5 0 1 0 8 3.293L6.707 2A.5.5 0 0 0 6 2.707zm-.621 2.5a.5.5 0 1 0 0-1H4.843a.5.5 0 1 0 0 1zm8.485 0a.5.5 0 1 0 0-1h-1.829a.5.5 0 0 0 0 1zM13.293 10A.5.5 0 1 0 14 9.293L12.707 8a.5.5 0 1 0-.707.707zM9.5 11.157a.5.5 0 0 0 1 0V9.328a.5.5 0 0 0-1 0zm1.854-5.097a.5.5 0 0 0 0-.706l-.708-.708a.5.5 0 0 0-.707 0L8.646 5.94a.5.5 0 0 0 0 .707l.708.708a.5.5 0 0 0 .707 0l1.293-1.293Zm-3 3a.5.5 0 0 0 0-.706l-.708-.708a.5.5 0 0 0-.707 0L.646 13.94a.5.5 0 0 0 0 .707l.708.708a.5.5 0 0 0 .707 0z" fill="#1294d6"/></svg>
                 Predict system
               </label>
               <div class="flex flex-wrap items-center gap-3">
                 <input id="predictInput" type="text" placeholder="Swoilz GG-B b5-3"
                        class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
-                <button id="predictBtn" type="button" class="inline-flex items-center justify-center px-4 py-2 rounded bg-[var(--accent-blue)] text-white hover:bg-[#107CB2] hover:text-white transition-colors duration-200 flex-none min-w-[130px] w-full sm:w-auto">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" fill="currentColor" style="display: inline; vertical-align: text-bottom; margin-right: 5px;" class="bi-search" viewBox="0 0 16 16">   <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/> </svg>
-                  Predict system
+                <button id="predictBtn" type="button" class="tool-tab active w-full sm:w-auto">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" style="display: inline;" fill="currentColor" style="color: #1294d6;" class="bi bi-magic" viewBox="0 0 16 16"><path d="M9.5 2.672a.5.5 0 1 0 1 0V.843a.5.5 0 0 0-1 0zm4.5.035A.5.5 0 0 0 13.293 2L12 3.293a.5.5 0 1 0 .707.707zM7.293 4A.5.5 0 1 0 8 3.293L6.707 2A.5.5 0 0 0 6 2.707zm-.621 2.5a.5.5 0 1 0 0-1H4.843a.5.5 0 1 0 0 1zm8.485 0a.5.5 0 1 0 0-1h-1.829a.5.5 0 0 0 0 1zM13.293 10A.5.5 0 1 0 14 9.293L12.707 8a.5.5 0 1 0-.707.707zM9.5 11.157a.5.5 0 0 0 1 0V9.328a.5.5 0 0 0-1 0zm1.854-5.097a.5.5 0 0 0 0-.706l-.708-.708a.5.5 0 0 0-.707 0L8.646 5.94a.5.5 0 0 0 0 .707l.708.708a.5.5 0 0 0 .707 0l1.293-1.293Zm-3 3a.5.5 0 0 0 0-.706l-.708-.708a.5.5 0 0 0-.707 0L.646 13.94a.5.5 0 0 0 0 .707l.708.708a.5.5 0 0 0 .707 0z" fill="#1294d6"/></svg>
+                Search
                 </button>
               </div>
             </form>
@@ -172,8 +154,22 @@
         <div class="flex justify-between items-center mt-2 w-full">
           <div id="resultCount" class="text-sm text-gray-400"></div>
         </div>
+      </div>
+
+      <div id="result" class="mt-6 glass rounded-2xl p-4">
+        <div id="quotePlaceholder" class="mt-4 quote">
+          <div class="flex items-center gap-3">
+            <div class="flex-1">
+              <blockquote id="quote" class="text-lg italic text-gray-100 mono">...</blockquote>
+              <div class="mt-3 text-xs text-gray-400" id="quote-author">—</div>
+            </div>
+          </div>
+        </div>
+        <div id="resultTable" class="mt-3 text-sm text-gray-100 bg-transparent mono overflow-x-auto" style="display:none;"></div>
+        <div id="resultPreContainer" class="mt-3" style="display:none;">
+          <pre id="resultPre" class="text-sm text-gray-100 bg-transparent mono"></pre>
+        </div>
         <div id="docsContainer" class="text-xs mt-2" style="text-align: right;">
-          <span id="totalSystems" class="text-gray-400">Total known systems loading…</span> |
           <a id="apiDocsLink" target="_blank" class="text-[var(--accent-blue)] hover:underline">
             API docs <svg version="1.1" style="display:inline;margin-bottom: 1px;" width="16" height="16" viewBox="0 0 14.97 14.92" xmlns="http://www.w3.org/2000/svg">
             <defs>
@@ -189,17 +185,6 @@
             <path d="m8.0066 0c-4.4275 0-8.0066 3.6056-8.0066 8.0661 0 3.5656 2.2933 6.5837 5.4747 7.652 0.39776 0.0803 0.54346-0.17356 0.54346-0.38711 0-0.187-0.013111-0.82796-0.013111-1.4958-2.2272 0.48085-2.6911-0.96154-2.6911-0.96154-0.35793-0.93482-0.88828-1.1751-0.88828-1.1751-0.72898-0.49412 0.0531-0.49412 0.0531-0.49412 0.80863 0.05343 1.2329 0.82797 1.2329 0.82797 0.7157 1.2285 1.869 0.88139 2.333 0.66768 0.066211-0.52084 0.27845-0.88139 0.50379-1.0817-1.7764-0.187-3.6454-0.88139-3.6454-3.9797 0-0.88139 0.31794-1.6025 0.82174-2.1633-0.079486-0.20027-0.35793-1.0284 0.07965-2.1368 0 0 0.67604-0.21371 2.2004 0.82797a7.6979 7.6979 0 0 1 2.0017-0.26714c0.67604 0 1.3652 0.09358 2.0016 0.26714 1.5245-1.0417 2.2005-0.82797 2.2005-0.82797 0.43758 1.1084 0.15897 1.9365 0.07949 2.1368 0.51707 0.56083 0.8219 1.2819 0.8219 2.1633 0 3.0983-1.869 3.7793-3.6587 3.9797 0.29172 0.2537 0.54346 0.73439 0.54346 1.4956 0 1.0817-0.013111 1.9498-0.013111 2.2168 0 0.21371 0.14586 0.46757 0.54345 0.38743 3.1814-1.0686 5.4747-4.0866 5.4747-7.6521 0.013107-4.4606-3.5792-8.0661-7.9933-8.0661z" clip-rule="evenodd" fill="#24292f" fill-rule="evenodd" stroke-width=".16389"/>
           </svg>
           </a>
-        </div>
-      </div>
-
-      <div id="result" class="mt-6 glass rounded-2xl p-4" style="display: none;">
-        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          <div class="text-sm font-medium">Latest API response</div>
-          <button id="toggleViewBtn" class="px-4 py-1 rounded bg-[var(--accent-blue)] text-white w-full sm:w-auto hover:bg-[#107CB2] hover:text-white transition-colors duration-200">JSON view</button>
-        </div>
-        <div id="resultTable" class="mt-3 text-sm text-gray-100 bg-transparent mono overflow-x-auto" style="display:none;"></div>
-        <div id="resultPreContainer" class="mt-3">
-          <pre id="resultPre" class="text-sm text-gray-100 bg-transparent mono"></pre>
         </div>
       </div>
     </main>
@@ -297,7 +282,7 @@
      globalThis.tableVisible = true;
      const statusEl = document.getElementById('status');
      const apiDocsLink = document.getElementById('apiDocsLink');
-     const totalSystemsEl = document.getElementById('totalSystems');
+     const quotePlaceholder = document.getElementById('quotePlaceholder');
 
      if (apiDocsLink) {
        try {
@@ -308,34 +293,12 @@
        }
      }
 
-     if (totalSystemsEl) {
-       try {
-         const statsUrl = new URL('/stats/total-systems', globalThis.location.origin);
-         const response = await fetch(statsUrl);
-         if (!response.ok) {
-           throw new Error('Request failed');
-         }
-
-         const payload = await response.json();
-         const total = payload && typeof payload.total_systems === 'number'
-           ? payload.total_systems
-           : null;
-
-         if (total === null) {
-           throw new Error('Missing total');
-         }
-
-         const formatter = new Intl.NumberFormat();
-         totalSystemsEl.textContent = `${formatter.format(total)} known systems indexed`;
-       } catch (error) {
-         console.warn('Unable to load total systems', error);
-         totalSystemsEl.textContent = 'Total known systems unavailable';
-       }
-     }
-
      function setStatus(txt){ statusEl.textContent = txt; }
      function showResult(url, json, kind = null) {
        const jsonString = JSON.stringify(json, null, 2);
+       if (quotePlaceholder) {
+         quotePlaceholder.style.display = 'none';
+       }
 
        // Create a clean <pre> element
        const cleanPre = document.createElement('pre');
@@ -346,6 +309,7 @@
        const wrapper = document.createElement('div');
        wrapper.id = 'resultPreContainer';
        wrapper.className = 'mt-3 relative';
+       wrapper.style.display = 'block';
        wrapper.appendChild(cleanPre);
 
        // Create copy button
@@ -545,7 +509,7 @@
 
      async function requestSystemAutocomplete(value) {
        if (!systemSuggestions) {
-          return;
+         return;
        }
        const trimmed = value.trim();
        if (trimmed.length < 2) {
@@ -562,8 +526,8 @@
          }
          const payload = await response.json();
          const suggestions = Array.isArray(payload?.suggestions)
-           ? payload.suggestions
-           : [];
+                           ? payload.suggestions
+                           : [];
          systemSuggestions.innerHTML = suggestions
            .map(name => `<option value="${escapeAttr(name)}"></option>`)
            .join('');
@@ -649,47 +613,11 @@
        callApi(`/neighbors?x=${encodeURIComponent(x)}&y=${encodeURIComponent(y)}&z=${encodeURIComponent(z)}&radius=${encodeURIComponent(radius)}`);
      }
 
-     function getNeutronMode(){
-       const current = neutronModeRadios.find(r => r.checked);
-       return current ? current.value : 'system';
-     }
-
-     function updateNeutronPlaceholder(){
-       if (!neutronInput) return;
-       const mode = getNeutronMode();
-       if (mode === 'coords') {
-         neutronInput.placeholder = '-220.34,112.12,328.71';
-         neutronInput.setAttribute('inputmode', 'decimal');
-       } else {
-         neutronInput.placeholder = 'HIP 87621';
-         neutronInput.setAttribute('inputmode', 'text');
-       }
-     }
-
      function submitNearestNeutron(){
        if (!neutronInput) return;
-       const mode = getNeutronMode();
        const value = neutronInput.value.trim();
-       activateTab('lookup');
-       if(!value){
-         setStatus(
-           mode === 'coords'
-           ? 'Provide X,Y,Z coordinates to find the closest neutron star'
-           : 'Enter a system name to find its nearest neutron star'
-         );
-         return;
-       }
-
-       if (mode === 'coords') {
-         const parts = value.split(',').map(s => s.trim());
-         if (parts.length < 3 || parts.slice(0, 3).includes('')) {
-           setStatus('Provide X,Y,Z coordinates to find the closest neutron star');
-           return;
-         }
-         callApi(`/nearest-neutron-star/coords?x=${encodeURIComponent(parts[0])}&y=${encodeURIComponent(parts[1])}&z=${encodeURIComponent(parts[2])}`);
-       } else {
-         callApi('/nearest-neutron-star?system_name=' + encodeURIComponent(value));
-       }
+       activateTab('advanced');
+       callApi('/nearest-neutron-star?system_name=' + encodeURIComponent(value));
      }
 
      searchBtn.addEventListener('click', submitSearch);
@@ -734,13 +662,6 @@
            submitNearestNeutron();
          }
        });
-     }
-
-     if (neutronModeRadios.length) {
-       for (const radio of neutronModeRadios) {
-         radio.addEventListener('change', updateNeutronPlaceholder);
-       }
-       updateNeutronPlaceholder();
      }
 
      function formatLy(value){
