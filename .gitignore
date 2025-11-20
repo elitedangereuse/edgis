@@ -14,3 +14,5 @@ AGENTS.md
 /.coveragerc
 /api/coverage.xml
 /api/.coverage
+/api/.envrc
+/api/.venv/
