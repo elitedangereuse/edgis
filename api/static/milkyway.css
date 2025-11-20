@@ -147,6 +147,92 @@ a:hover {
     border-radius: 0.25rem;
 }
 
+.lookup-actions {
+    margin-top: 1.5rem;
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.lookup-actions[hidden] {
+    display: none;
+}
+
+.lookup-action {
+    border: none;
+    background: transparent;
+    padding: 0;
+    border-radius: 1.25rem;
+    overflow: hidden;
+    position: relative;
+    cursor: pointer;
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+    transition: transform 200ms ease, box-shadow 200ms ease;
+}
+
+.lookup-action img {
+    display: block;
+    width: min(200px, 45vw);
+    height: auto;
+    object-fit: cover;
+    transition: transform 200ms ease, filter 200ms ease;
+}
+
+.lookup-action:hover img,
+.lookup-action:focus-visible img {
+    transform: scale(1.04);
+    filter: brightness(1.1);
+}
+
+.lookup-action:focus-visible {
+    outline: 2px solid rgba(18, 148, 214, 0.8);
+    outline-offset: 4px;
+}
+
+.lookup-action.is-disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.lookup-action.is-disabled img {
+    filter: grayscale(0.3);
+}
+
+.lookup-action__tooltip {
+    position: absolute;
+    left: 50%;
+    bottom: 0.75rem;
+    transform: translate(-50%, 10px);
+    background: rgba(6, 8, 18, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 999px;
+    padding: 0.35rem 0.9rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.85);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 200ms ease, transform 200ms ease;
+}
+
+.lookup-action:hover .lookup-action__tooltip,
+.lookup-action:focus-visible .lookup-action__tooltip {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+
+.lookup-action__tooltip-icon svg {
+    width: 14px;
+    height: 14px;
+    display: block;
+}
+
 .status--loading {
     display: inline-flex;
     align-items: baseline;
