@@ -15,15 +15,18 @@
       <div id="queryPanel" class="glass rounded-2xl p-8 shadow-xl">
         <div class="hero-header">
           <h1 class="text-5xl sm:text-5xl font-extrabold tracking-tight">
-            <svg width="60" height="60" version="1.1" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" style="display: inline;margin-right: 5px;">
-              <defs>
-                <clipPath id="clipPath1257">
-                  <circle cx=".88424" cy=".81788" r=".19725" d="M 1.0814924,0.81788176 A 0.19724794,0.19724794 0 0 1 0.88424444,1.0151297 0.19724794,0.19724794 0 0 1 0.6869965,0.81788176 0.19724794,0.19724794 0 0 1 0.88424444,0.62063383 0.19724794,0.19724794 0 0 1 1.0814924,0.81788176 Z" display="none" style="paint-order:stroke markers fill"/>
-                  <path class="powerclip" d="m-5.0925-4.878h12.068v11.895h-12.068zm6.174 5.6959a0.19725 0.19725 0 0 0-0.19725-0.19725 0.19725 0.19725 0 0 0-0.19725 0.19725 0.19725 0.19725 0 0 0 0.19725 0.19725 0.19725 0.19725 0 0 0 0.19725-0.19725z" style="paint-order:stroke markers fill"/>
-                </clipPath>
-              </defs>
-              <path transform="matrix(15.476 0 0 15.476 1.4315 -.40001)" d="m0.87444 2.0171 0.59711-1.2805-0.5873 0.081246 0.27355 0.10095zm-0.96694-1.8951 0.70644 1.2236 0.27031-0.52769-0.2396 0.16618zm2.0678 0.19796-1.4129 4e-8 0.32184 0.49794-0.024115-0.29059z" clip-path="url(#clipPath1257)" fill="#1294d6"/>
-            </svg>EDGIS
+            <button id="heroHomeButton" type="button" class="hero-title" aria-label="Back to system lookup">
+              <svg width="60" height="60" version="1.1" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <clipPath id="clipPath1257">
+                    <circle cx=".88424" cy=".81788" r=".19725" d="M 1.0814924,0.81788176 A 0.19724794,0.19724794 0 0 1 0.88424444,1.0151297 0.19724794,0.19724794 0 0 1 0.6869965,0.81788176 0.19724794,0.19724794 0 0 1 0.88424444,0.62063383 0.19724794,0.19724794 0 0 1 1.0814924,0.81788176 Z" display="none" style="paint-order:stroke markers fill"/>
+                    <path class="powerclip" d="m-5.0925-4.878h12.068v11.895h-12.068zm6.174 5.6959a0.19725 0.19725 0 0 0-0.19725-0.19725 0.19725 0.19725 0 0 0-0.19725 0.19725 0.19725 0.19725 0 0 0 0.19725 0.19725 0.19725 0.19725 0 0 0 0.19725-0.19725z" style="paint-order:stroke markers fill"/>
+                  </clipPath>
+                </defs>
+                <path transform="matrix(15.476 0 0 15.476 1.4315 -.40001)" d="m0.87444 2.0171 0.59711-1.2805-0.5873 0.081246 0.27355 0.10095zm-0.96694-1.8951 0.70644 1.2236 0.27031-0.52769-0.2396 0.16618zm2.0678 0.19796-1.4129 4e-8 0.32184 0.49794-0.024115-0.29059z" clip-path="url(#clipPath1257)" fill="#1294d6"/>
+              </svg>
+              <span>EDGIS</span>
+            </button>
           </h1>
           <div class="tool-menu" aria-label="Tool menu">
             <button id="toolMenuToggle" type="button" class="tool-menu__toggle" aria-label="Choose an EDGIS tool" aria-haspopup="true" aria-expanded="false" aria-controls="toolMenuDropdown" title="Choose a tool">
@@ -298,7 +301,32 @@
        }
      }
 
-     function setStatus(txt){ statusEl.textContent = txt; }
+     function setStatus(txt){
+       if (!statusEl) return;
+       if (!txt) {
+         statusEl.textContent = '';
+         statusEl.classList.remove('status--loading');
+         statusEl.removeAttribute('aria-label');
+         return;
+       }
+
+       const isLoading = typeof txt === 'string' && txt.toLowerCase().includes('querying api');
+       statusEl.classList.toggle('status--loading', isLoading);
+
+       if (isLoading) {
+         const base = txt.replace(/\.+$/, '').trim() || 'Querying API';
+         const dotMatches = txt.match(/\./g);
+         const dotCount = Math.max(dotMatches ? dotMatches.length : 0, 3);
+         const dotsMarkup = Array.from({ length: dotCount }, (_, idx) =>
+           `<span class="status-dot status-dot--${idx + 1}" aria-hidden="true">.</span>`
+         ).join('');
+         statusEl.innerHTML = `<span class="status-label">${escapeHtml(base)}</span>${dotsMarkup}`;
+         statusEl.setAttribute('aria-label', `${base}${'.'.repeat(dotCount)}`);
+       } else {
+         statusEl.textContent = txt;
+         statusEl.removeAttribute('aria-label');
+       }
+     }
      function showResult(url, json, kind = null) {
        const jsonString = JSON.stringify(json, null, 2);
        if (quotePlaceholder) {
@@ -445,7 +473,7 @@
      const searchInput = document.getElementById('searchInput');
      const systemSuggestions = document.getElementById('systemSuggestions');
      let autocompleteTimer = null;
-     const searchBtn = document.getElementById('searchBtn');
+    const searchBtn = document.getElementById('searchBtn');
      const bodiesInput = document.getElementById('bodiesInput');
      const bodiesBtn = document.getElementById('bodiesBtn');
      const bodiesModeEdsm = document.getElementById('bodiesModeEdsm');
@@ -460,7 +488,8 @@
      const routeStart = document.getElementById('routeStart');
      const routeGoal = document.getElementById('routeGoal');
      const routeRange = document.getElementById('routeRange');
-     const routeStatus = document.getElementById('routeStatus');
+    const routeStatus = document.getElementById('routeStatus');
+    const heroHomeButton = document.getElementById('heroHomeButton');
 
     const toolMenuToggle = document.getElementById('toolMenuToggle');
     const toolMenuDropdown = document.getElementById('toolMenuDropdown');
@@ -557,6 +586,13 @@
         if (event.key === 'Escape' && isToolMenuOpen) {
           setToolMenuOpen(false);
         }
+      });
+    }
+
+    if (heroHomeButton) {
+      heroHomeButton.addEventListener('click', () => {
+        setToolMenuOpen(false);
+        activateTab('lookup');
       });
     }
 
