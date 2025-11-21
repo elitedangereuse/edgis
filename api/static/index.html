@@ -243,7 +243,7 @@
 
      function convertEdUrl(u) {
        const src = new URL(u);
-       const dst = new URL("https://elitedangereuse.fr/outils/ed3ddrawer.php");
+       const dst = new URL("https://elitedangereuse.fr/outils/galaxymap.php");
        dst.search = src.search;
        return dst.toString();
      }
@@ -960,7 +960,7 @@
      globalThis.openSystemMap = openSystemMap;
 
      function openCoordsMap(x, y, z){
-       const url = convertEdUrl(`https://elitedangereuse.fr/outils/ed3ddrawer.php?x=${x}&y=${y}&z=${z}&radius=30`);
+       const url = convertEdUrl(`https://elitedangereuse.fr/outils/galaxymap.php?x=${x}&y=${y}&z=${z}&radius=30`);
        window.open(url, "_blank");
      }
      globalThis.openCoordsMap = openCoordsMap;
