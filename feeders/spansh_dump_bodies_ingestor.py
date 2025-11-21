@@ -206,11 +206,175 @@ def parse_timestamp(ts_str):
         return None
 
 
-def parse_star_type(spectral):
-    if not spectral or not isinstance(spectral, str):
+TOKEN_CANONICAL_MAP = {
+    "O": "O",
+    "B": "B",
+    "A": "A",
+    "F": "F",
+    "G": "G",
+    "K": "K",
+    "M": "M",
+    "L": "L",
+    "T": "T",
+    "Y": "Y",
+    "N": "N",
+    "H": "H",
+    "AE": "AeBe",
+    "AEBE": "AeBe",
+    "TTS": "TTS",
+    "MS": "MS",
+    "CH": "CH",
+    "CHD": "CHd",
+    "CJ": "CJ",
+    "CN": "CN",
+    "CS": "CS",
+    "WC": "WC",
+    "WN": "WN",
+    "WNC": "WNC",
+    "WO": "WO",
+    "W": "W",
+    "C": "C",
+    "S": "S",
+    "DB": "DB",
+    "DBV": "DBV",
+    "DBZ": "DBZ",
+    "DA": "DA",
+    "DAB": "DAB",
+    "DAO": "DAO",
+    "DAV": "DAV",
+    "DAZ": "DAZ",
+    "DC": "DC",
+    "DCV": "DCV",
+    "DQ": "DQ",
+    "DO": "DO",
+    "DOV": "DOV",
+    "DX": "D",
+    "BH": "H",
+    "SMBH": "SupermassiveBlackHole",
+    "SUPERMASSIVEBLACKHOLE": "SupermassiveBlackHole",
+    "A_BLUEWHITESUPERGIANT": "A_BlueWhiteSuperGiant",
+    "B_BLUEWHITESUPERGIANT": "B_BlueWhiteSuperGiant",
+    "F_WHITESUPERGIANT": "F_WhiteSuperGiant",
+    "G_WHITESUPERGIANT": "G_WhiteSuperGiant",
+    "K_ORANGEGIANT": "K_OrangeGiant",
+    "M_REDGIANT": "M_RedGiant",
+    "M_REDSUPERGIANT": "M_RedSuperGiant",
+    "X": "X",
+}
+
+WHITE_DWARF_TYPES = {
+    "D": "D",
+    "DA": "DA",
+    "DAB": "DAB",
+    "DAO": "DAO",
+    "DAZ": "DAZ",
+    "DAV": "DAV",
+    "DB": "DB",
+    "DBV": "DBV",
+    "DBZ": "DBZ",
+    "DC": "DC",
+    "DCV": "DCV",
+    "DO": "DO",
+    "DOV": "DOV",
+    "DQ": "DQ",
+    "DX": "D",
+}
+
+
+def _map_star_type_value(raw_value: str | None) -> str | None:
+    if not raw_value or not isinstance(raw_value, str):
         return None
-    m = re.match(r"([A-Za-z]+)", spectral)
-    return m.group(1) if m else None
+
+    candidate = raw_value.strip()
+    if not candidate:
+        return None
+
+    if candidate in TOKEN_CANONICAL_MAP.values():
+        return candidate
+
+    upper_candidate = candidate.replace("/", "").upper()
+    if upper_candidate in TOKEN_CANONICAL_MAP:
+        return TOKEN_CANONICAL_MAP[upper_candidate]
+
+    lower_candidate = candidate.lower()
+
+    if "neutron" in lower_candidate:
+        return "N"
+
+    if "black hole" in lower_candidate:
+        return "SupermassiveBlackHole" if "supermassive" in lower_candidate else "H"
+
+    if "herbig" in lower_candidate or "ae" in lower_candidate:
+        return "AeBe"
+
+    if "t tauri" in lower_candidate:
+        return "TTS"
+
+    if "ms-type" in lower_candidate or "ms type" in lower_candidate:
+        return "MS"
+
+    if "wolf-rayet" in lower_candidate or "wolf rayet" in lower_candidate:
+        if "nc" in lower_candidate:
+            return "WNC"
+        if "wn" in lower_candidate:
+            return "WN"
+        if "wc" in lower_candidate:
+            return "WC"
+        if "wo" in lower_candidate:
+            return "WO"
+        return "W"
+
+    if "white dwarf" in lower_candidate:
+        subtype_match = re.search(r"\(([^)]+)\)", candidate)
+        if subtype_match:
+            subtype = subtype_match.group(1).replace("/", "").upper()
+            return WHITE_DWARF_TYPES.get(subtype, "D")
+        return "D"
+
+    if "brown dwarf" in lower_candidate and candidate:
+        first_letter = candidate[0].upper()
+        if first_letter in {"L", "T", "Y"}:
+            return first_letter
+
+    if "giant" in lower_candidate and candidate:
+        first_letter = candidate[0].upper()
+        if "super" in lower_candidate:
+            if first_letter == "A":
+                return "A_BlueWhiteSuperGiant"
+            if first_letter == "B":
+                return "B_BlueWhiteSuperGiant"
+            if first_letter == "F":
+                return "F_WhiteSuperGiant"
+            if first_letter == "G":
+                return "G_WhiteSuperGiant"
+            if first_letter == "M":
+                return "M_RedSuperGiant"
+        else:
+            if first_letter == "K":
+                return "K_OrangeGiant"
+            if first_letter == "M":
+                return "M_RedGiant"
+
+    match = re.match(r"([A-Za-z]+)", candidate)
+    if match:
+        token = match.group(1).replace("/", "")
+        upper_token = token.upper()
+        if upper_token in TOKEN_CANONICAL_MAP:
+            return TOKEN_CANONICAL_MAP[upper_token]
+
+    return None
+
+
+def resolve_star_type(body: dict) -> str | None:
+    if not isinstance(body, dict):
+        return None
+
+    for key in ("subType", "spectralClass", "starType"):
+        star_type = _map_star_type_value(body.get(key))
+        if star_type:
+            return star_type
+
+    return None
 
 
 def to_seconds(value, multiplier=86400, precision=6):
@@ -332,6 +496,11 @@ def ingest_streaming(path):
                 updatetime = parse_timestamp(system.get("date"))
 
                 for body in system.get("bodies", []):
+                    star_type_name = (
+                        resolve_star_type(body)
+                        if body.get("type") == "Star"
+                        else None
+                    )
                     if body.get("type") == "Planet":
                         r = body.get("radius")
                         radius = r * 1000 if r is not None else None
@@ -466,11 +635,9 @@ def ingest_streaming(path):
                             "luminosities", body.get("luminosity"), conn
                         ),
                         "star_type_id": get_lookup_id(
-                            "star_types",
-                            parse_star_type(body.get("spectralClass")),
-                            conn,
+                            "star_types", star_type_name, conn
                         )
-                        if body.get("type") == "Star"
+                        if star_type_name
                         else None,
                         "subclass": parse_subclass(body.get("spectralClass"))
                         if body.get("type") == "Star"
