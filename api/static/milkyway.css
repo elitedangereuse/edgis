@@ -155,6 +155,21 @@ a:hover {
     flex-wrap: wrap;
 }
 
+.lookup-action__item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.45rem;
+    text-align: center;
+}
+
+.lookup-action__label {
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.75);
+}
+
 .lookup-actions[hidden] {
     display: none;
 }
