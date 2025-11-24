@@ -110,10 +110,20 @@ async def fetch_coords_for_systems(id64_list: list[int]):
 AUTOCOMPLETE_QUERY = """
     SELECT name
     FROM systems_big
-    WHERE lower(name) LIKE %s
+    WHERE lower(name) LIKE %s ESCAPE '\\'
     ORDER BY name
     LIMIT %s
 """
+
+
+def _escape_like_pattern(value: str) -> str:
+    """Escape characters significant to SQL LIKE expressions."""
+
+    return (
+        value.replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
 
 
 _MANUAL_AUTOCOMPLETE_CACHE: tuple[list[str], list[str]] | None = None
@@ -168,6 +178,30 @@ def _manual_name_suggestions(term: str, limit: int) -> list[str]:
     return results
 
 
+def _db_name_suggestions(term: str, limit: int) -> list[str]:
+    if limit <= 0:
+        return []
+
+    prefix = term.strip().lower()
+    if len(prefix) < 2:
+        return []
+
+    conn = psycopg.connect(
+        dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST
+    )
+    cursor = conn.cursor()
+
+    try:
+        like_pattern = f"{_escape_like_pattern(prefix)}%"
+        cursor.execute(AUTOCOMPLETE_QUERY, (like_pattern, limit))
+        rows = cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+
+    return [row[0] for row in rows if row and row[0]]
+
+
 @cached(
     cache=RedisCache,
     endpoint=REDIS_HOST,
@@ -178,10 +212,30 @@ def _manual_name_suggestions(term: str, limit: int) -> list[str]:
 )
 async def fetch_system_name_suggestions(term: str) -> list[str]:
     manual = _manual_name_suggestions(term, AUTOCOMPLETE_LIMIT)
-    if len(manual) >= AUTOCOMPLETE_LIMIT:
-        return manual[:AUTOCOMPLETE_LIMIT]
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for name in manual:
+        if name not in seen:
+            ordered.append(name)
+            seen.add(name)
+            if len(ordered) >= AUTOCOMPLETE_LIMIT:
+                return ordered[:AUTOCOMPLETE_LIMIT]
 
-    return manual
+    db_needed = AUTOCOMPLETE_LIMIT - len(ordered)
+    if db_needed <= 0:
+        return ordered[:AUTOCOMPLETE_LIMIT]
+
+    db_candidates = _db_name_suggestions(
+        term, max(db_needed, AUTOCOMPLETE_LIMIT)
+    )
+    for name in db_candidates:
+        if name not in seen:
+            ordered.append(name)
+            seen.add(name)
+            if len(ordered) >= AUTOCOMPLETE_LIMIT:
+                break
+
+    return ordered[:AUTOCOMPLETE_LIMIT]
 
 
 TOTAL_SYSTEMS_QUERY = """
@@ -492,7 +546,7 @@ def fetch_bodies_from_db(
                 b.body_name,
                 bt.name AS type,
                 pc.name AS planet_class,
-                ts.name AS terraform_state,
+                ts2.name AS terraform_state,
                 at.name AS atmosphere_type,
                 a.name AS atmosphere,
                 v.name AS volcanism,
@@ -584,8 +638,8 @@ def fetch_bodies_from_db(
         query = f"""
                 WITH target_system AS (
                     SELECT id64
-                    FROM systems_big
-                    WHERE lower(name) = lower(%s)
+                    FROM systems_big s
+                    WHERE LOWER(s.name) = LOWER(%s)
                     LIMIT 1
                 )
                 SELECT
@@ -594,7 +648,7 @@ def fetch_bodies_from_db(
                     b.body_name,
                     bt.name AS type,
                     pc.name AS planet_class,
-                    ts.name AS terraform_state,
+                    ts2.name AS terraform_state,
                     at.name AS atmosphere_type,
                     a.name AS atmosphere,
                     v.name AS volcanism,
@@ -649,8 +703,7 @@ def fetch_bodies_from_db(
                     b.landable,
                     b.updatetime
                 FROM bodies b
-                INNER JOIN target_system ts ON ts.id64 = b.system_id64
-                {body_filter}
+                INNER JOIN target_system ts ON ts.id64 = b.system_id64{body_filter}
                 LEFT JOIN body_types bt ON b.body_type_id = bt.id
                 LEFT JOIN planet_classes pc ON b.planet_class_id = pc.id
                 LEFT JOIN terraform_states ts2 ON b.terraform_state_id = ts2.id

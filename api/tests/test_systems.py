@@ -412,6 +412,32 @@ def test_autocomplete_endpoint_success(monkeypatch):
     assert response.json()["suggestions"] == ["Sol", "Solitude"]
 
 
+@pytest.mark.anyio("asyncio")
+async def test_fetch_system_name_suggestions_db_fallback(monkeypatch):
+    def fake_manual(term, limit):
+        assert term == "Sol"
+        assert limit == systems.AUTOCOMPLETE_LIMIT
+        return ["Sol"]
+
+    monkeypatch.setattr(
+        systems,
+        "_manual_name_suggestions",
+        fake_manual,
+    )
+
+    cursor = _patch_db(monkeypatch, rows=[("Sol",), ("Solace",), ("Solitude",)])
+
+    suggestions = await systems.fetch_system_name_suggestions.__wrapped__(  # type: ignore[attr-defined]
+        "Sol"
+    )
+
+    assert suggestions == ["Sol", "Solace", "Solitude"]
+    executed_query, params = cursor.executed[0]
+    assert "lower(name) like" in executed_query.lower()
+    assert params[0].startswith("sol") and params[0].endswith("%")
+    assert params[1] >= systems.AUTOCOMPLETE_LIMIT
+
+
 def test_apply_mode_scaling_edsm_handles_units():
     source = [
         {
