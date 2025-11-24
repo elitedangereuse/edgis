@@ -630,13 +630,18 @@ def test_fetch_bodies_from_db_named_filter(monkeypatch):
     cursor = _patch_db(
         monkeypatch,
         rows=[(999, 1)],
+        first=(999,),
         description=description,
     )
 
     systems.fetch_bodies_from_db("Sol", body_id=1)
-    executed_query = cursor.executed[0][0]
-    assert "LOWER(s.name)" in executed_query
-    assert "AND b.body_id = %s" in executed_query
+    id_lookup_query = cursor.executed[0][0]
+    assert "SELECT id64" in id_lookup_query
+    assert "LOWER(name)" in id_lookup_query
+
+    bodies_query = cursor.executed[1][0]
+    assert "b.system_id64 = %s" in bodies_query
+    assert "AND b.body_id = %s" in bodies_query
 
 
 @pytest.mark.anyio("asyncio")

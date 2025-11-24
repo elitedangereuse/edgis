@@ -483,202 +483,129 @@ def fetch_bodies_from_db(
         dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST
     )
     cursor = conn.cursor()
+    identifier = name_or_id.strip()
+    system_id64: Optional[int] = None
+    is_numeric = identifier.isdigit() or (
+        identifier.startswith("-") and identifier[1:].isdigit()
+    )
 
-    if name_or_id.isdigit() or (
-        name_or_id.startswith("-") and name_or_id[1:].isdigit()
-    ):
-        body_filter = ""
-        params: list[Any] = [name_or_id]
-        if body_id is not None:
-            body_filter = " AND b.body_id = %s"
-            params.append(body_id)
-
-        query = f"""
-                SELECT
-                b.system_id64,
-                b.body_id,
-                b.body_name,
-                bt.name AS type,
-                pc.name AS planet_class,
-                ts.name AS terraform_state,
-                at.name AS atmosphere_type,
-                a.name AS atmosphere,
-                v.name AS volcanism,
-                rc.name AS ring_class,
-                b.ring_inner_rad,
-                b.ring_outer_rad,
-                b.ring_mass_mt,
-                b.radius,
-                b.mass_em,
-                b.surface_gravity,
-                b.surface_temperature,
-                b.surface_pressure,
-                b.axial_tilt,
-                b.semi_major_axis,
-                b.eccentricity,
-                b.orbital_inclination,
-                b.periapsis,
-                b.mean_anomaly,
-                b.orbital_period,
-                b.rotation_period,
-                b.ascending_node,
-                b.distance_from_arrival_ls,
-                b.age_my,
-                b.absolute_magnitude,
-                l.name AS luminosity,
-                st.name AS star_type,
-                b.subclass,
-                b.stellar_mass,
-                b.composition_ice,
-                b.composition_metal,
-                b.composition_rock,
-                -- Normalized atmosphere_composition
-                COALESCE(
-                    jsonb_agg(
-                        jsonb_build_object(
-                            'Name', g.name,
-                            'Percent', ba.percent
-                        ) ORDER BY ba.percent DESC
-                    ) FILTER (WHERE ba.gas_id IS NOT NULL),
-                    '[]'::jsonb
-                ) AS atmosphere_composition,
-                -- New: aggregate materials from body_materials + material_names
-                COALESCE(
-                    jsonb_agg(
-                        jsonb_build_object(
-                            'Name', mn.name,
-                            'Percent', bm.percent
-                        ) ORDER BY bm.percent DESC
-                    ) FILTER (WHERE bm.material_id IS NOT NULL),
-                    '[]'::jsonb
-                ) AS materials,
-
-                b.parents,
-                b.tidally_locked,
-                b.landable,
-                b.updatetime
-
-            FROM bodies b
-            LEFT JOIN body_types bt         ON b.body_type_id = bt.id
-            LEFT JOIN planet_classes pc     ON b.planet_class_id = pc.id
-            LEFT JOIN terraform_states ts   ON b.terraform_state_id = ts.id
-            LEFT JOIN atmosphere_types at   ON b.atmosphere_type_id = at.id
-            LEFT JOIN atmospheres a         ON b.atmosphere_id = a.id
-            LEFT JOIN volcanisms v          ON b.volcanism_id = v.id
-            LEFT JOIN ring_classes rc       ON b.ring_class_id = rc.id
-            LEFT JOIN luminosities l        ON b.luminosity_id = l.id
-            LEFT JOIN star_types st         ON b.star_type_id = st.id
-            LEFT JOIN body_materials bm     ON b.system_id64 = bm.system_id64 AND b.body_id = bm.body_id
-            LEFT JOIN material_names mn     ON bm.material_id = mn.id
-            LEFT JOIN body_atmospheres ba ON b.system_id64 = ba.system_id64 AND b.body_id = ba.body_id
-            LEFT JOIN atmosphere_gases g ON ba.gas_id = g.id
-
-            WHERE b.system_id64 = %s{body_filter}
-        GROUP BY
-                b.system_id64, b.body_id, b.body_name,
-                bt.name, pc.name, ts.name, at.name, a.name,
-                v.name, rc.name, l.name, st.name
-            ORDER BY b.body_id;
-        """
-
-        cursor.execute(query, tuple(params))
+    if is_numeric:
+        system_id64 = int(identifier)
     else:
-        body_filter = ""
-        params = [name_or_id]
-        if body_id is not None:
-            body_filter = " AND b.body_id = %s"
-            params.append(body_id)
+        cursor.execute(
+            """
+            SELECT id64
+            FROM systems_big
+            WHERE LOWER(name) = LOWER(%s)
+            LIMIT 1
+            """,
+            (identifier,),
+        )
+        row = cursor.fetchone()
+        if row is not None:
+            system_id64 = int(row[0])
 
-        query = f"""
-                SELECT
-                b.system_id64,
-                b.body_id,
-                b.body_name,
-                bt.name AS type,
-                pc.name AS planet_class,
-                ts.name AS terraform_state,
-                at.name AS atmosphere_type,
-                a.name AS atmosphere,
-                v.name AS volcanism,
-                rc.name AS ring_class,
-                b.ring_inner_rad,
-                b.ring_outer_rad,
-                b.ring_mass_mt,
-                b.radius,
-                b.mass_em,
-                b.surface_gravity,
-                b.surface_temperature,
-                b.surface_pressure,
-                b.axial_tilt,
-                b.semi_major_axis,
-                b.eccentricity,
-                b.orbital_inclination,
-                b.periapsis,
-                b.mean_anomaly,
-                b.orbital_period,
-                b.rotation_period,
-                b.ascending_node,
-                b.distance_from_arrival_ls,
-                b.age_my,
-                b.absolute_magnitude,
-                l.name AS luminosity,
-                st.name AS star_type,
-                b.subclass,
-                b.stellar_mass,
-                b.composition_ice,
-                b.composition_metal,
-                b.composition_rock,
-                -- Normalized atmosphere_composition
-                COALESCE(
-                    jsonb_agg(
-                        jsonb_build_object(
-                            'Name', g.name,
-                            'Percent', ba.percent
-                        ) ORDER BY ba.percent DESC
-                    ) FILTER (WHERE ba.gas_id IS NOT NULL),
-                    '[]'::jsonb
-                ) AS atmosphere_composition,
-                -- New: aggregate materials from body_materials + material_names
-                COALESCE(
-                    jsonb_agg(
-                        jsonb_build_object(
-                            'Name', mn.name,
-                            'Percent', bm.percent
-                        ) ORDER BY bm.percent DESC
-                    ) FILTER (WHERE bm.material_id IS NOT NULL),
-                    '[]'::jsonb
-                ) AS materials,
+    if system_id64 is None:
+        cursor.close()
+        conn.close()
+        return None
 
-                b.parents,
-                b.tidally_locked,
-                b.landable,
-                b.updatetime
+    # Always query bodies by their resolved id64 to avoid ambiguous name lookups
+    body_filter = ""
+    params: list[Any] = [system_id64]
+    if body_id is not None:
+        body_filter = " AND b.body_id = %s"
+        params.append(body_id)
 
-            FROM bodies b
-            INNER JOIN systems_big s ON s.id64 = b.system_id64
-            LEFT JOIN body_types bt         ON b.body_type_id = bt.id
-            LEFT JOIN planet_classes pc     ON b.planet_class_id = pc.id
-            LEFT JOIN terraform_states ts   ON b.terraform_state_id = ts.id
-            LEFT JOIN atmosphere_types at   ON b.atmosphere_type_id = at.id
-            LEFT JOIN atmospheres a         ON b.atmosphere_id = a.id
-            LEFT JOIN volcanisms v          ON b.volcanism_id = v.id
-            LEFT JOIN ring_classes rc       ON b.ring_class_id = rc.id
-            LEFT JOIN luminosities l        ON b.luminosity_id = l.id
-            LEFT JOIN star_types st         ON b.star_type_id = st.id
-            LEFT JOIN body_materials bm     ON b.system_id64 = bm.system_id64 AND b.body_id = bm.body_id
-            LEFT JOIN material_names mn     ON bm.material_id = mn.id
-            LEFT JOIN body_atmospheres ba ON b.system_id64 = ba.system_id64 AND b.body_id = ba.body_id
-            LEFT JOIN atmosphere_gases g ON ba.gas_id = g.id
-            WHERE LOWER(s.name) = LOWER(%s)
-            AND s.id64 = b.system_id64{body_filter}
-        GROUP BY
-                b.system_id64, b.body_id, b.body_name,
-                bt.name, pc.name, ts.name, at.name, a.name,
-                v.name, rc.name, l.name, st.name
-            ORDER by body_id;
-        """
+    query = f"""
+            SELECT
+            b.system_id64,
+            b.body_id,
+            b.body_name,
+            bt.name AS type,
+            pc.name AS planet_class,
+            ts.name AS terraform_state,
+            at.name AS atmosphere_type,
+            a.name AS atmosphere,
+            v.name AS volcanism,
+            rc.name AS ring_class,
+            b.ring_inner_rad,
+            b.ring_outer_rad,
+            b.ring_mass_mt,
+            b.radius,
+            b.mass_em,
+            b.surface_gravity,
+            b.surface_temperature,
+            b.surface_pressure,
+            b.axial_tilt,
+            b.semi_major_axis,
+            b.eccentricity,
+            b.orbital_inclination,
+            b.periapsis,
+            b.mean_anomaly,
+            b.orbital_period,
+            b.rotation_period,
+            b.ascending_node,
+            b.distance_from_arrival_ls,
+            b.age_my,
+            b.absolute_magnitude,
+            l.name AS luminosity,
+            st.name AS star_type,
+            b.subclass,
+            b.stellar_mass,
+            b.composition_ice,
+            b.composition_metal,
+            b.composition_rock,
+            -- Normalized atmosphere_composition
+            COALESCE(
+                jsonb_agg(
+                    jsonb_build_object(
+                        'Name', g.name,
+                        'Percent', ba.percent
+                    ) ORDER BY ba.percent DESC
+                ) FILTER (WHERE ba.gas_id IS NOT NULL),
+                '[]'::jsonb
+            ) AS atmosphere_composition,
+            -- New: aggregate materials from body_materials + material_names
+            COALESCE(
+                jsonb_agg(
+                    jsonb_build_object(
+                        'Name', mn.name,
+                        'Percent', bm.percent
+                    ) ORDER BY bm.percent DESC
+                ) FILTER (WHERE bm.material_id IS NOT NULL),
+                '[]'::jsonb
+            ) AS materials,
 
-        cursor.execute(query, tuple(params))
+            b.parents,
+            b.tidally_locked,
+            b.landable,
+            b.updatetime
+
+        FROM bodies b
+        INNER JOIN systems_big s ON s.id64 = b.system_id64
+        LEFT JOIN body_types bt         ON b.body_type_id = bt.id
+        LEFT JOIN planet_classes pc     ON b.planet_class_id = pc.id
+        LEFT JOIN terraform_states ts   ON b.terraform_state_id = ts.id
+        LEFT JOIN atmosphere_types at   ON b.atmosphere_type_id = at.id
+        LEFT JOIN atmospheres a         ON b.atmosphere_id = a.id
+        LEFT JOIN volcanisms v          ON b.volcanism_id = v.id
+        LEFT JOIN ring_classes rc       ON b.ring_class_id = rc.id
+        LEFT JOIN luminosities l        ON b.luminosity_id = l.id
+        LEFT JOIN star_types st         ON b.star_type_id = st.id
+        LEFT JOIN body_materials bm     ON b.system_id64 = bm.system_id64 AND b.body_id = bm.body_id
+        LEFT JOIN material_names mn     ON bm.material_id = mn.id
+        LEFT JOIN body_atmospheres ba ON b.system_id64 = ba.system_id64 AND b.body_id = ba.body_id
+        LEFT JOIN atmosphere_gases g ON ba.gas_id = g.id
+        WHERE b.system_id64 = %s{body_filter}
+    GROUP BY
+            b.system_id64, b.body_id, b.body_name,
+            bt.name, pc.name, ts.name, at.name, a.name,
+            v.name, rc.name, l.name, st.name
+        ORDER BY b.body_id;
+    """
+
+    cursor.execute(query, tuple(params))
 
     rows = cursor.fetchall()
     if not rows:
