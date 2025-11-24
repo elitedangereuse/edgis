@@ -38,9 +38,7 @@ def _load_cors_origins() -> list[str]:
     configured = os.getenv("CORS_ORIGINS", "")
     if not configured:
         return []
-    return [
-        origin.strip() for origin in configured.split(",") if origin.strip()
-    ]
+    return [origin.strip() for origin in configured.split(",") if origin.strip()]
 
 
 origins = _load_cors_origins()
@@ -336,9 +334,7 @@ async def fetch_system_from_db(name_or_id: str):
         return None
 
     point_coordinates = row[3]
-    coords = (
-        point_coordinates.replace("POINT Z (", "").replace(")", "").split()
-    )
+    coords = point_coordinates.replace("POINT Z (", "").replace(")", "").split()
     x_coord = float(coords[0])
     y_coord = float(coords[1])
     z_coord = float(coords[2])
@@ -364,9 +360,7 @@ def _format_neutron_result(row: Optional[tuple[Any, Any, Any]]):
         formatted_distance = None
 
     return {
-        "neutron_id64": int(neutron_id64)
-        if neutron_id64 is not None
-        else None,
+        "neutron_id64": int(neutron_id64) if neutron_id64 is not None else None,
         "neutron_name": neutron_name,
         "distance_ly": formatted_distance,
     }
@@ -450,9 +444,7 @@ def _build_conversion_map() -> dict[str, float]:
     }
 
 
-def _scale_radius(
-    record: dict[str, Any], numeric_types: tuple[type, ...]
-) -> None:
+def _scale_radius(record: dict[str, Any], numeric_types: tuple[type, ...]) -> None:
     radius = record.get("radius")
     if not isinstance(radius, numeric_types):
         return
@@ -590,92 +582,94 @@ def fetch_bodies_from_db(
             params.append(body_id)
 
         query = f"""
+                WITH target_system AS (
+                    SELECT id64
+                    FROM systems_big
+                    WHERE lower(name) = lower(%s)
+                    LIMIT 1
+                )
                 SELECT
-                b.system_id64,
-                b.body_id,
-                b.body_name,
-                bt.name AS type,
-                pc.name AS planet_class,
-                ts.name AS terraform_state,
-                at.name AS atmosphere_type,
-                a.name AS atmosphere,
-                v.name AS volcanism,
-                rc.name AS ring_class,
-                b.ring_inner_rad,
-                b.ring_outer_rad,
-                b.ring_mass_mt,
-                b.radius,
-                b.mass_em,
-                b.surface_gravity,
-                b.surface_temperature,
-                b.surface_pressure,
-                b.axial_tilt,
-                b.semi_major_axis,
-                b.eccentricity,
-                b.orbital_inclination,
-                b.periapsis,
-                b.mean_anomaly,
-                b.orbital_period,
-                b.rotation_period,
-                b.ascending_node,
-                b.distance_from_arrival_ls,
-                b.age_my,
-                b.absolute_magnitude,
-                l.name AS luminosity,
-                st.name AS star_type,
-                b.subclass,
-                b.stellar_mass,
-                b.composition_ice,
-                b.composition_metal,
-                b.composition_rock,
-                -- Normalized atmosphere_composition
-                COALESCE(
-                    jsonb_agg(
-                        jsonb_build_object(
-                            'Name', g.name,
-                            'Percent', ba.percent
-                        ) ORDER BY ba.percent DESC
-                    ) FILTER (WHERE ba.gas_id IS NOT NULL),
-                    '[]'::jsonb
-                ) AS atmosphere_composition,
-                -- New: aggregate materials from body_materials + material_names
-                COALESCE(
-                    jsonb_agg(
-                        jsonb_build_object(
-                            'Name', mn.name,
-                            'Percent', bm.percent
-                        ) ORDER BY bm.percent DESC
-                    ) FILTER (WHERE bm.material_id IS NOT NULL),
-                    '[]'::jsonb
-                ) AS materials,
+                    b.system_id64,
+                    b.body_id,
+                    b.body_name,
+                    bt.name AS type,
+                    pc.name AS planet_class,
+                    ts.name AS terraform_state,
+                    at.name AS atmosphere_type,
+                    a.name AS atmosphere,
+                    v.name AS volcanism,
+                    rc.name AS ring_class,
+                    b.ring_inner_rad,
+                    b.ring_outer_rad,
+                    b.ring_mass_mt,
+                    b.radius,
+                    b.mass_em,
+                    b.surface_gravity,
+                    b.surface_temperature,
+                    b.surface_pressure,
+                    b.axial_tilt,
+                    b.semi_major_axis,
+                    b.eccentricity,
+                    b.orbital_inclination,
+                    b.periapsis,
+                    b.mean_anomaly,
+                    b.orbital_period,
+                    b.rotation_period,
+                    b.ascending_node,
+                    b.distance_from_arrival_ls,
+                    b.age_my,
+                    b.absolute_magnitude,
+                    l.name AS luminosity,
+                    st.name AS star_type,
+                    b.subclass,
+                    b.stellar_mass,
+                    b.composition_ice,
+                    b.composition_metal,
+                    b.composition_rock,
+                    COALESCE(
+                        jsonb_agg(
+                            jsonb_build_object(
+                                'Name', g.name,
+                                'Percent', ba.percent
+                            ) ORDER BY ba.percent DESC
+                        ) FILTER (WHERE ba.gas_id IS NOT NULL),
+                        '[]'::jsonb
+                    ) AS atmosphere_composition,
+                    COALESCE(
+                        jsonb_agg(
+                            jsonb_build_object(
+                                'Name', mn.name,
+                                'Percent', bm.percent
+                            ) ORDER BY bm.percent DESC
+                        ) FILTER (WHERE bm.material_id IS NOT NULL),
+                        '[]'::jsonb
+                    ) AS materials,
+                    b.parents,
+                    b.tidally_locked,
+                    b.landable,
+                    b.updatetime
+                FROM bodies b
+                INNER JOIN target_system ts ON ts.id64 = b.system_id64
+                {body_filter}
+                LEFT JOIN body_types bt ON b.body_type_id = bt.id
+                LEFT JOIN planet_classes pc ON b.planet_class_id = pc.id
+                LEFT JOIN terraform_states ts2 ON b.terraform_state_id = ts2.id
+                LEFT JOIN atmosphere_types at ON b.atmosphere_type_id = at.id
+                LEFT JOIN atmospheres a ON b.atmosphere_id = a.id
+                LEFT JOIN volcanisms v ON b.volcanism_id = v.id
+                LEFT JOIN ring_classes rc ON b.ring_class_id = rc.id
+                LEFT JOIN luminosities l ON b.luminosity_id = l.id
+                LEFT JOIN star_types st ON b.star_type_id = st.id
+                LEFT JOIN body_materials bm ON b.system_id64 = bm.system_id64 AND b.body_id = bm.body_id
+                LEFT JOIN material_names mn ON bm.material_id = mn.id
+                LEFT JOIN body_atmospheres ba ON b.system_id64 = ba.system_id64 AND b.body_id = ba.body_id
+                LEFT JOIN atmosphere_gases g ON ba.gas_id = g.id
 
-                b.parents,
-                b.tidally_locked,
-                b.landable,
-                b.updatetime
-
-            FROM bodies b
-            INNER JOIN systems_big s ON s.id64 = b.system_id64
-            LEFT JOIN body_types bt         ON b.body_type_id = bt.id
-            LEFT JOIN planet_classes pc     ON b.planet_class_id = pc.id
-            LEFT JOIN terraform_states ts   ON b.terraform_state_id = ts.id
-            LEFT JOIN atmosphere_types at   ON b.atmosphere_type_id = at.id
-            LEFT JOIN atmospheres a         ON b.atmosphere_id = a.id
-            LEFT JOIN volcanisms v          ON b.volcanism_id = v.id
-            LEFT JOIN ring_classes rc       ON b.ring_class_id = rc.id
-            LEFT JOIN luminosities l        ON b.luminosity_id = l.id
-            LEFT JOIN star_types st         ON b.star_type_id = st.id
-            LEFT JOIN body_materials bm     ON b.system_id64 = bm.system_id64 AND b.body_id = bm.body_id
-            LEFT JOIN material_names mn     ON bm.material_id = mn.id
-            LEFT JOIN body_atmospheres ba ON b.system_id64 = ba.system_id64 AND b.body_id = ba.body_id
-            LEFT JOIN atmosphere_gases g ON ba.gas_id = g.id
-            WHERE LOWER(s.name) = LOWER(%s)
-            AND s.id64 = b.system_id64{body_filter}
-        GROUP BY
-                b.system_id64, b.body_id, b.body_name,
-                bt.name, pc.name, ts.name, at.name, a.name,
-                v.name, rc.name, l.name, st.name
-            ORDER by body_id;
+                GROUP BY
+                    b.system_id64, b.body_id, b.body_name,
+                    bt.name, pc.name, ts2.name, at.name, a.name,
+                    v.name, rc.name, l.name, st.name
+                ORDER BY b.body_id;
         """
 
         cursor.execute(query, tuple(params))
@@ -715,18 +709,14 @@ def bodies(
     body_id: Optional[int] = Query(
         None, description="Optional body_id to narrow to a single body"
     ),
-    mode: Optional[str] = Query(
-        None, description="Optional response mode adjustments"
-    ),
+    mode: Optional[str] = Query(None, description="Optional response mode adjustments"),
 ):
     if body_id is None:
         result = fetch_bodies_from_db(name_or_id, mode=mode)
     else:
         result = fetch_bodies_from_db(name_or_id, mode=mode, body_id=body_id)
     if result is None:
-        return JSONResponse(
-            content={"error": SYSTEM_NOT_FOUND}, status_code=404
-        )
+        return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
     return result
 
 
@@ -775,9 +765,7 @@ async def proxy_edsm_bodies(
 async def get_coords(name_or_id: str = Query(..., alias="q")):
     result = await fetch_system_from_db(name_or_id)
     if result is None:
-        return JSONResponse(
-            content={"error": SYSTEM_NOT_FOUND}, status_code=404
-        )
+        return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
     return result
 
 
@@ -811,9 +799,7 @@ async def get_coords(name_or_id: str = Query(..., alias="q")):
         else:
             sys_obj = system.from_name(name_or_id, allow_known=False)
         if sys_obj is None:
-            return JSONResponse(
-                content={"error": SYSTEM_NOT_FOUND}, status_code=404
-            )
+            return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
 
         return SystemResponse(
             id64=getattr(sys_obj, "id64", None),
@@ -838,9 +824,7 @@ async def get_nearest_neutron_star(
 ):
     result = await fetch_nearest_neutron_star(system_name)
     if result is None:
-        return JSONResponse(
-            content={"error": "No neutron star found"}, status_code=404
-        )
+        return JSONResponse(content={"error": "No neutron star found"}, status_code=404)
     return result
 
 
@@ -855,9 +839,7 @@ async def get_nearest_neutron_star_from_coords(
 ):
     result = await fetch_nearest_neutron_star_at_coords(x, y, z)
     if result is None:
-        return JSONResponse(
-            content={"error": "No neutron star found"}, status_code=404
-        )
+        return JSONResponse(content={"error": "No neutron star found"}, status_code=404)
     return result
 
 
@@ -894,9 +876,7 @@ async def proxy_spansh_faction_presence(
     MAX_PAGE_SIZE = 500  # Maximum results per page
 
     payload = {
-        "filters": {
-            "minor_faction_presences": [{"name": {"value": [faction]}}]
-        },
+        "filters": {"minor_faction_presences": [{"name": {"value": [faction]}}]},
         "sort": [],
         "size": MAX_PAGE_SIZE,
         "page": 0,
@@ -914,9 +894,7 @@ async def proxy_spansh_faction_presence(
         save_data = save_response.json()
         search_reference = save_data.get("search_reference")
         if not search_reference:
-            raise HTTPException(
-                status_code=500, detail="No search_reference returned"
-            )
+            raise HTTPException(status_code=500, detail="No search_reference returned")
 
         # Step 2: Recall search (handle pagination)
         all_results = []
@@ -949,8 +927,7 @@ async def proxy_spansh_faction_presence(
         {
             "id64": system.get("id64"),
             "name": system.get("name"),
-            "is_controlling": system.get("controlling_minor_faction")
-            == faction,
+            "is_controlling": system.get("controlling_minor_faction") == faction,
         }
         for system in all_results
     ]
@@ -979,9 +956,7 @@ async def proxy_spansh_faction_presence(
     serializer=PickleSerializer(),
 )
 async def proxy_spansh_autocomplete_controlling_minor_faction(
-    q: str = Query(
-        ..., description="Search fragment for the controlling faction name"
-    ),
+    q: str = Query(..., description="Search fragment for the controlling faction name"),
 ):
     query = q.strip()
     if not query:
@@ -1012,9 +987,7 @@ async def proxy_spansh_autocomplete_controlling_minor_faction(
 
 
 @app.get("/systems/autocomplete")
-async def autocomplete_systems(
-    q: str = Query(..., description="System name prefix")
-):
+async def autocomplete_systems(q: str = Query(..., description="System name prefix")):
     query = q.strip()
     if len(query) < 2:
         return {"suggestions": []}
@@ -1022,9 +995,7 @@ async def autocomplete_systems(
         suggestions = await fetch_system_name_suggestions(query)
         return {"suggestions": suggestions}
     except Exception as exc:
-        raise HTTPException(
-            status_code=500, detail="Autocomplete failed"
-        ) from exc
+        raise HTTPException(status_code=500, detail="Autocomplete failed") from exc
 
 
 @app.get("/stats/total-systems")
