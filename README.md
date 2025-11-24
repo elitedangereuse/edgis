@@ -24,10 +24,21 @@ Populate your `.env` with database credentials and add a comma-separated `CORS_O
 ```
 CORS_ORIGINS = https://example.com,https://example.fr
 ```
+#### API port
+Expose the development server on a predictable port by setting `UVICORN_PORT` (defaults to `8383`).
+```
+UVICORN_PORT=8383
+```
+#### Autocomplete tuning
+Cap autocomplete query duration with `AUTOCOMPLETE_STATEMENT_TIMEOUT_MS` (first attempt) and optionally fall back to a slower retry with `AUTOCOMPLETE_TIMEOUT_RETRY_MS`.
+```
+AUTOCOMPLETE_STATEMENT_TIMEOUT_MS=300
+AUTOCOMPLETE_TIMEOUT_RETRY_MS=1200
+```
 #### Run locally
 
 ```bash
-edgis/api$ uvicorn systems:app --reload --host 0.0.0.0 --port 8383
+edgis/api$ uvicorn systems:app --reload --host 0.0.0.0 --port $UVICORN_PORT
 ```
 
 ## Frontend
