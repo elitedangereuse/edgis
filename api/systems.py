@@ -1,4 +1,5 @@
 import os
+import logging
 import httpx
 from decimal import Decimal
 from fastapi import HTTPException
@@ -30,6 +31,7 @@ NEIGHBORS_CONCURRENCY_LIMIT = 2
 neighbors_semaphore = asyncio.Semaphore(NEIGHBORS_CONCURRENCY_LIMIT)
 app = FastAPI()
 SYSTEM_NOT_FOUND = "System not found"
+logger = logging.getLogger(__name__)
 
 # Enable CORS for your app, you can restrict it to specific domains (origins)
 
@@ -58,11 +60,18 @@ DB_HOST = os.getenv("DB_HOST")
 DB_NAME = os.getenv("DB_NAME")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
+UVICORN_PORT = int(os.getenv("UVICORN_PORT") or "8383")
 
 REDIS_HOST = os.getenv("REDIS_HOST") or "localhost"
 REDIS_PORT = int(os.getenv("REDIS_PORT") or "6379")
 ONE_DAY_SECONDS = 60 * 60 * 24
 AUTOCOMPLETE_LIMIT = 15
+AUTOCOMPLETE_STATEMENT_TIMEOUT_MS = int(
+    os.getenv("AUTOCOMPLETE_STATEMENT_TIMEOUT_MS") or "500"
+)
+AUTOCOMPLETE_TIMEOUT_RETRY_MS = int(
+    os.getenv("AUTOCOMPLETE_TIMEOUT_RETRY_MS") or "1500"
+)
 
 from bisect import bisect_left
 from aiocache import cached
@@ -170,6 +179,79 @@ def _manual_name_suggestions(term: str, limit: int) -> list[str]:
     return results
 
 
+def _fetch_system_names_from_db(term: str, limit: int) -> list[str]:
+    if limit <= 0:
+        return []
+    prefix = term.strip().lower()
+    if len(prefix) < 2:
+        return []
+
+    conn = psycopg.connect(
+        dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST
+    )
+    try:
+        cursor = conn.cursor()
+        try:
+            like_pattern = f"{prefix}%"
+            rows: list[tuple[str]] = []
+            timeouts: list[int] = []
+            primary_timeout = max(0, AUTOCOMPLETE_STATEMENT_TIMEOUT_MS)
+            timeouts.append(primary_timeout)
+            retry_timeout = max(0, AUTOCOMPLETE_TIMEOUT_RETRY_MS)
+            if retry_timeout and retry_timeout != primary_timeout:
+                timeouts.append(retry_timeout)
+
+            for attempt, timeout_ms in enumerate(timeouts, start=1):
+                timeout_statement = (
+                    f"SET LOCAL statement_timeout = {timeout_ms}"
+                )
+                logger.debug(
+                    "autocomplete DB lookup",
+                    extra={
+                        "autocomplete_prefix": prefix,
+                        "autocomplete_limit": limit,
+                        "autocomplete_timeout_ms": timeout_ms,
+                        "autocomplete_attempt": attempt,
+                    },
+                )
+                try:
+                    cursor.execute(timeout_statement)
+                    cursor.execute(AUTOCOMPLETE_QUERY, (like_pattern, limit))
+                    rows = cursor.fetchall()
+                    break
+                except psycopg.errors.QueryCanceled:
+                    logger.warning(
+                        "autocomplete DB lookup canceled",
+                        extra={
+                            "autocomplete_prefix": prefix,
+                            "autocomplete_limit": limit,
+                            "autocomplete_timeout_ms": timeout_ms,
+                            "autocomplete_attempt": attempt,
+                        },
+                    )
+                    conn.rollback()
+                    if attempt == len(timeouts):
+                        return []
+                    continue
+            else:
+                return []
+        except Exception:
+            logger.exception(
+                "autocomplete DB lookup failed",
+                extra={
+                    "autocomplete_prefix": prefix,
+                    "autocomplete_limit": limit,
+                },
+            )
+            raise
+        finally:
+            cursor.close()
+    finally:
+        conn.close()
+
+    return [row[0] for row in rows if row and row[0]]
+
+
 @cached(
     cache=RedisCache,
     endpoint=REDIS_HOST,
@@ -182,6 +264,18 @@ async def fetch_system_name_suggestions(term: str) -> list[str]:
     manual = _manual_name_suggestions(term, AUTOCOMPLETE_LIMIT)
     if len(manual) >= AUTOCOMPLETE_LIMIT:
         return manual[:AUTOCOMPLETE_LIMIT]
+
+    remaining = AUTOCOMPLETE_LIMIT - len(manual)
+    db_results = _fetch_system_names_from_db(term, remaining)
+
+    seen = set(manual)
+    for name in db_results:
+        if not name or name in seen:
+            continue
+        manual.append(name)
+        seen.add(name)
+        if len(manual) >= AUTOCOMPLETE_LIMIT:
+            break
 
     return manual
 
@@ -986,4 +1080,4 @@ def read_index():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8383)
+    uvicorn.run(app, host="0.0.0.0", port=UVICORN_PORT)
