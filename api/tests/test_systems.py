@@ -3,6 +3,7 @@ import pathlib
 import sys
 import types
 from decimal import Decimal
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -410,6 +411,147 @@ def test_autocomplete_endpoint_success(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["suggestions"] == ["Sol", "Solitude"]
+
+
+def test_fetch_system_names_from_db(monkeypatch):
+    cursor = _patch_db(
+        monkeypatch,
+        rows=[("Sol",), ("Solace",)],
+    )
+
+    suggestions = systems._fetch_system_names_from_db(" sol ", 5)
+
+    assert suggestions == ["Sol", "Solace"]
+    assert cursor.executed == [
+        (
+            f"SET LOCAL statement_timeout = {systems.AUTOCOMPLETE_STATEMENT_TIMEOUT_MS}",
+            None,
+        ),
+        (
+            systems.AUTOCOMPLETE_QUERY,
+            ("sol%", 5),
+        )
+    ]
+
+
+def test_fetch_system_names_from_db_retry_succeeds(monkeypatch):
+    class _RetryCursor:
+        def __init__(self):
+            self.executed: list[tuple[str, Optional[tuple[str, int]]]] = []
+            self.closed = False
+            self.select_attempts = 0
+
+        def execute(self, query, params=None):
+            self.executed.append((query, params))
+            if query.strip().lower().startswith("select"):
+                self.select_attempts += 1
+                if self.select_attempts == 1:
+                    raise systems.psycopg.errors.QueryCanceled("timeout")
+
+        def fetchall(self):
+            return [("Stu",), ("Stux",)]
+
+        def close(self):
+            self.closed = True
+
+    class _RetryConn:
+        def __init__(self, cursor):
+            self.cursor_instance = cursor
+            self.closed = False
+            self.rollback_calls = 0
+
+        def cursor(self):
+            return self.cursor_instance
+
+        def rollback(self):
+            self.rollback_calls += 1
+
+        def close(self):
+            self.closed = True
+
+    cursor = _RetryCursor()
+    conn = _RetryConn(cursor)
+    monkeypatch.setattr(systems.psycopg, "connect", lambda **_: conn)
+    monkeypatch.setattr(systems, "AUTOCOMPLETE_STATEMENT_TIMEOUT_MS", 50)
+    monkeypatch.setattr(systems, "AUTOCOMPLETE_TIMEOUT_RETRY_MS", 200)
+
+    suggestions = systems._fetch_system_names_from_db("Stu", 2)
+
+    assert suggestions == ["Stu", "Stux"]
+    assert cursor.select_attempts == 2
+    assert cursor.closed
+    assert conn.closed
+    assert conn.rollback_calls == 1
+
+
+def test_fetch_system_names_from_db_handles_timeout(monkeypatch):
+    class _TimeoutCursor:
+        def __init__(self):
+            self.executed: list[tuple[str, Optional[tuple[str, int]]]] = []
+            self.closed = False
+            self.select_attempts = 0
+
+        def execute(self, query, params=None):
+            self.executed.append((query, params))
+            if query.strip().lower().startswith("select"):
+                self.select_attempts += 1
+                raise systems.psycopg.errors.QueryCanceled("timeout")
+
+        def fetchall(self):
+            raise AssertionError("fetchall should not be called after timeout")
+
+        def close(self):
+            self.closed = True
+
+    class _TimeoutConn:
+        def __init__(self, cursor):
+            self.cursor_instance = cursor
+            self.closed = False
+            self.rollback_calls = 0
+
+        def cursor(self):
+            return self.cursor_instance
+
+        def rollback(self):
+            self.rollback_calls += 1
+
+        def close(self):
+            self.closed = True
+
+    cursor = _TimeoutCursor()
+    conn = _TimeoutConn(cursor)
+    monkeypatch.setattr(systems.psycopg, "connect", lambda **_: conn)
+    monkeypatch.setattr(systems, "AUTOCOMPLETE_STATEMENT_TIMEOUT_MS", 20)
+    monkeypatch.setattr(systems, "AUTOCOMPLETE_TIMEOUT_RETRY_MS", 40)
+
+    suggestions = systems._fetch_system_names_from_db("Stuemae", 15)
+
+    assert suggestions == []
+    assert cursor.closed
+    assert conn.closed
+    assert cursor.select_attempts == 2
+    assert conn.rollback_calls == 2
+
+
+@pytest.mark.anyio
+async def test_fetch_system_name_suggestions_combines_manual_and_db(monkeypatch):
+    def fake_manual(term, limit):
+        assert limit == systems.AUTOCOMPLETE_LIMIT
+        return ["Sol"]
+
+    fetched = []
+
+    def fake_db(term, limit):
+        fetched.append((term, limit))
+        return ["Sol", "Solace", "Solitude"]
+
+    monkeypatch.setattr(systems, "_manual_name_suggestions", fake_manual)
+    monkeypatch.setattr(systems, "_fetch_system_names_from_db", fake_db)
+
+    result = await systems.fetch_system_name_suggestions.__wrapped__("Sol")  # type: ignore[attr-defined]
+
+    assert result == ["Sol", "Solace", "Solitude"]
+    assert fetched == [("Sol", systems.AUTOCOMPLETE_LIMIT - 1)]
 
 
 def test_apply_mode_scaling_edsm_handles_units():
