@@ -984,24 +984,44 @@
      }
      globalThis.openCoordsMap = openCoordsMap;
 
-     function copyToClipboard(text, btnElement) {
-       navigator.clipboard.writeText(text).then(() => {
-         btnElement.innerHTML = '<span class="text-xs text-green-400">Copied!</span>';
-         setTimeout(() => {
-           btnElement.innerHTML = copyIconSvg;
-         }, 1500);
-       }).catch(err => {
-         console.error('Copy failed:', err);
-         btnElement.innerHTML = '<span class="text-xs text-red-400">Fail</span>';
-         setTimeout(() => {
-           btnElement.innerHTML = copyIconSvg;
-         }, 1500);
-       });
-     }
-     globalThis.copyToClipboard = copyToClipboard;
+    function copyToClipboard(text, btnElement) {
+      navigator.clipboard.writeText(text).then(() => {
+        btnElement.innerHTML = '<span class="text-xs text-green-400">Copied!</span>';
+        setTimeout(() => {
+          btnElement.innerHTML = copyIconSvg;
+        }, 1500);
+      }).catch(err => {
+        console.error('Copy failed:', err);
+        btnElement.innerHTML = '<span class="text-xs text-red-400">Fail</span>';
+        setTimeout(() => {
+          btnElement.innerHTML = copyIconSvg;
+        }, 1500);
+      });
+    }
+    globalThis.copyToClipboard = copyToClipboard;
 
-     function jsonToTable(data, kind = null) {
-       const rows = normalizeTableData(data);
+    function handleCopyCellClick(event) {
+      const cell = event.target.closest('td[data-copy-value]');
+      if (!cell) {
+        return;
+      }
+      if (event.target.closest('button, a')) {
+        return;
+      }
+      const text = cell.dataset.copyValue;
+      if (!text) {
+        return;
+      }
+      const button = cell.querySelector('.copy-name-btn');
+      if (!button) {
+        return;
+      }
+      copyToClipboard(text, button);
+    }
+    document.addEventListener('click', handleCopyCellClick);
+
+    function jsonToTable(data, kind = null) {
+      const rows = normalizeTableData(data);
        if (!rows.length) {
          return "<p class='text-gray-400 text-sm'>No data available</p>";
        }
@@ -1353,30 +1373,32 @@
        return `<td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono" data-label="${labelAttr}">${value ?? ""}</td>`;
      }
 
-     function renderCoordsCell(labelAttr, coords) {
-       const { x, y, z } = coords;
-       const formatted = `${x.toFixed(1)},${y.toFixed(1)},${z.toFixed(1)}`;
-       const fullPrecision = `${x},${y},${z}`;
+    function renderCoordsCell(labelAttr, coords) {
+      const { x, y, z } = coords;
+      const formatted = `${x.toFixed(1)},${y.toFixed(1)},${z.toFixed(1)}`;
+      const fullPrecision = `${x},${y},${z}`;
+      const fullPrecisionAttr = escapeAttr(fullPrecision);
 
-       return `
-      <td
-        class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] font-mono text-xs leading-tight"
-        title="x: ${fullPrecision}"
-        data-label="${labelAttr}"
-      >
-        <div class="flex items-center gap-2">
-          <span class="text-gray-300 tabular-nums">${formatted}</span>
-          <button
-            title="Copy coords"
-            class="copy-name-btn opacity-20 group-hover:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
-            onclick="copyToClipboard('${fullPrecision}', this)"
-          >
-            ${copyIconSvg}
-          </button>
-        </div>
-      </td>
-       `;
-     }
+      return `
+     <td
+       class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] font-mono text-xs leading-tight cursor-pointer copy-cell"
+       title="x: ${fullPrecision}"
+       data-label="${labelAttr}"
+       data-copy-value="${fullPrecisionAttr}"
+     >
+       <div class="flex items-center gap-2">
+         <span class="text-gray-300 tabular-nums">${formatted}</span>
+         <button
+           title="Copy coords"
+           class="copy-name-btn opacity-20 group-hover:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+           onclick="copyToClipboard('${escapeQuotes(fullPrecision)}', this)"
+         >
+           ${copyIconSvg}
+         </button>
+       </div>
+     </td>
+      `;
+    }
 
      function shouldRenderCopyCell(key, value, kind) {
        const isString = typeof value === "string";
@@ -1385,29 +1407,30 @@
        return kind === 'bodies' && key === "body_name";
      }
 
-     function renderCopyCell(labelAttr, value, kind, key) {
-       let copyTitle = 'Copy name';
-       if (kind === 'bodies' && key === "body_name") {
-         copyTitle = 'Copy body name';
-       } else if (key === "neutron_name") {
-         copyTitle = 'Copy neutron name';
-       }
+    function renderCopyCell(labelAttr, value, kind, key) {
+      let copyTitle = 'Copy name';
+      if (kind === 'bodies' && key === "body_name") {
+        copyTitle = 'Copy body name';
+      } else if (key === "neutron_name") {
+        copyTitle = 'Copy neutron name';
+      }
+      const attrValue = escapeAttr(value);
 
-       return `
-      <td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono" data-label="${labelAttr}">
-        <div class="flex items-center gap-2">
-          <span class="flex-1">${value}</span>
-          <button
+      return `
+     <td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono cursor-pointer copy-cell" data-label="${labelAttr}" data-copy-value="${attrValue}">
+       <div class="flex items-center gap-2">
+         <span class="flex-1">${value}</span>
+         <button
             title="${copyTitle}"
             class="copy-name-btn opacity-20 group-hover:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
             onclick="copyToClipboard('${escapeQuotes(value)}', this)"
           >
             ${copyIconSvg}
           </button>
-        </div>
-      </td>
-       `;
-     }
+       </div>
+     </td>
+      `;
+    }
 
      function formatStarClass(row) {
        const starType = row?.star_type;
