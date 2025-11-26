@@ -173,32 +173,48 @@
             </div>
           </div>
         </div>
+        <div id="systemLookupCard" class="system-card" hidden>
+          <div class="system-card__header">
+            <h3 id="systemNameDisplay" class="system-card__title">Awaiting selection</h3>
+          </div>
+          <div id="systemLookupActions" class="system-card__actions" hidden>
+            <button type="button" id="systemMapBtn" class="system-card__action-tile is-disabled" aria-label="Open system map" disabled>
+              <span class="system-card__action-icon" data-tooltip-icon="system" aria-hidden="true"></span>
+              <span class="system-card__action-label">System map</span>
+            </button>
+            <button type="button" id="galaxyMapBtn" class="system-card__action-tile is-disabled" aria-label="Open galaxy map" disabled>
+              <span class="system-card__action-icon" data-tooltip-icon="galaxy" aria-hidden="true"></span>
+              <span class="system-card__action-label">Galaxy map</span>
+            </button>
+            <button type="button" id="neighborsActionBtn" class="system-card__action-tile is-disabled" aria-label="Find nearby systems" disabled>
+              <span class="system-card__action-icon" aria-hidden="true"></span>
+              <span class="system-card__action-label">Neighbors</span>
+            </button>
+          </div>
+          <div class="system-card__stat system-card__stat--coords">
+            <p class="system-card__mainstar">Primary star
+              <span class="system-card__mainstar-chip">
+                <span id="systemMainstarIndicator" class="system-card__star-indicator" aria-hidden="true"></span>
+                <span id="systemMainstar">—</span>
+              </span>
+            </p>
+            <div class="system-card__axes">
+              <div class="system-card__axis" data-axis="x">
+                <span class="system-card__axis-label">X</span>
+                <span id="systemCoordX" class="system-card__axis-value">—</span>
+              </div>
+              <div class="system-card__axis" data-axis="y">
+                <span class="system-card__axis-label">Y</span>
+                <span id="systemCoordY" class="system-card__axis-value">—</span>
+              </div>
+              <div class="system-card__axis" data-axis="z">
+                <span class="system-card__axis-label">Z</span>
+                <span id="systemCoordZ" class="system-card__axis-value">—</span>
+              </div>
+            </div>
+          </div>
+        </div>
         <div id="resultTable" class="mt-3 text-sm text-gray-100 bg-transparent mono overflow-x-auto" style="display:none;"></div>
-        <div id="systemLookupActions" class="lookup-actions" hidden>
-          <div class="lookup-action__item">
-            <span id="galaxyMapLabel" class="lookup-action__label">Galaxy map</span>
-            <button type="button" id="galaxyMapBtn" class="lookup-action is-disabled" aria-label="Open galaxy map" aria-describedby="galaxyMapLabel" disabled>
-              <img src="/static/assets/galaxymap.webp" alt="Galaxy map" loading="lazy" decoding="async" />
-              <span class="lookup-action__tooltip" role="tooltip">
-                <span class="lookup-action__tooltip-icon" data-tooltip-icon="galaxy"></span>
-                <span class="lookup-action__tooltip-label">Galaxy Map</span>
-              </span>
-            </button>
-          </div>
-          <div class="lookup-action__item">
-            <span id="systemMapLabel" class="lookup-action__label">System map</span>
-            <button type="button" id="systemMapBtn" class="lookup-action is-disabled" aria-label="Open system map" aria-describedby="systemMapLabel" disabled>
-              <img src="/static/assets/systemmap.webp" alt="System map" loading="lazy" decoding="async" />
-              <span class="lookup-action__tooltip" role="tooltip">
-                <span class="lookup-action__tooltip-icon" data-tooltip-icon="system"></span>
-                <span class="lookup-action__tooltip-label">System Map</span>
-              </span>
-            </button>
-          </div>
-        </div>
-        <div id="resultPreContainer" class="mt-3" style="display:none;">
-          <pre id="resultPre" class="text-sm text-gray-100 bg-transparent mono"></pre>
-        </div>
         <div id="docsContainer" class="text-xs mt-2" style="text-align: right;">
           <a id="apiDocsLink" target="_blank" class="text-[var(--accent-blue)] hover:underline">
             API docs <svg version="1.1" style="display:inline;margin-bottom: 1px;" width="16" height="16" viewBox="0 0 14.97 14.92" xmlns="http://www.w3.org/2000/svg">
@@ -238,14 +254,61 @@
        'type',
        'planet_class',
        'landable',
-       'distance_from_arrival_ls',
-       'surface_temperature',
-       'surface_gravity',
-     ];
+     'distance_from_arrival_ls',
+      'surface_temperature',
+      'surface_gravity',
+    ];
 
-     function getColumnLabel(key) {
-       return COLUMN_LABELS[key] ?? key;
-     }
+    const STAR_COLOR_MAP = {
+      O: '#55b7ff',
+      B: '#64b6ff',
+      B_BLUEWHITESUPERGIANT: '#64b6ff',
+      A: '#c0d8ff',
+      A_BLUEWHITESUPERGIANT: '#c0d8ff',
+      AEBE: '#c0d8ff',
+      F: '#ffe5a4',
+      F_WHITESUPERGIANT: '#ffe5a4',
+      G: '#ffdd72',
+      G_WHITESUPERGIANT: '#ffdd72',
+      K: '#ffb767',
+      K_ORANGEGIANT: '#ffb767',
+      M: '#ff866d',
+      M_REDGIANT: '#ff866d',
+      M_REDSUPERGIANT: '#ff866d',
+      L: '#ff9d6b',
+      T: '#b384ff',
+      TTS: '#b384ff',
+      Y: '#ffd7ae',
+      H: '#9ed4ff',
+      MS: '#ffd277',
+      S: '#ffb6d8',
+      C: '#81f1ce',
+      CN: '#81f1ce',
+      CJ: '#81f1ce',
+      D: '#e8f2ff',
+      DA: '#e8f2ff',
+      DAZ: '#e8f2ff',
+      DAV: '#e8f2ff',
+      DAB: '#e8f2ff',
+      DB: '#e1ecff',
+      DBZ: '#e1ecff',
+      DBV: '#e1ecff',
+      DC: '#d6deee',
+      DCV: '#d6deee',
+      DQ: '#cde8ff',
+      WO: '#f0a0ff',
+      WC: '#f0a0ff',
+      WN: '#f0a0ff',
+      WNC: '#f0a0ff',
+      W: '#f0a0ff',
+      N: '#69c3ff',
+      SUPERMASSIVEBLACKHOLE: '#70768c'
+    };
+    const STAR_COLOR_FALLBACK = '#a9b4c9';
+
+    function getColumnLabel(key) {
+      return COLUMN_LABELS[key] ?? key;
+    }
 
      function convertEdUrl(u) {
        const src = new URL(u);
@@ -322,11 +385,19 @@
      setInterval(cycleQuote, 5000);
 
      const result = document.getElementById('result');
-     let resultPre = document.getElementById('resultPre');
+     const resultTable = document.getElementById('resultTable');
      globalThis.tableVisible = true;
      const statusEl = document.getElementById('status');
      const apiDocsLink = document.getElementById('apiDocsLink');
      const quotePlaceholder = document.getElementById('quotePlaceholder');
+     const systemCard = document.getElementById('systemLookupCard');
+     const systemNameDisplay = document.getElementById('systemNameDisplay');
+     const systemMainstarEl = document.getElementById('systemMainstar');
+     const systemMainstarIndicator = document.getElementById('systemMainstarIndicator');
+     const systemDistanceDisplay = document.getElementById('systemDistanceDisplay');
+     const systemCoordX = document.getElementById('systemCoordX');
+     const systemCoordY = document.getElementById('systemCoordY');
+     const systemCoordZ = document.getElementById('systemCoordZ');
 
      if (apiDocsLink) {
        try {
@@ -371,61 +442,13 @@
          statusEl.removeAttribute('aria-label');
        }
      }
-     function showResult(url, json, kind = null) {
-       const jsonString = JSON.stringify(json, null, 2);
-       if (quotePlaceholder) {
-         quotePlaceholder.style.display = 'none';
-       }
+    function showResult(url, json, kind = null) {
+      if (quotePlaceholder) {
+        quotePlaceholder.style.display = 'none';
+      }
 
-       // Create a clean <pre> element
-       const cleanPre = document.createElement('pre');
-       cleanPre.className = 'text-sm text-gray-100 bg-transparent mono';
-       cleanPre.textContent = jsonString;
-
-       // Create wrapper div
-       const wrapper = document.createElement('div');
-       wrapper.id = 'resultPreContainer';
-       wrapper.className = 'mt-3 relative';
-       wrapper.style.display = 'block';
-       wrapper.appendChild(cleanPre);
-
-       // Create copy button
-       const copyBtn = document.createElement('button');
-       copyBtn.className = 'clipboard-button absolute top-2 right-2 p-1.5 text-white transition text-xs z-20 focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800 rounded';
-       copyBtn.title = 'Copy JSON to clipboard';
-       copyBtn.innerHTML = copyIconSvg;
-
-       copyBtn.onclick = () => {
-         navigator.clipboard.writeText(jsonString).then(() => {
-           copyBtn.innerHTML = `<span class="text-xs text-green-400">Copied!</span>`;
-           setTimeout(() => {
-             copyBtn.innerHTML = copyIconSvg;
-           }, 1500);
-         }).catch(err => {
-           console.error('Copy failed:', err);
-           copyBtn.innerHTML = `<span class="text-xs text-red-400">Fail</span>`;
-           setTimeout(() => {
-             copyBtn.innerHTML = copyIconSvg;
-           }, 1500);
-         });
-       };
-
-       wrapper.appendChild(copyBtn);
-
-       // Replace the old container with the new one
-       const oldContainer = document.getElementById('resultPreContainer');
-       if (oldContainer) {
-         oldContainer.replaceWith(wrapper);
-       } else {
-         // Fallback (shouldn't happen if HTML has initial container)
-         document.getElementById('result').appendChild(wrapper);
-       }
-
-       // Update reference
-       resultPre = cleanPre;
-
-       // --- Update count and map link ---
-       const countEl = document.getElementById('resultCount');
+      // --- Update count and map link ---
+      const countEl = document.getElementById('resultCount');
        let count = null;
        if (Array.isArray(json)) {
          count = json.length;
@@ -439,17 +462,17 @@
 
        result.style.display = 'block';
 
-       // --- Update table if visible ---
-       if (globalThis.tableVisible) {
+      // --- Update table if visible ---
+       const shouldShowTable = Boolean(globalThis.tableVisible && kind !== 'system-lookup');
+       if (shouldShowTable) {
          resultTable.style.display = 'block';
-         resultPre.style.display = 'none';
          resultTable.innerHTML = jsonToTable(json, kind);
        } else {
-       resultTable.style.display = 'none';
-        resultPre.style.display = 'block';
-      }
+         resultTable.style.display = 'none';
+       }
 
       updateLookupActionButtons(json, kind);
+      updateSystemLookupCard(json, kind);
     }
 
      function detectResultKind(path){
@@ -539,6 +562,7 @@
     const lookupActions = document.getElementById('systemLookupActions');
     const galaxyMapBtn = document.getElementById('galaxyMapBtn');
     const systemMapBtn = document.getElementById('systemMapBtn');
+    const neighborsActionBtn = document.getElementById('neighborsActionBtn');
 
     const toolMenuToggle = document.getElementById('toolMenuToggle');
     const toolMenuDropdown = document.getElementById('toolMenuDropdown');
@@ -810,6 +834,18 @@
       });
     }
 
+    if (neighborsActionBtn) {
+      neighborsActionBtn.addEventListener('click', () => {
+        if (neighborsActionBtn.disabled) return;
+        const { x, y, z } = neighborsActionBtn.dataset;
+        if ([x, y, z].includes(undefined)) {
+          return;
+        }
+        fillNeighborsInput(x, y, z);
+        submitNeighbors();
+      });
+    }
+
      neighborsBtn.addEventListener('click', submitNeighbors);
      neighborsInput.addEventListener('keydown', e=>{
        if(e.key === 'Enter'){
@@ -938,12 +974,17 @@
        });
      }
 
-    const resultTable = document.getElementById("resultTable");
     const copyIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-copy" viewBox="0 0 16 16">
       <path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/>
       </svg>`;
-     const systemMapIconSvg = `<svg width="16" height="16" version="1.1" viewBox="0 0 24.77 24.77" xmlns="http://www.w3.org/2000/svg">
-        <path d="m18.976 12.385a6.5907 6.5907 0 0 1-6.5907 6.5907 6.5907 6.5907 0 0 1-6.5907-6.5907 6.5907 6.5907 0 0 1 6.5907-6.5907 6.5907 6.5907 0 0 1 6.5907 6.5907zm5.2941 0a11.885 11.885 0 0 1-11.885 11.885 11.885 11.885 0 0 1-11.885-11.885 11.885 11.885 0 0 1 11.885-11.885 11.885 11.885 0 0 1 11.885 11.885z" fill="none" stroke="currentColor" style="paint-order:stroke markers fill"></path>
+    const neutronIndicatorSvg = `<svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="m9.4034 7.3455a1.5488 1.5488 0 0 1-0.7491 2.0582 1.5488 1.5488 0 0 1-2.0582-0.7491 1.5488 1.5488 0 0 1 0.7491-2.0582 1.5488 1.5488 0 0 1 2.0582 0.7491zm-1.4036 0.65455 5.3781 6.0364-4.2109 1.9636zm0 0-5.3781-6.0364 4.2109-1.9636z" fill="currentColor" stroke-width=".054153"/>
+    </svg>`;
+    const neighborsIconSvg = `<svg width="44" height="44" viewBox="0 0 39.902 39.902" xmlns="http://www.w3.org/2000/svg">
+      <path d="m14.241 24.519 4.7463-5.6206-4.7463-5.6206 5.6206 4.7463 5.6206-4.7463-4.7463 5.6206 4.7463 5.6206-5.6206-4.7463zm-9.6642 2.7315-0.56969-2.653-2.653-0.56969 2.653-0.56969 0.56969-2.653 0.56969 2.653 2.653 0.56969-2.653 0.56969zm30.748-16.245-0.56969-2.653-2.653-0.56969 2.653-0.56969 0.56969-2.653 0.56969 2.653 2.653 0.56969-2.653 0.56969zm-2.4608 24.336-0.78092-3.6366-3.6366-0.78092 3.6366-0.78092 0.78092-3.6366 0.78092 3.6366 3.6366 0.78092-3.6366 0.78092zm-13.002-2.7759-2.416-11.251-11.251-2.416 11.251-2.416 2.416-11.251 2.416 11.251 11.251 2.416-11.251 2.416z" fill="currentColor" stroke-linecap="round" stroke-width=".25125"/>
+    </svg>`;
+    const systemMapIconSvg = `<svg width="16" height="16" version="1.1" viewBox="0 0 24.77 24.77" xmlns="http://www.w3.org/2000/svg">
+       <path d="m18.976 12.385a6.5907 6.5907 0 0 1-6.5907 6.5907 6.5907 6.5907 0 0 1-6.5907-6.5907 6.5907 6.5907 0 0 1 6.5907-6.5907 6.5907 6.5907 0 0 1 6.5907 6.5907zm5.2941 0a11.885 11.885 0 0 1-11.885 11.885 11.885 11.885 0 0 1-11.885-11.885 11.885 11.885 0 0 1 11.885-11.885 11.885 11.885 0 0 1 11.885 11.885z" fill="none" stroke="currentColor" style="paint-order:stroke markers fill"></path>
         <path d="m14.495 12.305a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm-10.089 6.7178a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm11.794-0.30414a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm-0.25378-12.724a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm7.9976-0.53351a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898z" fill="currentColor" style="paint-order:stroke markers fill"></path>
       </svg>`;
      const galaxyMapIconSvg = `<svg width="16" height="16" version="1.1" viewBox="0 0 6.6237 6.6237" xmlns="http://www.w3.org/2000/svg">
@@ -971,6 +1012,11 @@
         el.innerHTML = galaxyMapIconSvg;
       }
     });
+
+    const neighborsActionIconEl = document.querySelector('#neighborsActionBtn .system-card__action-icon');
+    if (neighborsActionIconEl) {
+      neighborsActionIconEl.innerHTML = neighborsIconSvg;
+    }
 
      function openSystemMap(text, btnElement){
        const url = `https://elitedangereuse.fr/outils/sysmap.php?system=${text}`;
@@ -1081,6 +1127,13 @@
         delete galaxyMapBtn.dataset.y;
         delete galaxyMapBtn.dataset.z;
       }
+      if (neighborsActionBtn) {
+        neighborsActionBtn.disabled = true;
+        neighborsActionBtn.classList.add('is-disabled');
+        delete neighborsActionBtn.dataset.x;
+        delete neighborsActionBtn.dataset.y;
+        delete neighborsActionBtn.dataset.z;
+      }
     }
 
     function getLookupTarget(payload) {
@@ -1136,6 +1189,23 @@
       return hasCoords;
     }
 
+    function applyNeighborsActionState(coords) {
+      if (!neighborsActionBtn) return false;
+      const hasCoords = Boolean(coords);
+      neighborsActionBtn.disabled = !hasCoords;
+      neighborsActionBtn.classList.toggle('is-disabled', !hasCoords);
+      if (hasCoords) {
+        neighborsActionBtn.dataset.x = coords.x;
+        neighborsActionBtn.dataset.y = coords.y;
+        neighborsActionBtn.dataset.z = coords.z;
+      } else {
+        delete neighborsActionBtn.dataset.x;
+        delete neighborsActionBtn.dataset.y;
+        delete neighborsActionBtn.dataset.z;
+      }
+      return hasCoords;
+    }
+
     function updateLookupActionButtons(payload, kind) {
       if (!lookupActions) {
         return;
@@ -1155,13 +1225,111 @@
       const coords = extractCoords(target);
       const hasName = applySystemMapState(systemName);
       const hasCoords = applyGalaxyMapState(coords);
+      const hasNeighborAction = applyNeighborsActionState(coords);
 
-      if (!hasName && !hasCoords) {
+      if (!hasName && !hasCoords && !hasNeighborAction) {
         hideLookupActionButtons();
         return;
       }
 
       lookupActions.hidden = false;
+    }
+
+    function setSystemCardField(el, value) {
+      if (!el) return;
+      el.textContent = value;
+    }
+
+    function formatAxisValue(value) {
+      return Number.isFinite(value) ? value.toFixed(2) : '—';
+    }
+
+    function normalizeStarType(value) {
+      if (!value) return '';
+      return String(value).trim().toUpperCase().replaceAll(/[^A-Z0-9]+/g, '_');
+    }
+
+    function getStarIndicatorConfig(value) {
+      if (!value) return null;
+      const normalized = normalizeStarType(value);
+      if (!normalized) return null;
+      if (normalized === 'N') {
+        return { icon: neutronIndicatorSvg };
+      }
+      const color = STAR_COLOR_MAP[normalized] ?? STAR_COLOR_MAP[normalized.split('_')[0]] ?? STAR_COLOR_FALLBACK;
+      return { color };
+    }
+
+    function applyStarIndicator(starValue) {
+      if (!systemMainstarIndicator) {
+        return;
+      }
+      systemMainstarIndicator.classList.remove('is-active', 'is-neutron');
+      systemMainstarIndicator.style.background = '';
+      systemMainstarIndicator.style.borderColor = '';
+      systemMainstarIndicator.innerHTML = '';
+      const config = getStarIndicatorConfig(starValue);
+      if (!config) {
+        return;
+      }
+      systemMainstarIndicator.classList.add('is-active');
+      if (config.icon) {
+        systemMainstarIndicator.classList.add('is-neutron');
+        systemMainstarIndicator.innerHTML = config.icon;
+      } else if (config.color) {
+        systemMainstarIndicator.style.background = config.color;
+        systemMainstarIndicator.style.borderColor = config.color;
+      }
+    }
+
+    function getMainstarDisplay(target) {
+      const raw = target && typeof target.mainstar === 'string' ? target.mainstar.trim() : '';
+      return {
+        raw,
+        label: raw || 'Uncatalogued star'
+      };
+    }
+
+    function updateSystemLookupCard(payload, kind) {
+      if (!systemCard) {
+        return;
+      }
+      applyStarIndicator(null);
+      if (kind !== 'system-lookup') {
+        systemCard.hidden = true;
+        return;
+      }
+
+      const target = getLookupTarget(payload);
+      if (!target) {
+        systemCard.hidden = true;
+        return;
+      }
+
+      const systemName = extractSystemName(target);
+      const coords = extractCoords(target);
+      const hasMeaningfulData = Boolean(systemName || coords);
+
+      if (!hasMeaningfulData) {
+        systemCard.hidden = true;
+        return;
+      }
+
+      systemCard.hidden = false;
+      setSystemCardField(systemNameDisplay, systemName || 'Unnamed system');
+      const mainstarInfo = getMainstarDisplay(target);
+      setSystemCardField(systemMainstarEl, mainstarInfo.label);
+      applyStarIndicator(mainstarInfo.raw);
+
+      if (coords) {
+        setSystemCardField(systemCoordX, formatAxisValue(coords.x));
+        setSystemCardField(systemCoordY, formatAxisValue(coords.y));
+        setSystemCardField(systemCoordZ, formatAxisValue(coords.z));
+      } else {
+        setSystemCardField(systemCoordX, '—');
+        setSystemCardField(systemCoordY, '—');
+        setSystemCardField(systemCoordZ, '—');
+      }
     }
 
      function buildTableShell(keys, limitedData, kind, totalCount) {
