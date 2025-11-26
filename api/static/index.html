@@ -77,8 +77,10 @@
                 Find neighbors
               </label>
               <div class="flex flex-wrap items-center gap-3">
-                <input id="neighborsInput" type="text" placeholder="0,0,0,30 (x,y,z,[radius])"
+                <input id="neighborsInput" type="text" placeholder="System or coordinates — e.g. Lave or x,y,z,[radius]"
+                       list="neighborsSuggestions"
                        class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+                <datalist id="neighborsSuggestions"></datalist>
                 <button id="neighborsBtn" type="button" class="tool-action active w-full sm:w-auto">
                   <svg width="16" height="16" version="1.1" viewBox="0 0 6.6237 6.6237" xmlns="http://www.w3.org/2000/svg" style="color: #1294d6;" fill="currentColor" >
                     <defs>
@@ -258,6 +260,102 @@
       'surface_temperature',
       'surface_gravity',
     ];
+
+    const STAR_TYPE_NAME_MAP = {
+      'B': 'B (Blue-White) Star',
+      'G_WhiteSuperGiant': 'G (White-Yellow super giant) Star',
+      'AeBe': 'Herbig Ae/Be Star',
+      'DQ': 'White Dwarf (DQ) Star',
+      'WN': 'Wolf-Rayet N Star',
+      'N': 'Neutron Star',
+      'DAZ': 'White Dwarf (DAZ) Star',
+      'DAV': 'White Dwarf (DAV) Star',
+      'H': 'Unknown Star',
+      'CJ': 'CJ Star',
+      'WO': 'Wolf-Rayet O Star',
+      'DA': 'White Dwarf (DA) Star',
+      'M_RedGiant': 'M (Red giant) Star',
+      'Y': 'Y (Brown dwarf) Star',
+      'DAB': 'White Dwarf (DAB) Star',
+      'A_BlueWhiteSuperGiant': 'A (Blue-White super giant) Star',
+      'TTS': 'T Tauri Star',
+      'CN': 'CN Star',
+      'MS': 'MS-type Star',
+      'WC': 'Wolf-Rayet C Star',
+      'DC': 'White Dwarf (DC) Star',
+      'C': 'C Star',
+      'O': 'O (Blue-White) Star',
+      'M': 'M (Red dwarf) Star',
+      'DB': 'White Dwarf (DB) Star',
+      'F': 'F (White) Star',
+      'K_OrangeGiant': 'K (Yellow-Orange giant) Star',
+      'DBZ': 'White Dwarf (DBZ) Star',
+      'DBV': 'White Dwarf (DBV) Star',
+      'D': 'White Dwarf (D) Star',
+      'WNC': 'Wolf-Rayet NC Star',
+      'K': 'K (Yellow-Orange) Star',
+      'M_RedSuperGiant': 'M (Red super giant) Star',
+      'T': 'T (Brown dwarf) Star',
+      'G': 'G (White-Yellow) Star',
+      'S': 'S-type Star',
+      'W': 'Wolf-Rayet Star',
+      'DCV': 'White Dwarf (DCV) Star',
+      'A': 'A (Blue-White) Star',
+      'SupermassiveBlackHole': 'Supermassive Black Hole',
+      'B_BlueWhiteSuperGiant': 'B (Blue-White super giant) Star',
+      'F_WhiteSuperGiant': 'F (White super giant) Star',
+      'L': 'L (Brown dwarf) Star'
+    };
+
+    const STAR_TYPE_REVERSE_MAP = Object.fromEntries(
+      Object.entries(STAR_TYPE_NAME_MAP).map(([systemType, humanName]) => [humanName.toUpperCase(), systemType])
+    );
+
+    const STAR_TYPE_SHORT_MAP = {
+      'B': 'B',
+      'G_WhiteSuperGiant': 'G',
+      'AeBe': 'Ae/Be',
+      'DQ': 'DQ',
+      'WN': 'WN',
+      'N': 'N',
+      'DAZ': 'DAZ',
+      'DAV': 'DAV',
+      'H': 'H',
+      'CJ': 'CJ',
+      'WO': 'WO',
+      'DA': 'DA',
+      'M_RedGiant': 'M',
+      'Y': 'Y',
+      'DAB': 'DAB',
+      'A_BlueWhiteSuperGiant': 'A',
+      'TTS': 'TTS',
+      'CN': 'CN',
+      'MS': 'MS',
+      'WC': 'WC',
+      'DC': 'DC',
+      'C': 'C',
+      'O': 'O',
+      'M': 'M',
+      'DB': 'DB',
+      'F': 'F',
+      'K_OrangeGiant': 'K',
+      'DBZ': 'DBZ',
+      'DBV': 'DBV',
+      'D': 'D',
+      'WNC': 'WNC',
+      'K': 'K',
+      'M_RedSuperGiant': 'M',
+      'T': 'T',
+      'G': 'G',
+      'S': 'S',
+      'W': 'W',
+      'DCV': 'DCV',
+      'A': 'A',
+      'SupermassiveBlackHole': 'BH',
+      'B_BlueWhiteSuperGiant': 'B',
+      'F_WhiteSuperGiant': 'F',
+      'L': 'L'
+    };
 
     const STAR_COLOR_MAP = {
       O: '#55b7ff',
@@ -544,8 +642,10 @@
      }
 
      const searchInput = document.getElementById('searchInput');
-     const systemSuggestions = document.getElementById('systemSuggestions');
-     let autocompleteTimer = null;
+    const systemSuggestions = document.getElementById('systemSuggestions');
+    const neighborsSuggestions = document.getElementById('neighborsSuggestions');
+    let autocompleteTimer = null;
+    let neighborsAutocompleteTimer = null;
     const searchBtn = document.getElementById('searchBtn');
      const bodiesInput = document.getElementById('bodiesInput');
      const bodiesBtn = document.getElementById('bodiesBtn');
@@ -673,21 +773,21 @@
       });
     }
 
-     function clearSystemSuggestions() {
-       if (systemSuggestions) {
-         systemSuggestions.innerHTML = '';
-       }
-     }
+    function clearSuggestions(targetList) {
+      if (targetList) {
+        targetList.innerHTML = '';
+      }
+    }
 
-     async function requestSystemAutocomplete(value) {
-       if (!systemSuggestions) {
-         return;
-       }
-       const trimmed = value.trim();
-       if (trimmed.length < 2) {
-         clearSystemSuggestions();
-         return;
-       }
+    async function requestSystemAutocomplete(value, targetList = systemSuggestions) {
+      if (!targetList) {
+        return;
+      }
+      const trimmed = value.trim();
+      if (trimmed.length < 2) {
+        clearSuggestions(targetList);
+        return;
+      }
 
        try {
          const url = new URL('/systems/autocomplete', globalThis.location.origin);
@@ -700,27 +800,50 @@
          const suggestions = Array.isArray(payload?.suggestions)
                            ? payload.suggestions
                            : [];
-         systemSuggestions.innerHTML = suggestions
-           .map(name => `<option value="${escapeAttr(name)}"></option>`)
-           .join('');
-       } catch (error) {
-         console.warn('Autocomplete failed', error);
-       }
-     }
+        targetList.innerHTML = suggestions
+          .map(name => `<option value="${escapeAttr(name)}"></option>`)
+          .join('');
+      } catch (error) {
+        console.warn('Autocomplete failed', error);
+      }
+    }
 
-     if (searchInput) {
-       searchInput.addEventListener('input', () => {
-         if (autocompleteTimer) {
-           clearTimeout(autocompleteTimer);
-         }
-         const value = searchInput.value;
-         if (!value || value.trim().length < 2) {
-           clearSystemSuggestions();
-           return;
-         }
-         autocompleteTimer = setTimeout(() => requestSystemAutocomplete(value), 200);
-       });
-     }
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        if (autocompleteTimer) {
+          clearTimeout(autocompleteTimer);
+        }
+        const value = searchInput.value;
+        if (!value || value.trim().length < 2) {
+          clearSuggestions(systemSuggestions);
+          return;
+        }
+        autocompleteTimer = setTimeout(() => requestSystemAutocomplete(value), 200);
+      });
+    }
+
+    function startsWithNumeric(value) {
+      if (!value) {
+        return false;
+      }
+      const trimmed = value.trim();
+      if (!trimmed) return false;
+      return /^[0-9-]/.test(trimmed[0]);
+    }
+
+    if (neighborsInput) {
+      neighborsInput.addEventListener('input', () => {
+        if (neighborsAutocompleteTimer) {
+          clearTimeout(neighborsAutocompleteTimer);
+        }
+        const value = neighborsInput.value;
+        if (!value || startsWithNumeric(value)) {
+          clearSuggestions(neighborsSuggestions);
+          return;
+        }
+        neighborsAutocompleteTimer = setTimeout(() => requestSystemAutocomplete(value, neighborsSuggestions), 200);
+      });
+    }
 
      function submitSearch(){
        const value = searchInput.value.trim();
@@ -763,26 +886,51 @@
        callApi('/coords/predict?q=' + encodeURIComponent(value));
      }
 
-     function submitNeighbors(){
+    async function submitNeighbors(){
        if (!neighborsInput) return;
-       const raw = neighborsInput.value.trim();
-       activateTab('lookup');
+      const raw = neighborsInput.value.trim();
+      activateTab('lookup');
        if(!raw){
          setStatus('Provide coordinates to search for neighbors');
          return;
        }
        const parts = raw.split(',').map(s=>s.trim());
        if(parts.length < 3){
-         setStatus('Provide at least X,Y,Z values');
+         await resolveNeighborsByName(raw);
          return;
        }
        const [x, y, z, maybeRadius] = parts;
        if([x,y,z].includes('')){
-         setStatus('Provide at least X,Y,Z values');
+         await resolveNeighborsByName(raw);
          return;
        }
        const radius = maybeRadius && maybeRadius !== '' ? maybeRadius : '30';
       callApi(`/neighbors?x=${encodeURIComponent(x)}&y=${encodeURIComponent(y)}&z=${encodeURIComponent(z)}&radius=${encodeURIComponent(radius)}`, 'neighbors');
+     }
+
+     async function resolveNeighborsByName(nameInput) {
+       const name = nameInput.trim();
+       if (!name) {
+         setStatus('Provide a system name to search for neighbors');
+         return;
+       }
+       setStatus(`Resolving coordinates for ${name}`);
+       try {
+         const base = globalThis.location.origin;
+         const res = await fetch(`${base}/coords?q=${encodeURIComponent(name)}`);
+         const payload = await res.json();
+         if (!res.ok || !payload?.coords) {
+           throw new Error(payload?.error || 'Unable to resolve system coordinates');
+         }
+         const { x, y, z } = payload.coords;
+         if ([x, y, z].some(val => !Number.isFinite(val))) {
+           throw new Error('System coordinates are incomplete');
+         }
+         const radius = payload.radius ?? '30';
+         callApi(`/neighbors?x=${encodeURIComponent(x)}&y=${encodeURIComponent(y)}&z=${encodeURIComponent(z)}&radius=${encodeURIComponent(radius)}`, 'neighbors');
+       } catch (err) {
+         setStatus(`Unable to search neighbors: ${err.message}`);
+       }
      }
 
      function submitNearestNeutron(){
@@ -827,6 +975,7 @@
         }
       });
     }
+    globalThis.submitNeighbors = submitNeighbors;
 
     if (systemMapBtn) {
       systemMapBtn.addEventListener('click', () => {
@@ -1250,7 +1399,40 @@
 
     function normalizeStarType(value) {
       if (!value) return '';
-      return String(value).trim().toUpperCase().replaceAll(/[^A-Z0-9]+/g, '_');
+      const trimmed = String(value).trim();
+      if (!trimmed) return '';
+      if (STAR_TYPE_NAME_MAP[trimmed]) {
+        return trimmed;
+      }
+      const reverseKey = STAR_TYPE_REVERSE_MAP[trimmed.toUpperCase()];
+      if (reverseKey) {
+        return reverseKey;
+      }
+      return trimmed.toUpperCase().replaceAll(/[^A-Z0-9]+/g, '_');
+    }
+
+    function getHumanReadableStarType(value) {
+      if (!value) {
+        return 'Unknown Star';
+      }
+      const trimmed = String(value).trim();
+      if (!trimmed) {
+        return 'Unknown Star';
+      }
+      const normalized = normalizeStarType(trimmed);
+      if (normalized && STAR_TYPE_NAME_MAP[normalized]) {
+        return STAR_TYPE_NAME_MAP[normalized];
+      }
+      return 'Unknown Star';
+    }
+
+    function getShortStarType(value) {
+      if (!value) return '—';
+      const normalized = normalizeStarType(value);
+      if (normalized && STAR_TYPE_SHORT_MAP[normalized]) {
+        return STAR_TYPE_SHORT_MAP[normalized];
+      }
+      return String(value).trim().split(' ')[0] || '—';
     }
 
     function getStarIndicatorConfig(value) {
@@ -1290,7 +1472,7 @@
       const raw = target && typeof target.mainstar === 'string' ? target.mainstar.trim() : '';
       return {
         raw,
-        label: raw || 'Uncatalogued star'
+        label: getHumanReadableStarType(raw) || 'Uncatalogued star'
       };
     }
 
@@ -1484,17 +1666,20 @@
        if (key === "distance" && typeof v === "number") {
          return v.toFixed(1);
        }
-       if (key === "distance_from_arrival_ls" && typeof v === "number") {
-         return Math.round(v).toLocaleString();
-       }
-       if (key === "surface_gravity" && typeof v === "number") {
-         return v.toFixed(1);
-       }
-       if (typeof v === "boolean") {
-         return v ? 'Yes' : 'No';
-       }
-       return v;
+     if (key === "distance_from_arrival_ls" && typeof v === "number") {
+       return Math.round(v).toLocaleString();
      }
+     if (key === "surface_gravity" && typeof v === "number") {
+       return v.toFixed(1);
+     }
+      if ((key === 'type' || key === 'star_type' || key === 'mainstar') && typeof v === 'string') {
+        return getShortStarType(v);
+      }
+      if (typeof v === "boolean") {
+        return v ? 'Yes' : 'No';
+      }
+      return v;
+    }
 
      function renderBodyDetailTable(record) {
        const entries = Object.entries(record ?? {});
@@ -1575,13 +1760,17 @@
       return COLLAPSIBLE_COLUMNS[kind].has(key);
     }
 
-     function renderTableCell(row, key, kind) {
-       const labelAttr = escapeAttr(getColumnLabel(key));
-       let value = row[key];
+    function renderTableCell(row, key, kind) {
+      const labelAttr = escapeAttr(getColumnLabel(key));
+      let value = row[key];
 
        if (key === 'planet_class' && kind === 'bodies') {
          value = formatStarClass(row);
        }
+
+      if (key === 'type' && typeof value === 'string') {
+        value = getShortStarType(value);
+      }
 
        if (key === "coords" && typeof value === "object" && value !== null) {
          return renderCoordsCell(labelAttr, value);
@@ -1663,16 +1852,18 @@
       `;
     }
 
-     function formatStarClass(row) {
-       const starType = row?.star_type;
-       if (typeof starType !== 'string' || !starType.trim()) {
-         return row.planet_class;
-       }
+    function formatStarClass(row) {
+      const starType = row?.star_type;
+      if (typeof starType !== 'string' || !starType.trim()) {
+        return row.planet_class;
+      }
       const trimmed = starType.trim();
       if (!trimmed) {
         return row.planet_class;
       }
-      return trimmed;
+      const human = getHumanReadableStarType(trimmed);
+      const luminosity = typeof row?.luminosity === 'string' ? row.luminosity.trim() : '';
+      return luminosity ? `${human} (${luminosity})` : human;
     }
 
     function buildActionsCell(row, kind = null) {
@@ -1716,12 +1907,12 @@
       </button>
             `);
           }
-          parts.push(`
+      parts.push(`
       <button
         type="button"
-        title="Search neighbors within 10 ly"
+        title="Search neighbors within 30 LY"
         class="opacity-30 hover:opacity-100 group-hover:opacity-100 focus:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
-        onclick="fillNeighborsInput('${x}','${y}','${z}')"
+        onclick="fillNeighborsInput('${x}','${y}','${z}'); submitNeighbors();"
       >
         ${neighborsIconSvg}
       </button>
