@@ -375,6 +375,26 @@ a:hover {
     color: #f8fbff;
 }
 
+.collapsible-col.is-collapsed,
+.collapsible-cell.is-collapsed {
+    display: none;
+}
+
+.table-collapse-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: transparent;
+    padding: 0.3rem 0.8rem;
+    border-radius: 999px;
+    margin-bottom: 0.5rem;
+}
+
 .system-card__hint {
     margin-top: 1rem;
     font-size: 0.85rem;
@@ -384,9 +404,10 @@ a:hover {
 
 .table-actions {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
     gap: 0.4rem;
+    white-space: nowrap;
 }
 
 .table-actions button[data-tooltip] {
