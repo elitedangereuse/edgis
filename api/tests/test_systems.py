@@ -548,24 +548,57 @@ def test_fetch_system_names_from_db_handles_timeout(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_fetch_system_name_suggestions_combines_manual_and_db(monkeypatch):
+async def test_fetch_system_name_suggestions_prefers_db(monkeypatch):
     def fake_manual(term, limit):
         assert limit == systems.AUTOCOMPLETE_LIMIT
-        return ["Sol"]
+        return ["Edts"]
 
     fetched = []
 
     def fake_db(term, limit):
         fetched.append((term, limit))
-        return ["Sol", "Solace", "Solitude"]
+        return ["sol", "Solace", "Solitude"]
 
     monkeypatch.setattr(systems, "_manual_name_suggestions", fake_manual)
     monkeypatch.setattr(systems, "_fetch_system_names_from_db", fake_db)
 
     result = await systems.fetch_system_name_suggestions.__wrapped__("Sol")  # type: ignore[attr-defined]
 
-    assert result == ["Sol", "Solace", "Solitude"]
-    assert fetched == [("Sol", systems.AUTOCOMPLETE_LIMIT - 1)]
+    assert result == ["sol", "Solace", "Solitude"]
+    assert fetched == [("Sol", systems.AUTOCOMPLETE_LIMIT)]
+
+
+@pytest.mark.anyio
+async def test_fetch_system_name_suggestions_falls_back_to_manual(monkeypatch):
+    def fake_manual(term, limit):
+        assert limit == systems.AUTOCOMPLETE_LIMIT
+        return ["Sol", "sol"]
+
+    def fake_db(term, limit):
+        return []
+
+    monkeypatch.setattr(systems, "_manual_name_suggestions", fake_manual)
+    monkeypatch.setattr(systems, "_fetch_system_names_from_db", fake_db)
+
+    result = await systems.fetch_system_name_suggestions.__wrapped__("Sol")  # type: ignore[attr-defined]
+
+    assert result == ["Sol"]
+
+
+@pytest.mark.anyio
+async def test_fetch_system_name_suggestions_dedupes_case_and_whitespace(monkeypatch):
+    def fake_manual(term, limit):
+        return []
+
+    def fake_db(term, limit):
+        return [" Hip 87621", "HIP 87621", "HIP 87622"]
+
+    monkeypatch.setattr(systems, "_manual_name_suggestions", fake_manual)
+    monkeypatch.setattr(systems, "_fetch_system_names_from_db", fake_db)
+
+    result = await systems.fetch_system_name_suggestions.__wrapped__("HIP 876")  # type: ignore[attr-defined]
+
+    assert result == ["Hip 87621", "HIP 87622"]
 
 
 def test_apply_mode_scaling_edsm_handles_units():
