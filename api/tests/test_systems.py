@@ -72,8 +72,22 @@ def test_get_neighbors_negative_radius():
         "/neighbors",
         params={"x": 0, "y": 0, "z": 0, "radius": -1},
     )
-    assert response.status_code == 200
+    assert response.status_code == 400
     assert response.json() == {"error": "Radius must be positive"}
+
+
+def test_get_neighbors_radius_too_large():
+    response = client.get(
+        "/neighbors",
+        params={
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "radius": systems.NEIGHBORS_MAX_RADIUS + 1,
+        },
+    )
+    assert response.status_code == 400
+    assert "Radius too large" in response.json()["error"]
 
 
 @pytest.mark.parametrize(
@@ -681,7 +695,7 @@ async def test_fetch_coords_for_systems_returns_map(monkeypatch):
 
 @pytest.mark.anyio("asyncio")
 async def test_fetch_neighbors_from_db_parses_rows(monkeypatch):
-    _patch_db(
+    cursor = _patch_db(
         monkeypatch,
         rows=[(99, "Sol", "G", "POINT Z (1 2 3)", 4.2)],
     )
@@ -696,6 +710,15 @@ async def test_fetch_neighbors_from_db_parses_rows(monkeypatch):
             "distance": 4.2,
         }
     ]
+
+    executed = cursor.executed
+    if systems.NEIGHBORS_STATEMENT_TIMEOUT_MS > 0:
+        assert executed[0][0].startswith("SET LOCAL statement_timeout")
+        select_call = executed[1]
+    else:
+        select_call = executed[0]
+    assert select_call[0].strip().startswith("WITH ref AS")
+    assert select_call[1][-1] == systems.NEIGHBORS_RESULT_LIMIT
 
 
 @pytest.mark.anyio("asyncio")
