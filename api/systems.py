@@ -29,6 +29,15 @@ load_dotenv()
 
 NEIGHBORS_CONCURRENCY_LIMIT = 2
 neighbors_semaphore = asyncio.Semaphore(NEIGHBORS_CONCURRENCY_LIMIT)
+NEIGHBORS_MAX_RADIUS = max(
+    0.0, float(os.getenv("NEIGHBORS_MAX_RADIUS") or "3000")
+)
+NEIGHBORS_RESULT_LIMIT = max(
+    1, int(os.getenv("NEIGHBORS_RESULT_LIMIT") or "100000")
+)
+NEIGHBORS_STATEMENT_TIMEOUT_MS = max(
+    0, int(os.getenv("NEIGHBORS_STATEMENT_TIMEOUT_MS") or "3000")
+)
 app = FastAPI()
 SYSTEM_NOT_FOUND = "System not found"
 logger = logging.getLogger(__name__)
@@ -326,6 +335,11 @@ async def fetch_neighbors_from_db(x: float, y: float, z: float, radius: float):
     )
     cursor = conn.cursor()
 
+    if NEIGHBORS_STATEMENT_TIMEOUT_MS > 0:
+        cursor.execute(
+            f"SET LOCAL statement_timeout = {int(NEIGHBORS_STATEMENT_TIMEOUT_MS)};"
+        )
+
     query = """
         WITH ref AS (
             SELECT ST_SetSRID(ST_MakePoint(%s, %s, %s), 0) AS geom
@@ -342,9 +356,9 @@ async def fetch_neighbors_from_db(x: float, y: float, z: float, radius: float):
         SELECT *
         FROM candidates
         ORDER BY distance
-        LIMIT 100000;
+        LIMIT %s;
     """
-    cursor.execute(query, (x, y, z, radius))
+    cursor.execute(query, (x, y, z, radius, NEIGHBORS_RESULT_LIMIT))
     rows = cursor.fetchall()
     cursor.close()
     conn.close()
@@ -375,9 +389,17 @@ async def get_neighbors(
     z: float = Query(...),
     radius: float = Query(10.0),
 ):
-    if radius < 0:
+    if radius <= 0:
         return JSONResponse(
-            content={"error": "Radius must be positive"}, status_code=200
+            content={"error": "Radius must be positive"}, status_code=400
+        )
+
+    if NEIGHBORS_MAX_RADIUS and radius > NEIGHBORS_MAX_RADIUS:
+        return JSONResponse(
+            content={
+                "error": f"Radius too large (max {NEIGHBORS_MAX_RADIUS:g} ly)",
+            },
+            status_code=400,
         )
     async with neighbors_semaphore:
         try:
