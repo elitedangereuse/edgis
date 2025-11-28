@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import psycopg
 from pydantic import BaseModel
-from typing import Optional, Any
+from typing import Iterable, Optional, Any
 
 try:
     from .edts.edtslib import system  # type: ignore[attr-defined]
@@ -270,23 +270,32 @@ def _fetch_system_names_from_db(term: str, limit: int) -> list[str]:
     serializer=PickleSerializer(),
 )
 async def fetch_system_name_suggestions(term: str) -> list[str]:
+    db_results = _fetch_system_names_from_db(term, AUTOCOMPLETE_LIMIT)
+    db_suggestions = _dedupe_autocomplete_names(db_results, AUTOCOMPLETE_LIMIT)
+    if db_suggestions:
+        return db_suggestions
+
     manual = _manual_name_suggestions(term, AUTOCOMPLETE_LIMIT)
-    if len(manual) >= AUTOCOMPLETE_LIMIT:
-        return manual[:AUTOCOMPLETE_LIMIT]
+    return _dedupe_autocomplete_names(manual, AUTOCOMPLETE_LIMIT)
 
-    remaining = AUTOCOMPLETE_LIMIT - len(manual)
-    db_results = _fetch_system_names_from_db(term, remaining)
 
-    seen = set(manual)
-    for name in db_results:
-        if not name or name in seen:
+def _dedupe_autocomplete_names(names: Iterable[str], limit: int) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for name in names:
+        if not name:
             continue
-        manual.append(name)
-        seen.add(name)
-        if len(manual) >= AUTOCOMPLETE_LIMIT:
+        cleaned = name.strip()
+        if not cleaned:
+            continue
+        normalized = cleaned.casefold()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        unique.append(cleaned)
+        if len(unique) >= limit:
             break
-
-    return manual
+    return unique
 
 
 TOTAL_SYSTEMS_QUERY = """
