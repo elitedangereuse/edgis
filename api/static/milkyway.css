@@ -102,6 +102,91 @@ a:hover {
     border-bottom: 1px solid rgba(18, 148, 214, 0.3); /* Stronger bottom line for header */
 }
 
+.bodies-embed {
+    border-radius: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color 0.2s ease, transform 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.bodies-embed:hover {
+    border-color: rgba(18, 148, 214, 0.6);
+    transform: translateY(-1px);
+}
+
+.bodies-embed:focus-visible {
+    outline: 2px solid rgba(18, 148, 214, 0.8);
+    outline-offset: 4px;
+}
+
+.bodies-embed__frame-wrapper {
+    position: relative;
+    border-radius: inherit;
+    overflow: hidden;
+}
+
+.bodies-embed__frame {
+    width: 100%;
+    min-height: 320px;
+    display: block;
+    border: none;
+    background: #020202;
+    pointer-events: none;
+}
+
+.bodies-embed__overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.45);
+    color: rgba(255, 255, 255, 0.85);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    font-size: 0.85rem;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.bodies-embed:hover .bodies-embed__overlay,
+.bodies-embed:focus-visible .bodies-embed__overlay {
+    opacity: 1;
+}
+
+.bodies-embed__overlay:focus-visible {
+    outline: 2px solid rgba(18, 148, 214, 0.8);
+    outline-offset: 4px;
+}
+
+.bodies-embed__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 0.5rem 0.75rem;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.85rem;
+}
+
+.bodies-embed__caption {
+    margin: 0;
+}
+
+.bodies-embed__cta {
+    font-size: 0.8rem;
+    color: #1294d6;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
 @keyframes drift{from{transform:translate3d(0,0,0)}to{transform:translate3d(-400px,-200px,0)}}
 .glass{background:rgba(255,255,255,0.03);backdrop-filter: blur(6px);border:1px solid rgba(255,255,255,0.10);}
 .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace}
