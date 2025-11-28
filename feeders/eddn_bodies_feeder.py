@@ -214,6 +214,17 @@ lookup_cache = {
     "ring_classes": {},
 }
 
+# Normalize external typos before persistence so the lookup tables stay canonical.
+RING_CLASS_NORMALIZATIONS = {
+    "eRingClass_Metalic": "eRingClass_Metallic",
+}
+
+
+def normalize_ring_class(name: Optional[str]) -> Optional[str]:
+    if not name:
+        return None
+    return RING_CLASS_NORMALIZATIONS.get(name, name)
+
 
 def get_lookup_id(table, name, conn):
     """Get the ID for a lookup value, inserting it if needed."""
@@ -566,7 +577,7 @@ def process_message(
                     "landable": None,
                     "updatetime": body["updatetime"],
                     "ring_class_id": get_lookup_id(
-                        "ring_classes", ring.get("RingClass"), db_conn
+                        "ring_classes", normalize_ring_class(ring.get("RingClass")), db_conn
                     ),
                     "ring_inner_rad": ring.get("InnerRad"),
                     "ring_outer_rad": ring.get("OuterRad"),
