@@ -36,7 +36,7 @@
                 <span></span>
               </span>
             </button>
-            <div id="toolMenuDropdown" class="tool-menu__dropdown" role="menu" aria-hidden="true">
+            <div id="toolMenuDropdown" class="tool-menu__dropdown" role="menu" aria-hidden="true" hidden inert>
               <p class="tool-menu__title">Tools</p>
               <button type="button" class="tool-menu__item" data-tool="lookup" role="menuitem">System lookup</button>
               <button type="button" class="tool-menu__item" data-tool="advanced" role="menuitem">Explorer tools</button>
@@ -704,15 +704,22 @@
 
      let isToolMenuOpen = false;
 
-     function setToolMenuOpen(open) {
-       if (!toolMenuToggle || !toolMenuDropdown) {
-         return;
-       }
-       isToolMenuOpen = open;
-       toolMenuToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-       toolMenuDropdown.setAttribute('aria-hidden', open ? 'false' : 'true');
-       toolMenuDropdown.classList.toggle('is-open', open);
-     }
+    function setToolMenuOpen(open) {
+      if (!toolMenuToggle || !toolMenuDropdown) {
+        return;
+      }
+      isToolMenuOpen = open;
+      toolMenuToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      toolMenuDropdown.setAttribute('aria-hidden', open ? 'false' : 'true');
+      if (open) {
+        toolMenuDropdown.hidden = false;
+        toolMenuDropdown.removeAttribute('inert');
+      } else {
+        toolMenuDropdown.hidden = true;
+        toolMenuDropdown.setAttribute('inert', '');
+      }
+      toolMenuDropdown.classList.toggle('is-open', open);
+    }
 
      function activateTab(name) {
        const resolved = tabPanels[name] ? name : 'lookup';
