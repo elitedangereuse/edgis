@@ -110,7 +110,9 @@
               </label>
               <div class="flex flex-wrap items-center gap-3">
                 <input id="bodiesInput" type="text" placeholder="Sol or 10477373803"
+                       list="bodiesSuggestions"
                        class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+                <datalist id="bodiesSuggestions"></datalist>
                 <button id="bodiesBtn" type="button" class="tool-action active w-full sm:w-auto">
                   <svg width="16" height="16" version="1.1" viewBox="0 0 24.77 24.77" xmlns="http://www.w3.org/2000/svg" style="display: inline;">
                     <path d="m18.976 12.385a6.5907 6.5907 0 0 1-6.5907 6.5907 6.5907 6.5907 0 0 1-6.5907-6.5907 6.5907 6.5907 0 0 1 6.5907-6.5907 6.5907 6.5907 0 0 1 6.5907 6.5907zm5.2941 0a11.885 11.885 0 0 1-11.885 11.885 11.885 11.885 0 0 1-11.885-11.885 11.885 11.885 0 0 1 11.885-11.885 11.885 11.885 0 0 1 11.885 11.885z" fill="none" stroke="#1294d6" style="paint-order:stroke markers fill"></path>
@@ -134,7 +136,9 @@
               </label>
               <div class="flex flex-wrap items-center gap-3">
                 <input id="neutronInput" type="text" placeholder="HIP 87621"
+                       list="neutronSuggestions"
                        class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+                <datalist id="neutronSuggestions"></datalist>
                 <button id="neutronBtn" type="button" class="tool-action active w-full sm:w-auto">
                   <svg width="16" height="16" version="1.1" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="display: inline;" fill="currentColor">
                     <path d="m9.4034 7.3455a1.5488 1.5488 0 0 1-0.7491 2.0582 1.5488 1.5488 0 0 1-2.0582-0.7491 1.5488 1.5488 0 0 1 0.7491-2.0582 1.5488 1.5488 0 0 1 2.0582 0.7491zm-1.4036 0.65455 5.3781 6.0364-4.2109 1.9636zm0 0-5.3781-6.0364 4.2109-1.9636z" fill="#1294d6" stroke-width=".054153"/>
@@ -150,7 +154,9 @@
               </label>
               <div class="flex flex-wrap items-center gap-3">
                 <input id="predictInput" type="text" placeholder="Swoilz GG-B b5-3"
+                       list="predictSuggestions"
                        class="flex-1 bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+                <datalist id="predictSuggestions"></datalist>
                 <button id="predictBtn" type="button" class="tool-action active w-full sm:w-auto">
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" style="display: inline;" fill="currentColor" style="color: #1294d6;" class="bi bi-magic" viewBox="0 0 16 16"><path d="M9.5 2.672a.5.5 0 1 0 1 0V.843a.5.5 0 0 0-1 0zm4.5.035A.5.5 0 0 0 13.293 2L12 3.293a.5.5 0 1 0 .707.707zM7.293 4A.5.5 0 1 0 8 3.293L6.707 2A.5.5 0 0 0 6 2.707zm-.621 2.5a.5.5 0 1 0 0-1H4.843a.5.5 0 1 0 0 1zm8.485 0a.5.5 0 1 0 0-1h-1.829a.5.5 0 0 0 0 1zM13.293 10A.5.5 0 1 0 14 9.293L12.707 8a.5.5 0 1 0-.707.707zM9.5 11.157a.5.5 0 0 0 1 0V9.328a.5.5 0 0 0-1 0zm1.854-5.097a.5.5 0 0 0 0-.706l-.708-.708a.5.5 0 0 0-.707 0L8.646 5.94a.5.5 0 0 0 0 .707l.708.708a.5.5 0 0 0 .707 0l1.293-1.293Zm-3 3a.5.5 0 0 0 0-.706l-.708-.708a.5.5 0 0 0-.707 0L.646 13.94a.5.5 0 0 0 0 .707l.708.708a.5.5 0 0 0 .707 0z" fill="#1294d6"/></svg>
                   Search
@@ -666,10 +672,11 @@
      }
 
      const searchInput = document.getElementById('searchInput');
-     const systemSuggestions = document.getElementById('systemSuggestions');
-     const neighborsSuggestions = document.getElementById('neighborsSuggestions');
-     let autocompleteTimer = null;
-     let neighborsAutocompleteTimer = null;
+    const systemSuggestions = document.getElementById('systemSuggestions');
+    const neighborsSuggestions = document.getElementById('neighborsSuggestions');
+    const predictSuggestions = document.getElementById('predictSuggestions');
+    const bodiesSuggestions = document.getElementById('bodiesSuggestions');
+    const neutronSuggestions = document.getElementById('neutronSuggestions');
      let lastBodiesLookupValue = '';
      const searchBtn = document.getElementById('searchBtn');
      const bodiesInput = document.getElementById('bodiesInput');
@@ -805,77 +812,87 @@
        });
      }
 
-     function clearSuggestions(targetList) {
-       if (targetList) {
-         targetList.innerHTML = '';
-       }
-     }
+    function clearSuggestions(targetList) {
+      if (targetList) {
+        targetList.innerHTML = '';
+      }
+    }
 
-     async function requestSystemAutocomplete(value, targetList = systemSuggestions) {
-       if (!targetList) {
-         return;
-       }
-       const trimmed = value.trim();
-       if (trimmed.length < 2) {
-         clearSuggestions(targetList);
-         return;
-       }
+    function hasMinimumChars(value, min = 2) {
+      if (typeof value !== 'string') {
+        return false;
+      }
+      return value.trim().length >= min;
+    }
 
-       try {
-         const url = new URL('/systems/autocomplete', globalThis.location.origin);
-         url.searchParams.set('q', trimmed);
-         const response = await fetch(url.toString());
-         if (!response.ok) {
-           throw new Error(`HTTP ${response.status}`);
-         }
-         const payload = await response.json();
-         const suggestions = Array.isArray(payload?.suggestions)
-                           ? payload.suggestions
-                           : [];
-         targetList.innerHTML = suggestions
-           .map(name => `<option value="${escapeAttr(name)}"></option>`)
-           .join('');
-       } catch (error) {
-         console.warn('Autocomplete failed', error);
-       }
-     }
+    async function requestSystemAutocomplete(value, targetList) {
+      if (!targetList) {
+        return;
+      }
+      const trimmed = value.trim();
+      if (!hasMinimumChars(trimmed)) {
+        clearSuggestions(targetList);
+        return;
+      }
 
-     if (searchInput) {
-       searchInput.addEventListener('input', () => {
-         if (autocompleteTimer) {
-           clearTimeout(autocompleteTimer);
-         }
-         const value = searchInput.value;
-         if (!value || value.trim().length < 2) {
-           clearSuggestions(systemSuggestions);
-           return;
-         }
-         autocompleteTimer = setTimeout(() => requestSystemAutocomplete(value), 200);
-       });
-     }
+      try {
+        const url = new URL('/systems/autocomplete', globalThis.location.origin);
+        url.searchParams.set('q', trimmed);
+        const response = await fetch(url.toString());
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const payload = await response.json();
+        const suggestions = Array.isArray(payload?.suggestions)
+                          ? payload.suggestions
+                          : [];
+        targetList.innerHTML = suggestions
+          .map(name => `<option value="${escapeAttr(name)}"></option>`)
+          .join('');
+      } catch (error) {
+        console.warn('Autocomplete failed', error);
+      }
+    }
 
-     function startsWithNumeric(value) {
-       if (!value) {
-         return false;
-       }
-       const trimmed = value.trim();
-       if (!trimmed) return false;
-       return /^[0-9-]/.test(trimmed[0]);
-     }
+    function setupAutocompleteInput(inputEl, datalistEl, validator = hasMinimumChars) {
+      if (!inputEl || !datalistEl) {
+        return;
+      }
+      let timerId = null;
+      inputEl.addEventListener('input', () => {
+        if (timerId) {
+          clearTimeout(timerId);
+        }
+        const value = inputEl.value;
+        if (!validator(value)) {
+          clearSuggestions(datalistEl);
+          return;
+        }
+        timerId = setTimeout(
+          () => requestSystemAutocomplete(value, datalistEl),
+          200
+        );
+      });
+    }
 
-     if (neighborsInput) {
-       neighborsInput.addEventListener('input', () => {
-         if (neighborsAutocompleteTimer) {
-           clearTimeout(neighborsAutocompleteTimer);
-         }
-         const value = neighborsInput.value;
-         if (!value || startsWithNumeric(value)) {
-           clearSuggestions(neighborsSuggestions);
-           return;
-         }
-         neighborsAutocompleteTimer = setTimeout(() => requestSystemAutocomplete(value, neighborsSuggestions), 200);
-       });
-     }
+    function startsWithNumeric(value) {
+      if (!value) {
+        return false;
+      }
+      const trimmed = value.trim();
+      if (!trimmed) return false;
+      return /^[0-9-]/.test(trimmed[0]);
+    }
+
+    setupAutocompleteInput(searchInput, systemSuggestions);
+    setupAutocompleteInput(predictInput, predictSuggestions);
+    setupAutocompleteInput(bodiesInput, bodiesSuggestions);
+    setupAutocompleteInput(neutronInput, neutronSuggestions);
+    setupAutocompleteInput(
+      neighborsInput,
+      neighborsSuggestions,
+      value => hasMinimumChars(value) && !startsWithNumeric(value)
+    );
 
      function submitSearch(){
        const value = searchInput.value.trim();
