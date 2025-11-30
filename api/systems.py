@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 import psycopg
 from pydantic import BaseModel
 from typing import Iterable, Optional, Any
+from urllib.parse import quote
 
 try:
     from .edts.edtslib import system  # type: ignore[attr-defined]
@@ -27,6 +28,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+EXTERNAL_USER_AGENT = os.getenv("EDGIS_USER_AGENT", "EDGIS")
 NEIGHBORS_CONCURRENCY_LIMIT = 2
 neighbors_semaphore = asyncio.Semaphore(NEIGHBORS_CONCURRENCY_LIMIT)
 NEIGHBORS_MAX_RADIUS = max(
@@ -270,6 +272,18 @@ def _fetch_system_names_from_db(term: str, limit: int) -> list[str]:
     serializer=PickleSerializer(),
 )
 async def fetch_system_name_suggestions(term: str) -> list[str]:
+    spansh_results = await _fetch_spansh_autocomplete(term)
+    if spansh_results:
+        return spansh_results
+
+    edsm_results = await _fetch_edsm_autocomplete(term)
+    if edsm_results:
+        return edsm_results
+
+    return _local_system_name_suggestions(term)
+
+
+def _local_system_name_suggestions(term: str) -> list[str]:
     db_results = _fetch_system_names_from_db(term, AUTOCOMPLETE_LIMIT)
     db_suggestions = _dedupe_autocomplete_names(db_results, AUTOCOMPLETE_LIMIT)
     if db_suggestions:
@@ -296,6 +310,86 @@ def _dedupe_autocomplete_names(names: Iterable[str], limit: int) -> list[str]:
         if len(unique) >= limit:
             break
     return unique
+
+
+async def _fetch_edsm_autocomplete(term: str) -> list[str]:
+    query = term.strip()
+    if len(query) < 2:
+        return []
+
+    encoded = quote(query, safe="")
+    url = f"https://www.edsm.net/typeahead/systems/query/{encoded}"
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=2.0, headers={"User-Agent": EXTERNAL_USER_AGENT}
+        ) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            payload = response.json()
+    except httpx.HTTPError:
+        return []
+    except ValueError:
+        return []
+
+    names: list[str] = []
+    if isinstance(payload, list):
+        for item in payload:
+            if isinstance(item, str):
+                names.append(item)
+            elif isinstance(item, dict):
+                candidate = (
+                    item.get("value") or item.get("name") or item.get("label")
+                )
+                if candidate:
+                    names.append(candidate)
+
+    return _dedupe_autocomplete_names(names, AUTOCOMPLETE_LIMIT)
+
+
+async def _fetch_spansh_autocomplete(term: str) -> list[str]:
+    query = term.strip()
+    if len(query) < 2:
+        return []
+
+    url = "https://spansh.co.uk/api/systems"
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=2.0, headers={"User-Agent": EXTERNAL_USER_AGENT}
+        ) as client:
+            response = await client.get(url, params={"q": query})
+            response.raise_for_status()
+            payload = response.json()
+    except httpx.HTTPError:
+        return []
+    except ValueError:
+        return []
+
+    raw_entries = _extract_spansh_results(payload)
+    return _dedupe_autocomplete_names(raw_entries, AUTOCOMPLETE_LIMIT)
+
+
+def _extract_spansh_results(payload: Any) -> list[str]:
+    if isinstance(payload, dict):
+        raw = payload.get("results")
+    else:
+        raw = payload
+
+    if not isinstance(raw, list):
+        return []
+
+    names: list[str] = []
+    for item in raw:
+        if isinstance(item, str):
+            names.append(item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name") or item.get("value")
+        if name:
+            names.append(name)
+    return names
 
 
 TOTAL_SYSTEMS_QUERY = """
@@ -796,8 +890,11 @@ async def proxy_edsm_bodies(
 ):
     url = "https://www.edsm.net/api-system-v1/bodies"
 
+    headers = {"User-Agent": EXTERNAL_USER_AGENT}
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0), headers=headers
+        ) as client:
             response = await client.get(url, params={"systemName": systemName})
 
         if response.status_code != 200:
@@ -916,8 +1013,9 @@ async def get_nearest_neutron_star_from_coords(
 @app.get("/spansh/system/{system_id}", include_in_schema=False)
 async def proxy_spansh_system(system_id: int):
     url = f"https://spansh.co.uk/api/system/{system_id}"
+    headers = {"User-Agent": EXTERNAL_USER_AGENT}
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=10, headers=headers) as client:
             response = await client.get(url)
             response.raise_for_status()
             data = response.json()
@@ -954,7 +1052,8 @@ async def proxy_spansh_faction_presence(
         "page": 0,
     }
 
-    async with httpx.AsyncClient() as client:
+    headers = {"User-Agent": EXTERNAL_USER_AGENT}
+    async with httpx.AsyncClient(headers=headers) as client:
         # Step 1: Save search
         save_response = await client.post(SAVE_URL, json=payload)
         if save_response.status_code != 200:
@@ -1044,8 +1143,9 @@ async def proxy_spansh_autocomplete_controlling_minor_faction(
         "autocomplete_controlling_minor_faction"
     )
 
+    headers = {"User-Agent": EXTERNAL_USER_AGENT}
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=10, headers=headers) as client:
             response = await client.get(url, params={"q": query})
             response.raise_for_status()
             payload = response.json()
