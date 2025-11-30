@@ -444,7 +444,7 @@ def test_fetch_system_names_from_db(monkeypatch):
         (
             systems.AUTOCOMPLETE_QUERY,
             ("sol%", 5),
-        )
+        ),
     ]
 
 
@@ -548,9 +548,58 @@ def test_fetch_system_names_from_db_handles_timeout(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_fetch_system_name_suggestions_prefers_db(monkeypatch):
+async def test_fetch_system_name_suggestions_uses_edsm_after_spansh(monkeypatch):
+    async def fake_edsm(term):
+        return ["HIP 1", "HIP 2"]
+
+    async def fake_spansh(term):
+        return []
+
+    def fake_local(term):
+        raise AssertionError(
+            "Local fallback should not run when EDSM succeeds"
+        )
+
+    monkeypatch.setattr(systems, "_fetch_edsm_autocomplete", fake_edsm)
+    monkeypatch.setattr(systems, "_fetch_spansh_autocomplete", fake_spansh)
+    monkeypatch.setattr(systems, "_local_system_name_suggestions", fake_local)
+
+    result = await systems.fetch_system_name_suggestions.__wrapped__("Hip")  # type: ignore[attr-defined]
+
+    assert result == ["HIP 1", "HIP 2"]
+
+
+@pytest.mark.anyio
+async def test_fetch_system_name_suggestions_uses_spansh(monkeypatch):
+    async def fake_edsm(term):
+        return []
+
+    async def fake_spansh(term):
+        return ["Spansh One", "Spansh Two"]
+
+    def fake_local(term):
+        raise AssertionError(
+            "Local fallback should not run when Spansh succeeds"
+        )
+
+    monkeypatch.setattr(systems, "_fetch_edsm_autocomplete", fake_edsm)
+    monkeypatch.setattr(systems, "_fetch_spansh_autocomplete", fake_spansh)
+    monkeypatch.setattr(systems, "_local_system_name_suggestions", fake_local)
+
+    result = await systems.fetch_system_name_suggestions.__wrapped__("Span")  # type: ignore[attr-defined]
+
+    assert result == ["Spansh One", "Spansh Two"]
+
+
+@pytest.mark.anyio
+async def test_fetch_system_name_suggestions_falls_back_to_db(monkeypatch):
+    async def fake_edsm(term):
+        return []
+
+    async def fake_spansh(term):
+        return []
+
     def fake_manual(term, limit):
-        assert limit == systems.AUTOCOMPLETE_LIMIT
         return ["Edts"]
 
     fetched = []
@@ -559,10 +608,12 @@ async def test_fetch_system_name_suggestions_prefers_db(monkeypatch):
         fetched.append((term, limit))
         return ["sol", "Solace", "Solitude"]
 
+    monkeypatch.setattr(systems, "_fetch_edsm_autocomplete", fake_edsm)
+    monkeypatch.setattr(systems, "_fetch_spansh_autocomplete", fake_spansh)
     monkeypatch.setattr(systems, "_manual_name_suggestions", fake_manual)
     monkeypatch.setattr(systems, "_fetch_system_names_from_db", fake_db)
 
-    result = await systems.fetch_system_name_suggestions.__wrapped__("Sol")  # type: ignore[attr-defined]
+    result = systems._local_system_name_suggestions("Sol")
 
     assert result == ["sol", "Solace", "Solitude"]
     assert fetched == [("Sol", systems.AUTOCOMPLETE_LIMIT)]
@@ -570,6 +621,12 @@ async def test_fetch_system_name_suggestions_prefers_db(monkeypatch):
 
 @pytest.mark.anyio
 async def test_fetch_system_name_suggestions_falls_back_to_manual(monkeypatch):
+    async def fake_edsm(term):
+        return []
+
+    async def fake_spansh(term):
+        return []
+
     def fake_manual(term, limit):
         assert limit == systems.AUTOCOMPLETE_LIMIT
         return ["Sol", "sol"]
@@ -577,6 +634,8 @@ async def test_fetch_system_name_suggestions_falls_back_to_manual(monkeypatch):
     def fake_db(term, limit):
         return []
 
+    monkeypatch.setattr(systems, "_fetch_edsm_autocomplete", fake_edsm)
+    monkeypatch.setattr(systems, "_fetch_spansh_autocomplete", fake_spansh)
     monkeypatch.setattr(systems, "_manual_name_suggestions", fake_manual)
     monkeypatch.setattr(systems, "_fetch_system_names_from_db", fake_db)
 
@@ -586,19 +645,89 @@ async def test_fetch_system_name_suggestions_falls_back_to_manual(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_fetch_system_name_suggestions_dedupes_case_and_whitespace(monkeypatch):
+async def test_fetch_system_name_suggestions_dedupes_case_and_whitespace(
+    monkeypatch,
+):
+    async def fake_edsm(term):
+        return []
+
+    async def fake_spansh(term):
+        return []
+
     def fake_manual(term, limit):
         return []
 
     def fake_db(term, limit):
         return [" Hip 87621", "HIP 87621", "HIP 87622"]
 
+    monkeypatch.setattr(systems, "_fetch_edsm_autocomplete", fake_edsm)
+    monkeypatch.setattr(systems, "_fetch_spansh_autocomplete", fake_spansh)
     monkeypatch.setattr(systems, "_manual_name_suggestions", fake_manual)
     monkeypatch.setattr(systems, "_fetch_system_names_from_db", fake_db)
 
     result = await systems.fetch_system_name_suggestions.__wrapped__("HIP 876")  # type: ignore[attr-defined]
 
     assert result == ["Hip 87621", "HIP 87622"]
+
+
+@pytest.mark.anyio
+async def test__fetch_edsm_autocomplete_handles_payload(monkeypatch):
+    class _Resp:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return ["Alpha", {"value": "Beta"}, {"name": "Gamma"}]
+
+    class _Client:
+        def __init__(self, *_, **__):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url, params=None):
+            return _Resp()
+
+    monkeypatch.setattr(systems.httpx, "AsyncClient", _Client)
+
+    result = await systems._fetch_edsm_autocomplete("Al")
+    assert result == ["Alpha", "Beta", "Gamma"]
+
+
+@pytest.mark.anyio
+async def test__fetch_spansh_autocomplete_parses_dict(monkeypatch):
+    class _Resp:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"results": ["One", {"name": "Two"}, {"value": "Three"}]}
+
+    class _Client:
+        def __init__(self, *_, **__):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url, params=None):
+            return _Resp()
+
+    monkeypatch.setattr(systems.httpx, "AsyncClient", _Client)
+
+    result = await systems._fetch_spansh_autocomplete("Sp")
+    assert result == ["One", "Two", "Three"]
 
 
 def test_apply_mode_scaling_edsm_handles_units():
