@@ -366,22 +366,30 @@ async def _fetch_spansh_autocomplete(term: str) -> list[str]:
     except ValueError:
         return []
 
-    entries: list[str] = []
+    raw_entries = _extract_spansh_results(payload)
+    return _dedupe_autocomplete_names(raw_entries, AUTOCOMPLETE_LIMIT)
+
+
+def _extract_spansh_results(payload: Any) -> list[str]:
     if isinstance(payload, dict):
         raw = payload.get("results")
     else:
         raw = payload
 
-    if isinstance(raw, list):
-        for item in raw:
-            if isinstance(item, str):
-                entries.append(item)
-            elif isinstance(item, dict):
-                name = item.get("name") or item.get("value")
-                if name:
-                    entries.append(name)
+    if not isinstance(raw, list):
+        return []
 
-    return _dedupe_autocomplete_names(entries, AUTOCOMPLETE_LIMIT)
+    names: list[str] = []
+    for item in raw:
+        if isinstance(item, str):
+            names.append(item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name") or item.get("value")
+        if name:
+            names.append(name)
+    return names
 
 
 TOTAL_SYSTEMS_QUERY = """
