@@ -730,6 +730,16 @@ async def test__fetch_spansh_autocomplete_parses_dict(monkeypatch):
     assert result == ["One", "Two", "Three"]
 
 
+def test__extract_spansh_results_various_formats():
+    payload = {"results": ["One", {"name": "Two"}, {"value": "Three"}, 123, None]}
+    assert systems._extract_spansh_results(payload) == ["One", "Two", "Three"]
+
+    payload = ["Alpha", {"value": "Beta"}]
+    assert systems._extract_spansh_results(payload) == ["Alpha", "Beta"]
+
+    assert systems._extract_spansh_results("invalid") == []
+
+
 def test_apply_mode_scaling_edsm_handles_units():
     source = [
         {
