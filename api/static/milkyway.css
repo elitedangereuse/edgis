@@ -192,7 +192,18 @@ a:hover {
 .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace}
 
 .quote {
-    height: 80px;
+    min-height: 80px;
+}
+
+.quote blockquote {
+    margin: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    line-height: 1.4;
+}
+
+.quote #quote-author {
+    overflow-wrap: anywhere;
 }
 
 .hero-header {
@@ -711,6 +722,6 @@ a:hover {
 
 @media only screen and (max-width: 767px) {
     .quote {
-        height: 95px !important;
+        min-height: 95px !important;
     }
 }
