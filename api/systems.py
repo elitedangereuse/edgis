@@ -28,6 +28,44 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _resolve_log_level() -> int:
+    """Return an uppercased user-defined log level or default to INFO."""
+
+    configured = os.getenv("LOG_LEVEL", "INFO").upper()
+    return getattr(logging, configured, logging.INFO)
+
+
+def _configure_logging() -> None:
+    level = _resolve_log_level()
+    formatter = logging.Formatter(
+        fmt="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    def _configure_existing_logger(logger: logging.Logger) -> None:
+        if not logger.handlers:
+            return
+        logger.setLevel(level)
+        for handler in logger.handlers:
+            handler.setFormatter(formatter)
+
+    root_logger = logging.getLogger()
+    if root_logger.handlers:
+        _configure_existing_logger(root_logger)
+    else:
+        logging.basicConfig(
+            level=level,
+            format=formatter._fmt,
+            datefmt=formatter.datefmt,
+        )
+
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        _configure_existing_logger(logging.getLogger(name))
+
+
+_configure_logging()
+
 EXTERNAL_USER_AGENT = os.getenv("EDGIS_USER_AGENT", "EDGIS")
 NEIGHBORS_CONCURRENCY_LIMIT = 2
 neighbors_semaphore = asyncio.Semaphore(NEIGHBORS_CONCURRENCY_LIMIT)
