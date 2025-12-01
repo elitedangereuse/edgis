@@ -600,6 +600,13 @@ def _format_neutron_result(row: Optional[tuple[Any, Any, Any]]):
     serializer=PickleSerializer(),
 )
 async def fetch_nearest_neutron_star(system_name: str):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        None, _fetch_nearest_neutron_star_sync, system_name
+    )
+
+
+def _fetch_nearest_neutron_star_sync(system_name: str):
     conn = psycopg.connect(
         dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST
     )
@@ -620,6 +627,13 @@ async def fetch_nearest_neutron_star(system_name: str):
     serializer=PickleSerializer(),
 )
 async def fetch_nearest_neutron_star_at_coords(x: float, y: float, z: float):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        None, _fetch_nearest_neutron_star_at_coords_sync, x, y, z
+    )
+
+
+def _fetch_nearest_neutron_star_at_coords_sync(x: float, y: float, z: float):
     conn = psycopg.connect(
         dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST
     )
@@ -952,13 +966,18 @@ class NeutronStarResponse(BaseModel):
 
 @app.get("/coords/predict", response_model=SystemResponse)
 async def get_coords(name_or_id: str = Query(..., alias="q")):
+    loop = asyncio.get_event_loop()
     try:
         if name_or_id.isdigit() or (
             name_or_id.startswith("-") and name_or_id[1:].isdigit()
         ):
-            sys_obj = system.from_id64(int(name_or_id), allow_known=False)
+            sys_obj = await loop.run_in_executor(
+                None, system.from_id64, int(name_or_id), False
+            )
         else:
-            sys_obj = system.from_name(name_or_id, allow_known=False)
+            sys_obj = await loop.run_in_executor(
+                None, system.from_name, name_or_id, False
+            )
         if sys_obj is None:
             return JSONResponse(
                 content={"error": SYSTEM_NOT_FOUND}, status_code=404
