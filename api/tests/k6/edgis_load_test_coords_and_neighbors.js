@@ -16,8 +16,8 @@ export const options = {
 
 const BASE_URL = 'https://edgis.elitedangereuse.fr';
 
-const DEFAULT_COORDS = { x: 0, y: 0, z: 0, radius: 30 };
-const FALLBACK_SYSTEM = 'Eoch Flyuae VL-F b27-33';
+const DEFAULT_COORDS = { x: 0, y: 0, z: 0, radius: 20 };
+const FALLBACK_SYSTEM = 'Eoch Flyuae VL-F a44-0';
 
 function pickRandomNeighbor(neighbors) {
   if (!Array.isArray(neighbors) || neighbors.length === 0) {
@@ -29,9 +29,9 @@ function pickRandomNeighbor(neighbors) {
 
 function getRandomCoords(base) {
   return {
-    x: base.x + (Math.random() - 0.5) * 100,
-    y: base.y + (Math.random() - 0.5) * 100,
-    z: base.z + (Math.random() - 0.5) * 100,
+    x: base.x + (Math.random() - 0.5) * 2000 - 1000,
+    y: base.y + (Math.random() - 0.5) * 2000 - 1000,
+    z: base.z + (Math.random() - 0.5) * 2000 - 1000,
     radius: base.radius,
   };
 }
