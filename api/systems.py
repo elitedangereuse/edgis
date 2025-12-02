@@ -972,11 +972,11 @@ async def get_coords(name_or_id: str = Query(..., alias="q")):
             name_or_id.startswith("-") and name_or_id[1:].isdigit()
         ):
             sys_obj = await loop.run_in_executor(
-                None, system.from_id64, int(name_or_id), False
+                None, system.from_id64, int(name_or_id), False, False
             )
         else:
             sys_obj = await loop.run_in_executor(
-                None, system.from_name, name_or_id, False
+                None, system.from_name, name_or_id, False, False
             )
         if sys_obj is None:
             return JSONResponse(
@@ -1001,10 +1001,16 @@ async def get_coords(name_or_id: str = Query(..., alias="q")):
 @app.get("/nearest-neutron-star", response_model=NeutronStarResponse)
 async def get_nearest_neutron_star(
     system_name: str = Query(
-        ..., description="Exact system name used to seed the search"
+        ...,
+        min_length=1,
+        description="Exact system name used to seed the search",
     )
 ):
-    result = await fetch_nearest_neutron_star(system_name)
+    trimmed_name = system_name.strip()
+    if not trimmed_name:
+        raise HTTPException(status_code=400, detail="System name is required")
+
+    result = await fetch_nearest_neutron_star(trimmed_name)
     if result is None:
         return JSONResponse(
             content={"error": "No neutron star found"}, status_code=404
