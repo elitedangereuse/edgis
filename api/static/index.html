@@ -891,23 +891,10 @@
          }
        }
 
-       try {
-         localStorage.setItem('edgis-active-tab', resolved);
-       } catch (err) {
-         console.warn('Unable to persist tab selection', err);
-       }
-     }
+    }
 
-     const storedTab = (() => {
-       try {
-         return localStorage.getItem('edgis-active-tab');
-       } catch {
-         return null;
-       }
-     })();
-
-     const initialTab = tabPanels[storedTab] ? storedTab : 'lookup';
-     activateTab(initialTab);
+    const initialTab = 'lookup';
+    activateTab(initialTab);
 
      if (toolMenuItems.length) {
        const routeItem = toolMenuItems.find(item => item.dataset.tool === 'route');
@@ -952,12 +939,22 @@
        });
      }
 
-     if (heroHomeButton) {
-       heroHomeButton.addEventListener('click', () => {
-         setToolMenuOpen(false);
-         activateTab('lookup');
-       });
-     }
+    if (heroHomeButton) {
+      heroHomeButton.addEventListener('click', () => {
+        setToolMenuOpen(false);
+        activateTab('lookup');
+        try {
+          const homeUrl = `${globalThis.location.origin}${globalThis.location.pathname}`;
+          if (globalThis.location.href === homeUrl) {
+            globalThis.location.reload();
+          } else {
+            globalThis.location.replace(homeUrl);
+          }
+        } catch {
+          globalThis.location.reload();
+        }
+      });
+    }
 
      function clearSuggestions(targetList) {
        if (targetList) {
@@ -1052,17 +1049,28 @@
        callApi('/coords?q=' + encodeURIComponent(value), 'system-lookup');
      }
 
-     function submitBodies(options = {}){
-       const { skipPermalinkUpdate = false } = options;
-       if (!bodiesInput) return;
-       const value = bodiesInput.value.trim();
-       activateTab('advanced');
-       if(!value) return;
-       lastBodiesLookupValue = value;
-       let path = '/bodies?name_or_id=' + encodeURIComponent(value);
-       if (bodiesModeEdsm?.checked) {
-         path += '&mode=edsm';
-       }
+    function submitBodies(options = {}){
+      if (!bodiesInput) return;
+      const {
+        skipPermalinkUpdate = false,
+        overrideValue = null,
+        updateInputValue = false,
+        targetTab = 'advanced',
+      } = options;
+      const rawValue = overrideValue ?? bodiesInput.value;
+      const value = rawValue.trim();
+      if (targetTab) {
+        activateTab(targetTab);
+      }
+      if(!value) return;
+      if (overrideValue !== null && updateInputValue) {
+        bodiesInput.value = value;
+      }
+      lastBodiesLookupValue = value;
+      let path = '/bodies?name_or_id=' + encodeURIComponent(value);
+      if (bodiesModeEdsm?.checked) {
+        path += '&mode=edsm';
+      }
        if (!skipPermalinkUpdate) {
          const updates = { [PERMALINK_PARAMS.bodies]: value };
          if (bodiesModeEdsm?.checked) {
@@ -1198,15 +1206,19 @@
      }
      globalThis.submitNeighbors = submitNeighbors;
 
-     if (systemMapBtn) {
-       systemMapBtn.addEventListener('click', () => {
-         if (systemMapBtn.disabled) return;
-         const systemName = systemMapBtn.dataset.systemName;
-         if (systemName) {
-           openSystemMap(systemName);
-         }
-       });
-     }
+    if (systemMapBtn) {
+      systemMapBtn.addEventListener('click', () => {
+        if (systemMapBtn.disabled) return;
+        const systemName = systemMapBtn.dataset.systemName;
+        if (systemName) {
+          submitBodies({
+            overrideValue: systemName,
+            updateInputValue: true,
+            targetTab: null,
+          });
+        }
+      });
+    }
 
      function restoreSearchFromPermalink() {
        if (!globalThis.location) {
