@@ -137,12 +137,12 @@ def patch_prediction(monkeypatch):
     monkeypatch.setattr(
         systems.system,
         "from_name",
-        lambda name, allow_known=False: TestSystem(),
+        lambda name, *args, **kwargs: TestSystem(),
     )
     monkeypatch.setattr(
         systems.system,
         "from_id64",
-        lambda value, allow_known=False: TestSystem2(),
+        lambda value, *args, **kwargs: TestSystem2(),
     )
 
 
@@ -157,7 +157,7 @@ def test_coords_predict_success(patch_prediction):
 def test_coords_predict_numeric_uses_id64(monkeypatch):
     calls = {}
 
-    def fake_from_id64(value, allow_known=False):
+    def fake_from_id64(value, *args, **kwargs):
         calls["value"] = value
         return TestSystem2()
 

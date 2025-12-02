@@ -9,6 +9,17 @@
     <link rel="stylesheet" href="/static/tailwind.css">
     <link rel="preload" href="/static/milkyway.css" as="style">
     <link rel="stylesheet" href="/static/milkyway.css">
+    <style>
+      @keyframes neutron-search-wobble {
+        0%, 100% { transform: rotate(0deg); }
+        25% { transform: rotate(-12deg); }
+        75% { transform: rotate(12deg); }
+      }
+      #neutronBtn.is-searching svg {
+        animation: neutron-search-wobble 0.8s ease-in-out infinite;
+        transform-origin: 50% 50%;
+      }
+    </style>
   </head>
   <body class="text-gray-200 antialiased">
     <main class="relative z-10 max-w-3xl mx-auto px-6 py-12">
@@ -827,11 +838,12 @@
      const bodiesModeEdsm = document.getElementById('bodiesModeEdsm');
      const predictInput = document.getElementById('predictInput');
      const predictBtn = document.getElementById('predictBtn');
-     const neighborsInput = document.getElementById('neighborsInput');
-     const neighborsBtn = document.getElementById('neighborsBtn');
-     const neutronInput = document.getElementById('neutronInput');
-     const neutronBtn = document.getElementById('neutronBtn');
-     const neutronModeRadios = Array.from(document.querySelectorAll('input[name="neutronMode"]'));
+    const neighborsInput = document.getElementById('neighborsInput');
+    const neighborsBtn = document.getElementById('neighborsBtn');
+    const neutronInput = document.getElementById('neutronInput');
+    const neutronBtn = document.getElementById('neutronBtn');
+    let activeNeutronSearches = 0;
+    const neutronModeRadios = Array.from(document.querySelectorAll('input[name="neutronMode"]'));
      const routeForm = document.getElementById('routeForm');
      const routeStart = document.getElementById('routeStart');
      const routeGoal = document.getElementById('routeGoal');
@@ -844,7 +856,24 @@
      const systemMapBtn = document.getElementById('systemMapBtn');
      const neighborsActionBtn = document.getElementById('neighborsActionBtn');
 
-     let currentSystemNameCopyValue = '';
+    function updateNeutronButtonSearchingState() {
+      if (!neutronBtn) return;
+      neutronBtn.classList.toggle('is-searching', activeNeutronSearches > 0);
+    }
+
+    function beginNeutronSearch() {
+      activeNeutronSearches += 1;
+      updateNeutronButtonSearchingState();
+    }
+
+    function endNeutronSearch() {
+      if (activeNeutronSearches > 0) {
+        activeNeutronSearches -= 1;
+      }
+      updateNeutronButtonSearchingState();
+    }
+
+    let currentSystemNameCopyValue = '';
      updateSystemNameCopyState('');
 
      const toolMenuToggle = document.getElementById('toolMenuToggle');
@@ -1158,16 +1187,27 @@
        }
      }
 
-     function submitNearestNeutron(options = {}){
-       const { skipPermalinkUpdate = false } = options;
-       if (!neutronInput) return;
-       const value = neutronInput.value.trim();
-       activateTab('advanced');
-       if (!skipPermalinkUpdate && value) {
-         updatePermalinkParams({ [PERMALINK_PARAMS.neutron]: value });
-       }
-       callApi('/nearest-neutron-star?system_name=' + encodeURIComponent(value));
-     }
+    function submitNearestNeutron(options = {}){
+      const { skipPermalinkUpdate = false } = options;
+      if (!neutronInput) return;
+      const value = neutronInput.value.trim();
+      if (!value) {
+        setStatus('Provide a system name to search for a neutron star');
+        return;
+      }
+      activateTab('advanced');
+      if (!skipPermalinkUpdate) {
+        updatePermalinkParams({ [PERMALINK_PARAMS.neutron]: value });
+      }
+      beginNeutronSearch();
+      const requestPromise = callApi('/nearest-neutron-star?system_name=' + encodeURIComponent(value));
+      if (requestPromise && typeof requestPromise.finally === 'function') {
+        requestPromise.finally(endNeutronSearch);
+      } else {
+        endNeutronSearch();
+      }
+      return requestPromise;
+    }
 
      searchBtn.addEventListener('click', submitSearch);
      searchInput.addEventListener('keydown', e=>{
