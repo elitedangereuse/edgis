@@ -38,7 +38,7 @@ NEIGHBORS_RESULT_LIMIT = max(
     1, int(os.getenv("NEIGHBORS_RESULT_LIMIT") or "100000")
 )
 NEIGHBORS_STATEMENT_TIMEOUT_MS = max(
-    0, int(os.getenv("NEIGHBORS_STATEMENT_TIMEOUT_MS") or "3000")
+    0, int(os.getenv("NEIGHBORS_STATEMENT_TIMEOUT_MS") or "15000")
 )
 app = FastAPI()
 SYSTEM_NOT_FOUND = "System not found"
