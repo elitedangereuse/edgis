@@ -594,6 +594,39 @@
      const systemCoordY = document.getElementById('systemCoordY');
      const systemCoordZ = document.getElementById('systemCoordZ');
 
+     const PERMALINK_PARAMS = {
+       lookup: 'lookup',
+       bodies: 'bodies',
+       bodiesMode: 'bodies_mode',
+       neighbors: 'neighbors',
+       predict: 'predict',
+       neutron: 'neutron',
+     };
+
+     const TRACKED_SEARCH_PARAM_NAMES = Object.values(PERMALINK_PARAMS);
+
+     function updatePermalinkParams(newParams) {
+       if (!globalThis.location || !globalThis.history ||
+           typeof globalThis.history.replaceState !== 'function') {
+         return;
+       }
+       const url = new URL(globalThis.location.href);
+       for (const name of TRACKED_SEARCH_PARAM_NAMES) {
+         if (!(name in newParams)) {
+           url.searchParams.delete(name);
+         }
+       }
+       for (const [name, value] of Object.entries(newParams)) {
+         if (value === undefined || value === null || value === '') {
+           url.searchParams.delete(name);
+         } else {
+           url.searchParams.set(name, value);
+         }
+       }
+       const newUrl = `${url.pathname}${url.search}${url.hash}`;
+       globalThis.history.replaceState(null, '', newUrl);
+     }
+
      if (apiDocsLink) {
        try {
          const docsUrl = new URL('/docs', globalThis.location.origin);
@@ -981,14 +1014,19 @@
        value => hasMinimumChars(value) && !startsWithNumeric(value)
      );
 
-     function submitSearch(){
+     function submitSearch(options = {}){
+       const { skipPermalinkUpdate = false } = options;
        const value = searchInput.value.trim();
        activateTab('lookup');
        if(!value) return;
+       if (!skipPermalinkUpdate) {
+         updatePermalinkParams({ [PERMALINK_PARAMS.lookup]: value });
+       }
        callApi('/coords?q=' + encodeURIComponent(value), 'system-lookup');
      }
 
-     function submitBodies(){
+     function submitBodies(options = {}){
+       const { skipPermalinkUpdate = false } = options;
        if (!bodiesInput) return;
        const value = bodiesInput.value.trim();
        activateTab('advanced');
@@ -997,6 +1035,13 @@
        let path = '/bodies?name_or_id=' + encodeURIComponent(value);
        if (bodiesModeEdsm?.checked) {
          path += '&mode=edsm';
+       }
+       if (!skipPermalinkUpdate) {
+         const updates = { [PERMALINK_PARAMS.bodies]: value };
+         if (bodiesModeEdsm?.checked) {
+           updates[PERMALINK_PARAMS.bodiesMode] = 'edsm';
+         }
+         updatePermalinkParams(updates);
        }
        callApi(path, 'bodies');
      }
@@ -1016,20 +1061,28 @@
 
      globalThis.fetchBodyDetails = fetchBodyDetails;
 
-     function submitPredict(){
+     function submitPredict(options = {}){
+       const { skipPermalinkUpdate = false } = options;
        const value = predictInput.value.trim();
        activateTab('advanced');
        if(!value) return;
+       if (!skipPermalinkUpdate) {
+         updatePermalinkParams({ [PERMALINK_PARAMS.predict]: value });
+       }
        callApi('/coords/predict?q=' + encodeURIComponent(value));
      }
 
-     async function submitNeighbors(){
+     async function submitNeighbors(options = {}){
+       const { skipPermalinkUpdate = false } = options;
        if (!neighborsInput) return;
        const raw = neighborsInput.value.trim();
        activateTab('lookup');
        if(!raw){
          setStatus('Provide coordinates to search for neighbors');
          return;
+       }
+       if (!skipPermalinkUpdate) {
+         updatePermalinkParams({ [PERMALINK_PARAMS.neighbors]: raw });
        }
        const parts = raw.split(',').map(s=>s.trim());
        if(parts.length < 3){
@@ -1070,10 +1123,14 @@
        }
      }
 
-     function submitNearestNeutron(){
+     function submitNearestNeutron(options = {}){
+       const { skipPermalinkUpdate = false } = options;
        if (!neutronInput) return;
        const value = neutronInput.value.trim();
        activateTab('advanced');
+       if (!skipPermalinkUpdate && value) {
+         updatePermalinkParams({ [PERMALINK_PARAMS.neutron]: value });
+       }
        callApi('/nearest-neutron-star?system_name=' + encodeURIComponent(value));
      }
 
@@ -1123,6 +1180,51 @@
          }
        });
      }
+
+     function restoreSearchFromPermalink() {
+       if (!globalThis.location) {
+         return;
+       }
+       const params = new URLSearchParams(globalThis.location.search);
+       const lookupValue = params.get(PERMALINK_PARAMS.lookup);
+       if (lookupValue && searchInput) {
+         searchInput.value = lookupValue;
+         submitSearch({ skipPermalinkUpdate: true });
+         return;
+       }
+
+       const bodiesValue = params.get(PERMALINK_PARAMS.bodies);
+       if (bodiesValue && bodiesInput) {
+         bodiesInput.value = bodiesValue;
+         if (bodiesModeEdsm) {
+           bodiesModeEdsm.checked = params.get(PERMALINK_PARAMS.bodiesMode) === 'edsm';
+         }
+         submitBodies({ skipPermalinkUpdate: true });
+         return;
+       }
+
+       const neighborsValue = params.get(PERMALINK_PARAMS.neighbors);
+       if (neighborsValue && neighborsInput) {
+         neighborsInput.value = neighborsValue;
+         submitNeighbors({ skipPermalinkUpdate: true });
+         return;
+       }
+
+       const predictValue = params.get(PERMALINK_PARAMS.predict);
+       if (predictValue && predictInput) {
+         predictInput.value = predictValue;
+         submitPredict({ skipPermalinkUpdate: true });
+         return;
+       }
+
+       const neutronValue = params.get(PERMALINK_PARAMS.neutron);
+       if (neutronValue && neutronInput) {
+         neutronInput.value = neutronValue;
+         submitNearestNeutron({ skipPermalinkUpdate: true });
+       }
+     }
+
+     restoreSearchFromPermalink();
 
      if (bodiesEmbedOpenBtn) {
        const openBodiesEmbed = () => {
