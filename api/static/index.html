@@ -998,55 +998,74 @@
        return value.trim().length >= min;
      }
 
-     async function requestSystemAutocomplete(value, targetList) {
-       if (!targetList) {
-         return;
-       }
-       const trimmed = value.trim();
-       if (!hasMinimumChars(trimmed)) {
-         clearSuggestions(targetList);
-         return;
-       }
+    async function requestSystemAutocomplete(value, targetList, options = {}) {
+      if (!targetList) {
+        return;
+      }
+      const trimmed = value.trim();
+      if (!hasMinimumChars(trimmed)) {
+        clearSuggestions(targetList);
+        return;
+      }
 
-       try {
-         const url = new URL('/systems/autocomplete', globalThis.location.origin);
-         url.searchParams.set('q', trimmed);
-         const response = await fetch(url.toString());
-         if (!response.ok) {
-           throw new Error(`HTTP ${response.status}`);
-         }
-         const payload = await response.json();
-         const suggestions = Array.isArray(payload?.suggestions)
-                           ? payload.suggestions
-                           : [];
-         targetList.innerHTML = suggestions
-           .map(name => `<option value="${escapeAttr(name)}"></option>`)
-           .join('');
-       } catch (error) {
-         console.warn('Autocomplete failed', error);
-       }
-     }
+      const { isSuppressed } = options;
 
-     function setupAutocompleteInput(inputEl, datalistEl, validator = hasMinimumChars) {
-       if (!inputEl || !datalistEl) {
-         return;
-       }
-       let timerId = null;
-       inputEl.addEventListener('input', () => {
-         if (timerId) {
-           clearTimeout(timerId);
-         }
-         const value = inputEl.value;
-         if (!validator(value)) {
-           clearSuggestions(datalistEl);
-           return;
-         }
-         timerId = setTimeout(
-           () => requestSystemAutocomplete(value, datalistEl),
-           200
-         );
-       });
-     }
+      try {
+        const url = new URL('/systems/autocomplete', globalThis.location.origin);
+        url.searchParams.set('q', trimmed);
+        const response = await fetch(url.toString());
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const payload = await response.json();
+        const suggestions = (Array.isArray(payload?.suggestions)
+          ? payload.suggestions
+          : [])
+          .filter(name => typeof name === 'string' && name.trim().toLowerCase() !== trimmed.toLowerCase());
+        if (typeof isSuppressed === 'function' && isSuppressed()) {
+          return;
+        }
+        targetList.innerHTML = suggestions
+          .map(name => `<option value="${escapeAttr(name)}"></option>`)
+          .join('');
+      } catch (error) {
+        console.warn('Autocomplete failed', error);
+      }
+    }
+
+    function setupAutocompleteInput(inputEl, datalistEl, validator = hasMinimumChars) {
+      const noop = () => {};
+      if (!inputEl || !datalistEl) {
+        return noop;
+      }
+      let timerId = null;
+      let suppressAutocomplete = false;
+
+      const dismissAutocomplete = () => {
+        suppressAutocomplete = true;
+        clearSuggestions(datalistEl);
+      };
+
+      inputEl.addEventListener('input', () => {
+        suppressAutocomplete = false;
+        if (timerId) {
+          clearTimeout(timerId);
+        }
+        const value = inputEl.value;
+        if (!validator(value)) {
+          clearSuggestions(datalistEl);
+          return;
+        }
+        timerId = setTimeout(
+          () => requestSystemAutocomplete(value, datalistEl, {
+            isSuppressed: () => suppressAutocomplete,
+          }),
+          200
+        );
+      });
+
+      return dismissAutocomplete;
+    }
 
      function startsWithNumeric(value) {
        if (!value) {
@@ -1057,29 +1076,38 @@
        return /^[0-9-]/.test(trimmed[0]);
      }
 
-     setupAutocompleteInput(searchInput, systemSuggestions);
-     setupAutocompleteInput(predictInput, predictSuggestions);
-     setupAutocompleteInput(bodiesInput, bodiesSuggestions);
-     setupAutocompleteInput(neutronInput, neutronSuggestions);
-     setupAutocompleteInput(
-       neighborsInput,
-       neighborsSuggestions,
-       value => hasMinimumChars(value) && !startsWithNumeric(value)
-     );
+    const dismissSearchAutocomplete = setupAutocompleteInput(searchInput, systemSuggestions);
+    const dismissPredictAutocomplete = setupAutocompleteInput(predictInput, predictSuggestions);
+    const dismissBodiesAutocomplete = setupAutocompleteInput(bodiesInput, bodiesSuggestions);
+    const dismissNeutronAutocomplete = setupAutocompleteInput(neutronInput, neutronSuggestions);
+    const dismissNeighborsAutocomplete = setupAutocompleteInput(
+      neighborsInput,
+      neighborsSuggestions,
+      value => hasMinimumChars(value) && !startsWithNumeric(value)
+    );
 
-     function submitSearch(options = {}){
-       const { skipPermalinkUpdate = false } = options;
-       const value = searchInput.value.trim();
-       activateTab('lookup');
-       if(!value) return;
-       if (!skipPermalinkUpdate) {
-         updatePermalinkParams({ [PERMALINK_PARAMS.lookup]: value });
-       }
-       callApi('/coords?q=' + encodeURIComponent(value), 'system-lookup');
-     }
+    function submitSearch(options = {}) {
+      dismissSearchAutocomplete();
+      const { skipPermalinkUpdate = false } = options;
+      if (!searchInput) {
+        return;
+      }
+      const value = searchInput.value.trim();
+      activateTab('lookup');
+      if (!value) {
+        return;
+      }
+      if (!skipPermalinkUpdate) {
+        updatePermalinkParams({ [PERMALINK_PARAMS.lookup]: value });
+      }
+      callApi('/coords?q=' + encodeURIComponent(value), 'system-lookup');
+    }
 
-    function submitBodies(options = {}){
-      if (!bodiesInput) return;
+    function submitBodies(options = {}) {
+      dismissBodiesAutocomplete();
+      if (!bodiesInput) {
+        return;
+      }
       const {
         skipPermalinkUpdate = false,
         overrideValue = null,
@@ -1091,7 +1119,9 @@
       if (targetTab) {
         activateTab(targetTab);
       }
-      if(!value) return;
+      if (!value) {
+        return;
+      }
       if (overrideValue !== null && updateInputValue) {
         bodiesInput.value = value;
       }
@@ -1125,42 +1155,51 @@
 
      globalThis.fetchBodyDetails = fetchBodyDetails;
 
-     function submitPredict(options = {}){
-       const { skipPermalinkUpdate = false } = options;
-       const value = predictInput.value.trim();
-       activateTab('advanced');
-       if(!value) return;
-       if (!skipPermalinkUpdate) {
-         updatePermalinkParams({ [PERMALINK_PARAMS.predict]: value });
-       }
-       callApi('/coords/predict?q=' + encodeURIComponent(value));
-     }
+    function submitPredict(options = {}) {
+      dismissPredictAutocomplete();
+      if (!predictInput) {
+        return;
+      }
+      const { skipPermalinkUpdate = false } = options;
+      const value = predictInput.value.trim();
+      activateTab('advanced');
+      if (!value) {
+        return;
+      }
+      if (!skipPermalinkUpdate) {
+        updatePermalinkParams({ [PERMALINK_PARAMS.predict]: value });
+      }
+      callApi('/coords/predict?q=' + encodeURIComponent(value));
+    }
 
-     async function submitNeighbors(options = {}){
-       const { skipPermalinkUpdate = false } = options;
-       if (!neighborsInput) return;
-       const raw = neighborsInput.value.trim();
-       activateTab('lookup');
-       if(!raw){
-         setStatus('Provide coordinates to search for neighbors');
-         return;
-       }
-       if (!skipPermalinkUpdate) {
-         updatePermalinkParams({ [PERMALINK_PARAMS.neighbors]: raw });
-       }
-       const parts = raw.split(',').map(s=>s.trim());
-       if(parts.length < 3){
-         await resolveNeighborsByName(raw);
-         return;
-       }
-       const [x, y, z, maybeRadius] = parts;
-       if([x,y,z].includes('')){
-         await resolveNeighborsByName(raw);
-         return;
-       }
-       const radius = maybeRadius && maybeRadius !== '' ? maybeRadius : '20';
-       callApi(`/neighbors?x=${encodeURIComponent(x)}&y=${encodeURIComponent(y)}&z=${encodeURIComponent(z)}&radius=${encodeURIComponent(radius)}`, 'neighbors');
-     }
+    async function submitNeighbors(options = {}) {
+      dismissNeighborsAutocomplete();
+      const { skipPermalinkUpdate = false } = options;
+      if (!neighborsInput) {
+        return;
+      }
+      const raw = neighborsInput.value.trim();
+      activateTab('lookup');
+      if (!raw) {
+        setStatus('Provide coordinates to search for neighbors');
+        return;
+      }
+      if (!skipPermalinkUpdate) {
+        updatePermalinkParams({ [PERMALINK_PARAMS.neighbors]: raw });
+      }
+      const parts = raw.split(',').map(s => s.trim());
+      if (parts.length < 3) {
+        await resolveNeighborsByName(raw);
+        return;
+      }
+      const [x, y, z, maybeRadius] = parts;
+      if ([x, y, z].includes('')) {
+        await resolveNeighborsByName(raw);
+        return;
+      }
+      const radius = maybeRadius && maybeRadius !== '' ? maybeRadius : '20';
+      callApi(`/neighbors?x=${encodeURIComponent(x)}&y=${encodeURIComponent(y)}&z=${encodeURIComponent(z)}&radius=${encodeURIComponent(radius)}`, 'neighbors');
+    }
 
      async function resolveNeighborsByName(nameInput) {
        const name = nameInput.trim();
@@ -1187,9 +1226,12 @@
        }
      }
 
-    function submitNearestNeutron(options = {}){
+    function submitNearestNeutron(options = {}) {
+      dismissNeutronAutocomplete();
       const { skipPermalinkUpdate = false } = options;
-      if (!neutronInput) return;
+      if (!neutronInput) {
+        return;
+      }
       const value = neutronInput.value.trim();
       if (!value) {
         setStatus('Provide a system name to search for a neutron star');
