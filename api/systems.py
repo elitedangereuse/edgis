@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import psycopg
 from pydantic import BaseModel
-from typing import Iterable, Optional, Any
+from typing import Iterable, Optional, Any, Sequence
 from urllib.parse import quote
 
 try:
@@ -577,12 +577,27 @@ def _format_neutron_result(row: Optional[tuple[Any, Any, Any]]):
     }
 
 
+def _format_neutron_results(
+    rows: Optional[Sequence[tuple[Any, Any, Any]]]
+):
+    if not rows:
+        return None
+
+    formatted: list[dict[str, Any]] = []
+    for row in rows:
+        payload = _format_neutron_result(row)
+        if payload is not None:
+            formatted.append(payload)
+
+    return formatted or None
+
+
 @cached(
     cache=RedisCache,
     endpoint=REDIS_HOST,
     port=REDIS_PORT,
     ttl=ONE_DAY_SECONDS,
-    namespace="nearest_neutron_system",
+    namespace="nearest_neutron_system_v2",
     serializer=PickleSerializer(),
 )
 async def fetch_nearest_neutron_star(system_name: str):
@@ -597,11 +612,13 @@ def _fetch_nearest_neutron_star_sync(system_name: str):
         dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST
     )
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM nearest_neutron_star(%s);", (system_name,))
-    row = cursor.fetchone()
+    cursor.execute(
+        "SELECT * FROM nearest_neutron_star_ten_results(%s);", (system_name,)
+    )
+    rows = cursor.fetchall()
     cursor.close()
     conn.close()
-    return _format_neutron_result(row)
+    return _format_neutron_results(rows)
 
 
 @cached(
@@ -609,7 +626,7 @@ def _fetch_nearest_neutron_star_sync(system_name: str):
     endpoint=REDIS_HOST,
     port=REDIS_PORT,
     ttl=ONE_DAY_SECONDS,
-    namespace="nearest_neutron_coords",
+    namespace="nearest_neutron_coords_v2",
     serializer=PickleSerializer(),
 )
 async def fetch_nearest_neutron_star_at_coords(x: float, y: float, z: float):
@@ -625,13 +642,13 @@ def _fetch_nearest_neutron_star_at_coords_sync(x: float, y: float, z: float):
     )
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT * FROM nearest_neutron_star_at_coords(%s, %s, %s);",
+        "SELECT * FROM nearest_neutron_star_at_coords_ten_results(%s, %s, %s);",
         (x, y, z),
     )
-    row = cursor.fetchone()
+    rows = cursor.fetchall()
     cursor.close()
     conn.close()
-    return _format_neutron_result(row)
+    return _format_neutron_results(rows)
 
 
 def _is_star(record: dict[str, Any]) -> bool:
@@ -976,7 +993,7 @@ async def get_coords(name_or_id: str = Query(..., alias="q")):
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
-@app.get("/nearest-neutron-star", response_model=NeutronStarResponse)
+@app.get("/nearest-neutron-star", response_model=list[NeutronStarResponse])
 async def get_nearest_neutron_star(
     system_name: str = Query(
         ...,
@@ -989,14 +1006,14 @@ async def get_nearest_neutron_star(
         raise HTTPException(status_code=400, detail="System name is required")
 
     result = await fetch_nearest_neutron_star(trimmed_name)
-    if result is None:
+    if not result:
         return JSONResponse(content={"error": "No neutron star found"}, status_code=404)
     return result
 
 
 @app.get(
     "/nearest-neutron-star/coords",
-    response_model=NeutronStarResponse,
+    response_model=list[NeutronStarResponse],
 )
 async def get_nearest_neutron_star_from_coords(
     x: float = Query(..., description="Cartesian X coordinate"),
@@ -1004,7 +1021,7 @@ async def get_nearest_neutron_star_from_coords(
     z: float = Query(..., description="Cartesian Z coordinate"),
 ):
     result = await fetch_nearest_neutron_star_at_coords(x, y, z)
-    if result is None:
+    if not result:
         return JSONResponse(content={"error": "No neutron star found"}, status_code=404)
     return result
 
