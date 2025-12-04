@@ -26,6 +26,25 @@ except ImportError:
 import asyncio
 from dotenv import load_dotenv
 
+_SPANSH_IMPORT_ERROR: str | None = None
+try:
+    from feeders.spansh_system_ingestor import ingest_system as spansh_ingest_system
+except ModuleNotFoundError:
+    import sys
+    from pathlib import Path
+
+    _repo_root = Path(__file__).resolve().parents[1]
+    if str(_repo_root) not in sys.path:
+        sys.path.append(str(_repo_root))
+    try:
+        from feeders.spansh_system_ingestor import ingest_system as spansh_ingest_system
+    except ModuleNotFoundError as exc:
+        spansh_ingest_system = None
+        _SPANSH_IMPORT_ERROR = str(exc)
+except Exception as exc:  # pragma: no cover - defensive import fallback
+    spansh_ingest_system = None
+    _SPANSH_IMPORT_ERROR = str(exc)
+
 load_dotenv()
 
 EXTERNAL_USER_AGENT = os.getenv("EDGIS_USER_AGENT", "EDGIS")
@@ -947,6 +966,37 @@ def bodies(
     if result is None:
         return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
     return result
+
+
+@app.post("/bodies/{system_id64}/spansh-refresh", include_in_schema=False)
+async def refresh_bodies_from_spansh(system_id64: int):
+    if system_id64 <= 0:
+        raise HTTPException(status_code=400, detail="system_id64 must be positive")
+    if spansh_ingest_system is None:
+        detail = "Spansh ingestor unavailable"
+        if _SPANSH_IMPORT_ERROR:
+            detail = f"{detail}: {_SPANSH_IMPORT_ERROR}"
+        raise HTTPException(status_code=501, detail=detail)
+
+    def _run_refresh() -> None:
+        with psycopg.connect(
+            host=DB_HOST, dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD
+        ) as connection:
+            spansh_ingest_system(system_id64, connection=connection)
+
+    try:
+        await asyncio.to_thread(_run_refresh)
+    except SystemExit:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:  # pragma: no cover - defensive logging path
+        logger.exception("Failed to refresh system %s from Spansh", system_id64)
+        raise HTTPException(
+            status_code=500, detail="Failed to refresh system from Spansh"
+        ) from exc
+
+    return {"status": "ok", "system_id64": system_id64}
 
 
 @app.get("/edsm/bodies", include_in_schema=False)

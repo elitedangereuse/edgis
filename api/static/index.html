@@ -821,7 +821,7 @@
      const lookupActions = document.getElementById('systemLookupActions');
      const galaxyMapBtn = document.getElementById('galaxyMapBtn');
      const systemMapBtn = document.getElementById('systemMapBtn');
-     const neighborsActionBtn = document.getElementById('neighborsActionBtn');
+    const neighborsActionBtn = document.getElementById('neighborsActionBtn');
 
     function updateNeutronButtonSearchingState() {
       if (!neutronBtn) return;
@@ -1107,18 +1107,84 @@
        callApi(path, 'bodies');
      }
 
-     function fetchBodyDetails(systemId64, bodyId){
-       if (systemId64 === undefined || systemId64 === null) return;
-       if (bodyId === undefined || bodyId === null) return;
-       activateTab('advanced');
-       const sys = encodeURIComponent(String(systemId64));
-       const body = encodeURIComponent(String(bodyId));
-       let path = `/bodies?name_or_id=${sys}&body_id=${body}`;
-       if (bodiesModeEdsm?.checked) {
-         path += '&mode=edsm';
-       }
-       callApi(path, 'body-detail');
-     }
+    function fetchBodyDetails(systemId64, bodyId){
+      if (systemId64 === undefined || systemId64 === null) return;
+      if (bodyId === undefined || bodyId === null) return;
+      activateTab('advanced');
+      const sys = encodeURIComponent(String(systemId64));
+      const body = encodeURIComponent(String(bodyId));
+      let path = `/bodies?name_or_id=${sys}&body_id=${body}`;
+      if (bodiesModeEdsm?.checked) {
+        path += '&mode=edsm';
+      }
+      callApi(path, 'body-detail');
+    }
+
+    async function refreshSystemFromSpansh(systemId64, buttonEl) {
+      const id = String(systemId64 ?? '').trim();
+      if (!id) {
+        return;
+      }
+
+      const btn = buttonEl || null;
+      if (btn) {
+        btn.disabled = true;
+        if (!btn.dataset.originalTitle) {
+          btn.dataset.originalTitle = btn.title || '';
+        }
+        btn.setAttribute('aria-busy', 'true');
+        btn.classList.add('is-busy');
+        btn.title = 'Refreshing via Spansh…';
+      }
+
+      setStatus(`Refreshing ${id} from Spansh...`);
+
+      try {
+        const response = await fetch(`/bodies/${encodeURIComponent(id)}/spansh-refresh`, {
+          method: 'POST',
+        });
+        let payload = {};
+        try {
+          payload = await response.json();
+        } catch (err) {
+          console.error('Failed to parse API response as JSON', err);
+          payload = { error: 'Invalid JSON response from API' };
+        }
+        if (!response.ok || payload?.error || payload?.detail) {
+          const message = payload?.detail || payload?.error || `HTTP ${response.status}`;
+          throw new Error(message);
+        }
+
+        setStatus(`Spansh refresh complete for ${id}. Updating table...`);
+        const refreshValue = lastBodiesLookupValue?.trim()
+          || bodiesInput?.value?.trim()
+          || id;
+        if (refreshValue) {
+          submitBodies({
+            skipPermalinkUpdate: true,
+            overrideValue: refreshValue,
+            updateInputValue: false,
+            targetTab: null,
+          });
+        }
+      } catch (err) {
+        console.error('Failed to refresh system from Spansh', err);
+        setStatus(`Failed to refresh ${id}: ${err?.message || err}`);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.removeAttribute('aria-busy');
+          btn.classList.remove('is-busy');
+          if (btn.dataset.originalTitle) {
+            btn.title = btn.dataset.originalTitle;
+            delete btn.dataset.originalTitle;
+          } else {
+            btn.title = 'Refresh system from Spansh';
+          }
+        }
+      }
+    }
+    globalThis.refreshSystemFromSpansh = refreshSystemFromSpansh;
 
      globalThis.fetchBodyDetails = fetchBodyDetails;
 
@@ -1483,9 +1549,13 @@
       </svg>`;
      const neutronIndicatorSvg = `<svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <path d="m9.4034 7.3455a1.5488 1.5488 0 0 1-0.7491 2.0582 1.5488 1.5488 0 0 1-2.0582-0.7491 1.5488 1.5488 0 0 1 0.7491-2.0582 1.5488 1.5488 0 0 1 2.0582 0.7491zm-1.4036 0.65455 5.3781 6.0364-4.2109 1.9636zm0 0-5.3781-6.0364 4.2109-1.9636z" fill="currentColor" stroke-width=".054153"/>
-      </svg>`;
-     const neighborsIconSvg = `<svg width="16" height="16" viewBox="0 0 39.902 39.902" xmlns="http://www.w3.org/2000/svg">
+     </svg>`;
+    const neighborsIconSvg = `<svg width="16" height="16" viewBox="0 0 39.902 39.902" xmlns="http://www.w3.org/2000/svg">
         <path d="m14.241 24.519 4.7463-5.6206-4.7463-5.6206 5.6206 4.7463 5.6206-4.7463-4.7463 5.6206 4.7463 5.6206-5.6206-4.7463zm-9.6642 2.7315-0.56969-2.653-2.653-0.56969 2.653-0.56969 0.56969-2.653 0.56969 2.653 2.653 0.56969-2.653 0.56969zm30.748-16.245-0.56969-2.653-2.653-0.56969 2.653-0.56969 0.56969-2.653 0.56969 2.653 2.653 0.56969-2.653 0.56969zm-2.4608 24.336-0.78092-3.6366-3.6366-0.78092 3.6366-0.78092 0.78092-3.6366 0.78092 3.6366 3.6366 0.78092-3.6366 0.78092zm-13.002-2.7759-2.416-11.251-11.251-2.416 11.251-2.416 2.416-11.251 2.416 11.251 11.251 2.416-11.251 2.416z" fill="currentColor" stroke-linecap="round" stroke-width=".25125"/>
+      </svg>`;
+    const spanshRefreshIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-repeat" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41z"/>
+        <path fill-rule="evenodd" d="M8 3a5 5 0 0 0-4.546 2.916.5.5 0 1 1-.908-.417A6 6 0 0 1 13 6.056V5.5a.5.5 0 0 1 1 0v2.4a.1.1 0 0 1-.1.1H11.5a.5.5 0 0 1 0-1h1.356A5 5 0 0 0 8 3zm0 10a5 5 0 0 0 4.546-2.916.5.5 0 0 1 .908.417A6 6 0 0 1 3 9.944V10.5a.5.5 0 0 1-1 0v-2.4a.1.1 0 0 1 .1-.1H4.5a.5.5 0 0 1 0 1H3.144A5 5 0 0 0 8 13z"/>
       </svg>`;
      const systemMapIconSvg = `<svg width="16" height="16" version="1.1" viewBox="0 0 24.77 24.77" xmlns="http://www.w3.org/2000/svg">
         <path d="m18.976 12.385a6.5907 6.5907 0 0 1-6.5907 6.5907 6.5907 6.5907 0 0 1-6.5907-6.5907 6.5907 6.5907 0 0 1 6.5907-6.5907 6.5907 6.5907 0 0 1 6.5907 6.5907zm5.2941 0a11.885 11.885 0 0 1-11.885 11.885 11.885 11.885 0 0 1-11.885-11.885 11.885 11.885 0 0 1 11.885-11.885 11.885 11.885 0 0 1 11.885 11.885z" fill="none" stroke="currentColor" style="paint-order:stroke markers fill"></path>
@@ -1515,10 +1585,11 @@
        }
      });
 
-     const neighborsActionIconEl = document.querySelector('#neighborsActionBtn .system-card__action-icon');
-     if (neighborsActionIconEl) {
-       neighborsActionIconEl.innerHTML = neighborsIconSvg;
-     }
+    const neighborsActionIconEl = document.querySelector('#neighborsActionBtn .system-card__action-icon');
+    if (neighborsActionIconEl) {
+      neighborsActionIconEl.innerHTML = neighborsIconSvg;
+    }
+
 
      function openSystemMap(text, btnElement){
        const url = `https://elitedangereuse.fr/outils/sysmap.php?system=${text}`;
@@ -1660,14 +1731,14 @@
          delete galaxyMapBtn.dataset.y;
          delete galaxyMapBtn.dataset.z;
        }
-       if (neighborsActionBtn) {
-         neighborsActionBtn.disabled = true;
-         neighborsActionBtn.classList.add('is-disabled');
-         delete neighborsActionBtn.dataset.x;
-         delete neighborsActionBtn.dataset.y;
-         delete neighborsActionBtn.dataset.z;
-       }
-     }
+      if (neighborsActionBtn) {
+        neighborsActionBtn.disabled = true;
+        neighborsActionBtn.classList.add('is-disabled');
+        delete neighborsActionBtn.dataset.x;
+        delete neighborsActionBtn.dataset.y;
+        delete neighborsActionBtn.dataset.z;
+      }
+    }
 
      function getLookupTarget(payload) {
        const rows = normalizeTableData(payload);
@@ -1685,12 +1756,12 @@
        return '';
      }
 
-     function extractCoords(target) {
-       const coords = target?.coords;
-       if (!coords) return null;
-       const { x, y, z } = coords;
-       return [x, y, z].every(val => Number.isFinite(val)) ? { x, y, z } : null;
-     }
+    function extractCoords(target) {
+      const coords = target?.coords;
+      if (!coords) return null;
+      const { x, y, z } = coords;
+      return [x, y, z].every(val => Number.isFinite(val)) ? { x, y, z } : null;
+    }
 
      function applySystemMapState(systemName) {
        if (!systemMapBtn) return false;
@@ -1722,11 +1793,11 @@
        return hasCoords;
      }
 
-     function applyNeighborsActionState(coords) {
-       if (!neighborsActionBtn) return false;
-       const hasCoords = Boolean(coords);
-       neighborsActionBtn.disabled = !hasCoords;
-       neighborsActionBtn.classList.toggle('is-disabled', !hasCoords);
+    function applyNeighborsActionState(coords) {
+      if (!neighborsActionBtn) return false;
+      const hasCoords = Boolean(coords);
+      neighborsActionBtn.disabled = !hasCoords;
+      neighborsActionBtn.classList.toggle('is-disabled', !hasCoords);
        if (hasCoords) {
          neighborsActionBtn.dataset.x = coords.x;
          neighborsActionBtn.dataset.y = coords.y;
@@ -1736,8 +1807,8 @@
          delete neighborsActionBtn.dataset.y;
          delete neighborsActionBtn.dataset.z;
        }
-       return hasCoords;
-     }
+      return hasCoords;
+    }
 
      function updateLookupActionButtons(payload, kind) {
        if (!lookupActions) {
@@ -1748,22 +1819,22 @@
          return;
        }
 
-       const target = getLookupTarget(payload);
-       if (!target) {
-         hideLookupActionButtons();
-         return;
-       }
+      const target = getLookupTarget(payload);
+      if (!target) {
+        hideLookupActionButtons();
+        return;
+      }
 
-       const systemName = extractSystemName(target);
-       const coords = extractCoords(target);
-       const hasName = applySystemMapState(systemName);
-       const hasCoords = applyGalaxyMapState(coords);
-       const hasNeighborAction = applyNeighborsActionState(coords);
+      const systemName = extractSystemName(target);
+      const coords = extractCoords(target);
+      const hasName = applySystemMapState(systemName);
+      const hasCoords = applyGalaxyMapState(coords);
+      const hasNeighborAction = applyNeighborsActionState(coords);
 
-       if (!hasName && !hasCoords && !hasNeighborAction) {
-         hideLookupActionButtons();
-         return;
-       }
+      if (!hasName && !hasCoords && !hasNeighborAction) {
+        hideLookupActionButtons();
+        return;
+      }
 
        lookupActions.hidden = false;
      }
@@ -2393,6 +2464,19 @@
          return null;
        })();
 
+       const rawSystemId = row.system_id64;
+       const rawId64 = row.id64;
+       const normalizedSystemId = (() => {
+         if (rawSystemId !== undefined && rawSystemId !== null) {
+           return rawSystemId;
+         }
+         if ((kind === 'system-lookup' || kind === 'route') && rawId64 !== undefined && rawId64 !== null) {
+           return rawId64;
+         }
+         return null;
+       })();
+       const hasSystemId = normalizedSystemId !== null;
+
        if (displayName && !isSystemLookup) {
          parts.push(`
       <button
@@ -2434,8 +2518,8 @@
        }
 
        if ((kind === 'bodies' || kind === 'body-detail') &&
-           row.system_id64 !== undefined && row.body_id !== undefined) {
-         const sysId = escapeQuotes(String(row.system_id64));
+           hasSystemId && row.body_id !== undefined) {
+         const sysId = escapeQuotes(String(normalizedSystemId));
          const bodyId = escapeQuotes(String(row.body_id));
          parts.push(`
       <button
@@ -2445,6 +2529,20 @@
         onclick="fetchBodyDetails('${sysId}','${bodyId}')"
       >
         ${bodyDetailsIconSvg}
+         </button>
+         `);
+       }
+
+       if ((kind === 'bodies' || kind === 'system-lookup') && hasSystemId) {
+         const sysForRefresh = escapeQuotes(String(normalizedSystemId));
+         parts.push(`
+      <button
+        type="button"
+        title="Refresh system from Spansh"
+        class="opacity-30 hover:opacity-100 group-hover:opacity-100 focus:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+        onclick="refreshSystemFromSpansh('${sysForRefresh}', this)"
+      >
+        ${spanshRefreshIconSvg}
       </button>
          `);
        }
