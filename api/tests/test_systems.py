@@ -239,12 +239,12 @@ def test_format_neutron_result_handles_decimal():
 async def test_fetch_nearest_neutron_star_hits_db(monkeypatch):
     cursor = _patch_db(
         monkeypatch,
-        first=(22712681061, "PSR J1752-2806", Decimal("253.3051924217356")),
+        rows=[(22712681061, "PSR J1752-2806", Decimal("253.3051924217356"))],
     )
 
     result = await systems.fetch_nearest_neutron_star.__wrapped__("HIP 87621")
 
-    assert result["neutron_name"] == "PSR J1752-2806"
+    assert result[0]["neutron_name"] == "PSR J1752-2806"
     assert cursor.executed
     query, params = cursor.executed[0]
     assert "nearest_neutron_star" in query
@@ -255,14 +255,14 @@ async def test_fetch_nearest_neutron_star_hits_db(monkeypatch):
 async def test_fetch_nearest_neutron_star_at_coords_hits_db(monkeypatch):
     cursor = _patch_db(
         monkeypatch,
-        first=(123456, "Test Pulsar", Decimal("10.5")),
+        rows=[(123456, "Test Pulsar", Decimal("10.5"))],
     )
 
     result = await systems.fetch_nearest_neutron_star_at_coords.__wrapped__(
         -10.0, 5.0, 42.0
     )
 
-    assert result["neutron_id64"] == 123456
+    assert result[0]["neutron_id64"] == 123456
     query, params = cursor.executed[0]
     assert "nearest_neutron_star_at_coords" in query
     assert params == (-10.0, 5.0, 42.0)
@@ -325,11 +325,11 @@ def test_load_manual_system_names_uses_cache(monkeypatch):
 def test_nearest_neutron_star_endpoint_success(monkeypatch):
     async def fake_fetch(system_name):
         assert system_name == "HIP 87621"
-        return {
+        return [{
             "neutron_id64": 222,
             "neutron_name": "PSR",
             "distance_ly": 12.3,
-        }
+        }]
 
     monkeypatch.setattr(systems, "fetch_nearest_neutron_star", fake_fetch)
 
@@ -339,7 +339,9 @@ def test_nearest_neutron_star_endpoint_success(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json()["neutron_name"] == "PSR"
+    payload = response.json()
+    assert isinstance(payload, list)
+    assert payload[0]["neutron_name"] == "PSR"
 
 
 def test_nearest_neutron_star_endpoint_not_found(monkeypatch):
@@ -360,11 +362,11 @@ def test_nearest_neutron_star_endpoint_not_found(monkeypatch):
 def test_nearest_neutron_star_coords_endpoint_success(monkeypatch):
     async def fake_fetch(x, y, z):
         assert (x, y, z) == (1.0, 2.0, 3.0)
-        return {
+        return [{
             "neutron_id64": 333,
             "neutron_name": "Coords Pulsar",
             "distance_ly": 88.0,
-        }
+        }]
 
     monkeypatch.setattr(
         systems, "fetch_nearest_neutron_star_at_coords", fake_fetch
@@ -376,7 +378,9 @@ def test_nearest_neutron_star_coords_endpoint_success(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json()["distance_ly"] == 88.0
+    payload = response.json()
+    assert isinstance(payload, list)
+    assert payload[0]["distance_ly"] == 88.0
 
 
 def test_nearest_neutron_star_coords_endpoint_not_found(monkeypatch):
