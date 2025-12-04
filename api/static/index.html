@@ -365,6 +365,7 @@
      const COLUMN_LABELS = {
        mainstar: 'type',
        distance: 'LY',
+       distance_ly: 'LY',
        body_id: 'Body ID',
        body_name: 'Name',
        body_type: 'Type',
@@ -374,6 +375,8 @@
        surface_temperature: 'Temp (K)',
        surface_gravity: 'Gravity (g)',
        tidally_locked: 'Tidally Locked',
+       neutron_name: 'Name',
+       neutron_id64: 'ID64',
      };
 
      const BODY_TABLE_FIELDS = [
@@ -526,7 +529,8 @@
      const STAR_COLOR_FALLBACK = '#a9b4c9';
 
      const COLLAPSIBLE_COLUMNS = {
-       neighbors: new Set(['id64'])
+       neighbors: new Set(['id64']),
+       'nearest-neutron': new Set(['neutron_id64']),
      };
 
      function getColumnLabel(key) {
@@ -745,42 +749,6 @@
        return null;
      }
 
-     async function ensureCoordsIfNeeded(payload, path) {
-       if (!payload || typeof payload !== 'object') {
-         return payload;
-       }
-
-       if (typeof path !== 'string' || !path.startsWith('/nearest-neutron-star')) {
-         return payload;
-       }
-
-       if (payload.coords && typeof payload.coords === 'object') {
-         return payload;
-       }
-
-       const lookupName = payload.neutron_name || payload.name;
-       if (!lookupName) {
-         return payload;
-       }
-
-       try {
-         const base = globalThis.location.origin;
-         const coordsUrl = `${base}/coords?q=${encodeURIComponent(lookupName)}`;
-         const coordsRes = await fetch(coordsUrl);
-         if (!coordsRes.ok) {
-           return payload;
-         }
-         const coordsJson = await coordsRes.json();
-         if (coordsJson?.coords) {
-           payload.coords = coordsJson.coords;
-         }
-       } catch (err) {
-         console.warn('Unable to fetch coords for neutron result', err);
-       }
-
-       return payload;
-     }
-
      let activeApiRequests = 0;
 
      function updateHeroLogoSearchingState() {
@@ -812,8 +780,7 @@
            throw new Error(json.error || ('HTTP ' + res.status));
          }
          const kind = kindHint ?? detectResultKind(path);
-         const enriched = await ensureCoordsIfNeeded(json, path);
-         showResult(url, enriched, kind);
+         showResult(url, json, kind);
          setStatus('OK — response received');
          result.style.display = 'block';
        }catch(err){
@@ -1242,7 +1209,10 @@
         updatePermalinkParams({ [PERMALINK_PARAMS.neutron]: value });
       }
       beginNeutronSearch();
-      const requestPromise = callApi('/nearest-neutron-star?system_name=' + encodeURIComponent(value));
+      const requestPromise = callApi(
+        '/nearest-neutron-star?system_name=' + encodeURIComponent(value),
+        'nearest-neutron'
+      );
       if (requestPromise && typeof requestPromise.finally === 'function') {
         requestPromise.finally(endNeutronSearch);
       } else {
@@ -1618,20 +1588,20 @@
 
      function jsonToTable(data, kind = null) {
        const rows = normalizeTableData(data);
-       if (!rows.length) {
-         return "<p class='text-gray-400 text-sm'>No data available</p>";
-       }
-
-       if (kind === 'body-detail' && rows.length === 1 && typeof rows[0] === 'object') {
-         return renderBodyDetailTable(rows[0]);
-       }
-
-       const keys = pickKeysForTable(rows, kind);
-       const limited = limitRows(rows, 100);
-       const tableHtml = buildTableShell(keys, limited, kind, rows.length);
-       activateTableInteractions(limited, keys, kind);
-       return tableHtml;
+     if (!rows.length) {
+       return "<p class='text-gray-400 text-sm'>No data available</p>";
      }
+
+      if (kind === 'body-detail' && rows.length === 1 && typeof rows[0] === 'object') {
+        return renderBodyDetailTable(rows[0]);
+      }
+
+      const keys = pickKeysForTable(rows, kind);
+      const limited = limitRows(rows, 100);
+      const tableHtml = buildTableShell(keys, limited, kind, rows.length);
+      activateTableInteractions(limited, keys, kind);
+      return tableHtml;
+    }
 
      function normalizeTableData(data) {
        if (!Array.isArray(data)) {
@@ -1641,6 +1611,14 @@
      }
 
      function pickKeysForTable(rows, kind) {
+       if (kind === 'nearest-neutron') {
+         const preferred = ['neutron_name', 'neutron_id64', 'coords', 'distance_ly'];
+         const available = preferred.filter(key => rows.some(row => Object.hasOwn(row ?? {}, key)));
+         if (available.length) {
+           return available;
+         }
+       }
+
        if (kind !== 'bodies') {
          return Object.keys(rows[0] ?? {});
        }
@@ -2169,6 +2147,9 @@
      function formatScalarValue(key, value) {
        let v = value;
        if (key === "distance" && typeof v === "number") {
+         return v.toFixed(1);
+       }
+       if (key === "distance_ly" && typeof v === "number") {
          return v.toFixed(1);
        }
        if (key === "distance_from_arrival_ls" && typeof v === "number") {

@@ -226,12 +226,19 @@ def test_apply_mode_scaling_no_mode():
 
 def test_format_neutron_result_handles_decimal():
     payload = systems._format_neutron_result(
-        (22712681061, "PSR J1752-2806", Decimal("253.3051924217356"))
+        (
+            22712681061,
+            "PSR J1752-2806",
+            "Neutron Star",
+            "POINT Z (1 2 3)",
+            Decimal("253.3051924217356"),
+        )
     )
     assert payload == {
         "neutron_id64": 22712681061,
         "neutron_name": "PSR J1752-2806",
         "distance_ly": pytest.approx(253.3051924217356),
+        "coords": {"x": 1.0, "y": 2.0, "z": 3.0},
     }
 
 
@@ -239,7 +246,15 @@ def test_format_neutron_result_handles_decimal():
 async def test_fetch_nearest_neutron_star_hits_db(monkeypatch):
     cursor = _patch_db(
         monkeypatch,
-        rows=[(22712681061, "PSR J1752-2806", Decimal("253.3051924217356"))],
+        rows=[
+            (
+                22712681061,
+                "PSR J1752-2806",
+                "Neutron Star",
+                "POINT Z (1 2 3)",
+                Decimal("253.3051924217356"),
+            )
+        ],
     )
 
     result = await systems.fetch_nearest_neutron_star.__wrapped__("HIP 87621")
@@ -255,7 +270,15 @@ async def test_fetch_nearest_neutron_star_hits_db(monkeypatch):
 async def test_fetch_nearest_neutron_star_at_coords_hits_db(monkeypatch):
     cursor = _patch_db(
         monkeypatch,
-        rows=[(123456, "Test Pulsar", Decimal("10.5"))],
+        rows=[
+            (
+                123456,
+                "Test Pulsar",
+                "Neutron Star",
+                "POINT Z (10 11 12)",
+                Decimal("10.5"),
+            )
+        ],
     )
 
     result = await systems.fetch_nearest_neutron_star_at_coords.__wrapped__(
@@ -329,6 +352,7 @@ def test_nearest_neutron_star_endpoint_success(monkeypatch):
             "neutron_id64": 222,
             "neutron_name": "PSR",
             "distance_ly": 12.3,
+            "coords": {"x": 1.0, "y": 2.0, "z": 3.0},
         }]
 
     monkeypatch.setattr(systems, "fetch_nearest_neutron_star", fake_fetch)
@@ -342,6 +366,7 @@ def test_nearest_neutron_star_endpoint_success(monkeypatch):
     payload = response.json()
     assert isinstance(payload, list)
     assert payload[0]["neutron_name"] == "PSR"
+    assert payload[0]["coords"] == {"x": 1.0, "y": 2.0, "z": 3.0}
 
 
 def test_nearest_neutron_star_endpoint_not_found(monkeypatch):
@@ -366,6 +391,7 @@ def test_nearest_neutron_star_coords_endpoint_success(monkeypatch):
             "neutron_id64": 333,
             "neutron_name": "Coords Pulsar",
             "distance_ly": 88.0,
+            "coords": {"x": 9.0, "y": 8.0, "z": 7.0},
         }]
 
     monkeypatch.setattr(
@@ -381,6 +407,7 @@ def test_nearest_neutron_star_coords_endpoint_success(monkeypatch):
     payload = response.json()
     assert isinstance(payload, list)
     assert payload[0]["distance_ly"] == 88.0
+    assert payload[0]["coords"] == {"x": 9.0, "y": 8.0, "z": 7.0}
 
 
 def test_nearest_neutron_star_coords_endpoint_not_found(monkeypatch):
