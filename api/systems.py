@@ -558,11 +558,50 @@ async def fetch_system_from_db(name_or_id: str):
     }
 
 
-def _format_neutron_result(row: Optional[tuple[Any, Any, Any]]):
+def _parse_point_wkt(point_wkt: Optional[str]) -> Optional[dict[str, float]]:
+    if not point_wkt or not isinstance(point_wkt, str):
+        return None
+
+    cleaned = point_wkt.strip()
+    if cleaned.upper().startswith("POINT Z"):
+        cleaned = cleaned[7:].strip()
+    elif cleaned.upper().startswith("POINT"):
+        cleaned = cleaned[5:].strip()
+
+    if cleaned.startswith("(") and cleaned.endswith(")"):
+        cleaned = cleaned[1:-1].strip()
+
+    parts = cleaned.split()
+    if len(parts) != 3:
+        return None
+    try:
+        x, y, z = (float(part) for part in parts)
+    except ValueError:
+        return None
+
+    return {"x": x, "y": y, "z": z}
+
+
+def _format_neutron_result(row: Optional[Sequence[Any]]):
     if row is None:
         return None
 
-    neutron_id64, neutron_name, distance_ly = row
+    neutron_id64: Optional[int]
+    neutron_name: Optional[str]
+    coords_wkt: Optional[str] = None
+
+    if len(row) >= 5:
+        neutron_id64 = row[0]
+        neutron_name = row[1]
+        coords_wkt = row[3]
+        distance_ly = row[4]
+    elif len(row) >= 3:
+        neutron_id64 = row[0]
+        neutron_name = row[1]
+        distance_ly = row[2]
+    else:
+        return None
+
     if distance_ly is None:
         formatted_distance: Optional[float] = None
     elif isinstance(distance_ly, (int, float, Decimal)):
@@ -570,16 +609,20 @@ def _format_neutron_result(row: Optional[tuple[Any, Any, Any]]):
     else:
         formatted_distance = None
 
-    return {
+    coords = _parse_point_wkt(coords_wkt)
+
+    payload: dict[str, Any] = {
         "neutron_id64": int(neutron_id64) if neutron_id64 is not None else None,
         "neutron_name": neutron_name,
         "distance_ly": formatted_distance,
     }
+    if coords is not None:
+        payload["coords"] = coords
+
+    return payload
 
 
-def _format_neutron_results(
-    rows: Optional[Sequence[tuple[Any, Any, Any]]]
-):
+def _format_neutron_results(rows: Optional[Sequence[Sequence[Any]]]):
     if not rows:
         return None
 
@@ -613,7 +656,16 @@ def _fetch_nearest_neutron_star_sync(system_name: str):
     )
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT * FROM nearest_neutron_star_ten_results(%s);", (system_name,)
+        """
+        SELECT
+            neutron_id64,
+            neutron_name,
+            type,
+            ST_AsText(coordinates) AS coordinates_wkt,
+            distance_ly
+        FROM nearest_neutron_star_ten_results(%s);
+        """,
+        (system_name,),
     )
     rows = cursor.fetchall()
     cursor.close()
@@ -642,7 +694,15 @@ def _fetch_nearest_neutron_star_at_coords_sync(x: float, y: float, z: float):
     )
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT * FROM nearest_neutron_star_at_coords_ten_results(%s, %s, %s);",
+        """
+        SELECT
+            neutron_id64,
+            neutron_name,
+            type,
+            ST_AsText(coordinatess) AS coordinates_wkt,
+            distance_ly
+        FROM nearest_neutron_star_at_coords_ten_results(%s, %s, %s);
+        """,
         (x, y, z),
     )
     rows = cursor.fetchall()
@@ -959,6 +1019,7 @@ class NeutronStarResponse(BaseModel):
     neutron_id64: Optional[int]
     neutron_name: Optional[str]
     distance_ly: Optional[float]
+    coords: Optional[Coords] = None
 
 
 @app.get("/coords/predict", response_model=SystemResponse)
