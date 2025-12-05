@@ -736,7 +736,7 @@ def _fetch_nearest_neutron_star_at_coords_sync(x: float, y: float, z: float):
             neutron_id64,
             neutron_name,
             type,
-            ST_AsText(coordinatess) AS coordinates_wkt,
+            ST_AsText(coordinates) AS coordinates_wkt,
             distance_ly
         FROM nearest_neutron_star_at_coords_ten_results(%s, %s, %s);
         """,
