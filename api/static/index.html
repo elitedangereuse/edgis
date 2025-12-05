@@ -1592,10 +1592,11 @@
     }
 
 
-     function openSystemMap(text, btnElement){
-       const url = `https://elitedangereuse.fr/outils/sysmap.php?system=${text}`;
-       window.open(url, "_blank");
-     }
+    function openSystemMap(text, btnElement){
+      const encoded = encodeURIComponent(String(text ?? ''));
+      const url = `https://elitedangereuse.fr/outils/sysmap.php?system=${encoded}`;
+      window.open(url, "_blank");
+    }
      globalThis.openSystemMap = openSystemMap;
 
      function openCoordsMap(x, y, z){
