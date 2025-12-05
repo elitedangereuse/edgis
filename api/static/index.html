@@ -776,9 +776,10 @@
          const url = base + path;
          const res = await fetch(url);
          const json = await res.json();
-         if(!res.ok){
-           throw new Error(json.error || ('HTTP ' + res.status));
-         }
+        if(!res.ok){
+          const detail = json && (json.error || json.detail);
+          throw new Error(detail || ('HTTP ' + res.status));
+        }
          const kind = kindHint ?? detectResultKind(path);
          showResult(url, json, kind);
          setStatus('OK — response received');
