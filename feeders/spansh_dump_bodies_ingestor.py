@@ -5,6 +5,7 @@ import psycopg
 from psycopg import Connection as PGConnection
 from psycopg import Cursor as PGCursor
 from typing import Sequence
+from collections.abc import Callable
 from datetime import datetime
 import os
 import re
@@ -441,51 +442,346 @@ def convert_atmosphere_type(
     return component_camel or None
 
 
-def ingest_streaming(path):
-    total_bytes = os.path.getsize(path)
-    count = 0
+class SpanshBodyIngestSession:
+    """Shared ingestion helpers for Spansh body data."""
 
-    body_cursor = conn.cursor()
-    material_cursor = conn.cursor()
-    gas_cursor = conn.cursor()
-    material_batch: list[tuple[int, int, int, float]] = []
-    gas_batch: list[tuple[int, int, int, float]] = []
+    def __init__(
+        self,
+        connection: PGConnection | None = None,
+        log_func: Callable[[str], None] | None = None,
+        verbose: bool = False,
+    ) -> None:
+        self.conn = connection or conn
+        self.log = log_func or print
+        self.verbose = verbose
+        self.body_cursor = self.conn.cursor()
+        self.material_cursor = self.conn.cursor()
+        self.gas_cursor = self.conn.cursor()
+        self.material_batch: list[tuple[int, int, int, float]] = []
+        self.gas_batch: list[tuple[int, int, int, float]] = []
 
-    def flush_batches() -> None:
-        if material_batch:
+    def flush_batches(self) -> None:
+        if self.material_batch:
             execute_batch(
-                material_cursor,
+                self.material_cursor,
                 UPSERT_MATERIAL,
-                material_batch,
-                page_size=min(len(material_batch), MATERIAL_BATCH_SIZE),
+                self.material_batch,
+                page_size=min(len(self.material_batch), MATERIAL_BATCH_SIZE),
             )
-            material_batch.clear()
-        if gas_batch:
+            self.material_batch.clear()
+        if self.gas_batch:
             execute_batch(
-                gas_cursor,
+                self.gas_cursor,
                 UPSERT_ATMOSPHERE_GAS,
-                gas_batch,
-                page_size=min(len(gas_batch), GAS_BATCH_SIZE),
+                self.gas_batch,
+                page_size=min(len(self.gas_batch), GAS_BATCH_SIZE),
             )
-            gas_batch.clear()
+            self.gas_batch.clear()
 
-    def reset_cursors() -> None:
-        nonlocal body_cursor, material_cursor, gas_cursor
-        body_cursor.close()
-        material_cursor.close()
-        gas_cursor.close()
+    def reset_cursors(self) -> None:
+        self.body_cursor.close()
+        self.material_cursor.close()
+        self.gas_cursor.close()
         for cursor in lookup_cursors.values():
             if cursor and not cursor.closed:
                 cursor.close()
         lookup_cursors.clear()
-        material_batch.clear()
-        gas_batch.clear()
+        self.material_batch.clear()
+        self.gas_batch.clear()
         for cache in lookup_cache.values():
             cache.clear()
-        initialize_lookup_cache(conn)
-        body_cursor = conn.cursor()
-        material_cursor = conn.cursor()
-        gas_cursor = conn.cursor()
+        initialize_lookup_cache(self.conn)
+        self.body_cursor = self.conn.cursor()
+        self.material_cursor = self.conn.cursor()
+        self.gas_cursor = self.conn.cursor()
+
+    def close(self) -> None:
+        self.body_cursor.close()
+        self.material_cursor.close()
+        self.gas_cursor.close()
+        for cursor in lookup_cursors.values():
+            if cursor and not cursor.closed:
+                cursor.close()
+        lookup_cursors.clear()
+
+    def _log(self, message: str) -> None:
+        if self.log:
+            self.log(message)
+        else:
+            print(message)
+
+    def process_body(
+        self,
+        body: dict,
+        sys_id: int,
+        updatetime: datetime | None,
+    ) -> None:
+        star_type_name = (
+            resolve_star_type(body) if body.get("type") == "Star" else None
+        )
+        if body.get("type") == "Planet":
+            r = body.get("radius")
+            radius = r * 1000 if r is not None else None
+        elif body.get("type") == "Star":
+            sr = body.get("solarRadius")
+            radius = round(sr * 695500000) if sr is not None else None
+        else:
+            radius = None
+        sg = body.get("gravity")
+        gravity = round(float(sg) * 9.807, 6) if sg is not None else None
+        sma = body.get("semiMajorAxis")
+        semi_major_axis = (
+            round(sma * 149597870700, 6) if sma is not None else None
+        )
+        sp = body.get("surfacePressure")
+        pressure = round(sp * 101325, 6) if sp is not None else None
+        composition_ice = body.get("solidComposition", {}).get("Ice")
+        composition_metal = body.get("solidComposition", {}).get("Metal")
+        composition_rock = body.get("solidComposition", {}).get("Rock")
+
+        def _normalize_fraction(value):
+            if value is None:
+                return None
+            try:
+                return round(float(value) / 100.0, 6)
+            except (TypeError, ValueError):
+                return None
+
+        row = {
+            "system_id64": sys_id,
+            "body_id": body.get("bodyId"),
+            "body_name": (
+                f"Barycenter{body.get('bodyId')}"
+                if body.get("type") == "Barycentre"
+                else body.get("name")
+            ),
+            "body_type_id": get_lookup_id(
+                "body_types", "Barycenter", self.conn
+            )
+            if body.get("type") == "Barycentre"
+            else get_lookup_id("body_types", body.get("type"), self.conn),
+            "planet_class_id": (
+                get_lookup_id("planet_classes", "Earthlike body", self.conn)
+                if body.get("type") == "Planet"
+                and body.get("subType") == "Earth-like world"
+                else (
+                    get_lookup_id(
+                        "planet_classes",
+                        body.get("subType").replace(
+                            "ammonia-based", "ammonia based"
+                        )
+                        if body.get("subType")
+                        else None,
+                        self.conn,
+                    )
+                    if body.get("type") == "Planet"
+                    else None
+                )
+            ),
+            "terraform_state_id": get_lookup_id(
+                "terraform_states", body.get("terraformingState"), self.conn
+            ),
+            "atmosphere_type_id": get_lookup_id(
+                "atmosphere_types",
+                convert_atmosphere_type(
+                    body.get("atmosphereType"),
+                    body.get("subType"),
+                    body.get("name"),
+                ),
+                self.conn,
+            )
+            if body.get("type") == "Planet"
+            else None,
+            "atmosphere_id": get_lookup_id(
+                "atmospheres",
+                body.get("atmosphereType")
+                .lower()
+                .replace("sulphur", "sulfur")
+                .replace("-rich", " rich")
+                .replace("no atmosphere", "no")
+                + " atmosphere",
+                self.conn,
+            )
+            if body.get("atmosphereType")
+            else None,
+            "volcanism_id": (
+                get_lookup_id(
+                    "volcanisms",
+                    (body.get("volcanismType")).lower() + " volcanism",
+                    self.conn,
+                )
+                if body.get("volcanismType")
+                else None
+            ),
+            "radius": radius,
+            "mass_em": body.get("earthMasses"),
+            "surface_gravity": gravity,
+            "surface_temperature": body.get("surfaceTemperature"),
+            "surface_pressure": pressure,
+            "axial_tilt": body.get("axialTilt"),
+            "semi_major_axis": semi_major_axis,
+            "eccentricity": body.get("orbitalEccentricity"),
+            "orbital_inclination": body.get("orbitalInclination"),
+            "periapsis": body.get("argOfPeriapsis"),
+            "mean_anomaly": body.get("meanAnomaly"),
+            "orbital_period": to_seconds(body.get("orbitalPeriod")),
+            "rotation_period": to_seconds(body.get("rotationalPeriod")),
+            "ascending_node": body.get("ascendingNode"),
+            "distance_from_arrival_ls": body.get("distanceToArrival"),
+            "age_my": body.get("age"),
+            "absolute_magnitude": body.get("absoluteMagnitude"),
+            "luminosity_id": get_lookup_id(
+                "luminosities", body.get("luminosity"), self.conn
+            ),
+            "star_type_id": get_lookup_id(
+                "star_types", star_type_name, self.conn
+            )
+            if star_type_name
+            else None,
+            "subclass": parse_subclass(body.get("spectralClass"))
+            if body.get("type") == "Star"
+            else None,
+            "stellar_mass": body.get("solarMasses"),
+            "composition_ice": _normalize_fraction(composition_ice),
+            "composition_metal": _normalize_fraction(composition_metal),
+            "composition_rock": _normalize_fraction(composition_rock),
+            "parents": json.dumps(body.get("parents"))
+            if body.get("parents")
+            else None,
+            "tidally_locked": body.get("rotationalPeriodTidallyLocked"),
+            "landable": body.get("isLandable"),
+            "updatetime": parse_timestamp(body.get("updateTime")) or updatetime,
+            "ring_class_id": None,
+            "ring_inner_rad": None,
+            "ring_outer_rad": None,
+            "ring_mass_mt": None,
+        }
+
+        try:
+            self.body_cursor.execute(UPSERT_BODY, list(row.values()))
+        except Exception as exc:
+            bodyname = body.get("name")
+            self._log(f"Error processing body {bodyname}: {exc}")
+            self.conn.rollback()
+            self.reset_cursors()
+            return
+        if self.verbose:
+            self._log(f"UPSERT_BODY payload for {body.get('name')} -> {row}")
+
+        materials = body.get("materials", {})
+        if materials:
+            for name, percent in materials.items():
+                try:
+                    mat_id = get_lookup_id(
+                        "material_names", name.lower(), self.conn
+                    )
+                except Exception as exc:
+                    self._log(
+                        f"Error inserting material {name.lower()} for body {body.get('name')}: {exc}"
+                    )
+                    self.conn.rollback()
+                    self.reset_cursors()
+                    continue
+
+                self.material_batch.append(
+                    (sys_id, body.get("bodyId"), mat_id, float(percent))
+                )
+                if len(self.material_batch) >= MATERIAL_BATCH_SIZE:
+                    self.flush_batches()
+
+        atmosphere_composition = body.get("atmosphereComposition", {})
+        if atmosphere_composition:
+            for raw_name, percent in sorted(
+                atmosphere_composition.items(), key=lambda kv: kv[1], reverse=True
+            ):
+                try:
+                    formatted_name = "".join(
+                        word.capitalize() for word in raw_name.split()
+                    )
+                    gas_id = get_lookup_id(
+                        "atmosphere_gases", formatted_name, self.conn
+                    )
+                except Exception as exc:
+                    self._log(
+                        f"Error inserting gas {raw_name} for body {body.get('name')}: {exc}"
+                    )
+                    self.conn.rollback()
+                    self.reset_cursors()
+                    continue
+
+                self.gas_batch.append(
+                    (sys_id, body.get("bodyId"), gas_id, float(percent))
+                )
+                if len(self.gas_batch) >= GAS_BATCH_SIZE:
+                    self.flush_batches()
+
+        for i, ring in enumerate(body.get("rings", []), start=1):
+            ring_row = {
+                "system_id64": sys_id,
+                "body_id": body.get("bodyId") + i,
+                "body_name": ring.get("name"),
+                "body_type_id": get_lookup_id(
+                    "body_types", "PlanetaryRing", self.conn
+                ),
+                "planet_class_id": None,
+                "terraform_state_id": None,
+                "atmosphere_type_id": None,
+                "atmosphere_id": None,
+                "volcanism_id": None,
+                "radius": None,
+                "mass_em": None,
+                "surface_gravity": None,
+                "surface_temperature": None,
+                "surface_pressure": None,
+                "axial_tilt": None,
+                "semi_major_axis": None,
+                "eccentricity": None,
+                "orbital_inclination": None,
+                "periapsis": None,
+                "mean_anomaly": None,
+                "orbital_period": None,
+                "rotation_period": None,
+                "ascending_node": None,
+                "distance_from_arrival_ls": body.get("distanceToArrival"),
+                "age_my": body.get("age"),
+                "absolute_magnitude": None,
+                "luminosity_id": None,
+                "star_type_id": None,
+                "subclass": None,
+                "stellar_mass": None,
+                "composition_ice": None,
+                "composition_metal": None,
+                "composition_rock": None,
+                "parents": json.dumps([{"parent_id": body.get("bodyId")}]),
+                "tidally_locked": None,
+                "landable": None,
+                "updatetime": parse_timestamp(ring.get("updateTime"))
+                or updatetime,
+                "ring_class_id": get_lookup_id(
+                    "ring_classes",
+                    "eRingClass_" + ring.get("type", "").replace(" ", ""),
+                    self.conn,
+                )
+                if ring.get("type")
+                else None,
+                "ring_inner_rad": ring.get("innerRadius"),
+                "ring_outer_rad": ring.get("outerRadius"),
+                "ring_mass_mt": ring.get("mass"),
+            }
+            try:
+                self.body_cursor.execute(UPSERT_BODY, list(ring_row.values()))
+            except Exception as exc:
+                self._log(
+                    f"Error processing ring {ring.get('name')}: {exc}"
+                )
+                self.conn.rollback()
+                self.reset_cursors()
+
+def ingest_streaming(path):
+    total_bytes = os.path.getsize(path)
+    count = 0
+
+    session = SpanshBodyIngestSession(conn, log_func=tqdm.write)
 
     with gzip.open(path, "rb") as f:
         with tqdm(
@@ -496,342 +792,18 @@ def ingest_streaming(path):
                 updatetime = parse_timestamp(system.get("date"))
 
                 for body in system.get("bodies", []):
-                    star_type_name = (
-                        resolve_star_type(body)
-                        if body.get("type") == "Star"
-                        else None
-                    )
-                    if body.get("type") == "Planet":
-                        r = body.get("radius")
-                        radius = r * 1000 if r is not None else None
-                    elif body.get("type") == "Star":
-                        sr = body.get("solarRadius")
-                        radius = (
-                            round(sr * 695500000) if sr is not None else None
-                        )
-                    else:
-                        radius = None
-                    sg = body.get("gravity")
-                    gravity = (
-                        round(float(sg) * 9.807, 6) if sg is not None else None
-                    )
-                    sma = body.get("semiMajorAxis")
-                    semi_major_axis = (
-                        round(sma * 149597870700, 6)
-                        if sma is not None
-                        else None
-                    )
-                    sp = body.get("surfacePressure")
-                    pressure = (
-                        round(sp * 101325, 6) if sp is not None else None
-                    )
-                    composition_ice = body.get("solidComposition", {}).get(
-                        "Ice"
-                    )
-                    composition_metal = body.get("solidComposition", {}).get(
-                        "Metal"
-                    )
-                    composition_rock = body.get("solidComposition", {}).get(
-                        "Rock"
-                    )
-
-                    row = {
-                        "system_id64": sys_id,
-                        "body_id": body.get("bodyId"),
-                        "body_name": (
-                            f"Barycenter{body.get('bodyId')}"
-                            if body.get("type") == "Barycentre"
-                            else body.get("name")
-                        ),
-                        "body_type_id": get_lookup_id(
-                            "body_types", "Barycenter", conn
-                        )
-                        if body.get("type") == "Barycentre"
-                        else get_lookup_id(
-                            "body_types", body.get("type"), conn
-                        ),
-                        "planet_class_id": (
-                            get_lookup_id(
-                                "planet_classes", "Earthlike body", conn
-                            )
-                            if body.get("type") == "Planet"
-                            and body.get("subType") == "Earth-like world"
-                            else (
-                                get_lookup_id(
-                                    "planet_classes",
-                                    body.get("subType").replace(
-                                        "ammonia-based", "ammonia based"
-                                    )
-                                    if body.get("subType")
-                                    else None,
-                                    conn,
-                                )
-                                if body.get("type") == "Planet"
-                                else None
-                            )
-                        ),
-                        "terraform_state_id": get_lookup_id(
-                            "terraform_states",
-                            body.get("terraformingState"),
-                            conn,
-                        ),
-                        "atmosphere_type_id": get_lookup_id(
-                            "atmosphere_types",
-                            convert_atmosphere_type(
-                                body.get("atmosphereType"),
-                                body.get("subType"),
-                                body.get("name"),
-                            ),
-                            conn,
-                        )
-                        if body.get("type") == "Planet"
-                        else None,
-                        "atmosphere_id": get_lookup_id(
-                            "atmospheres",
-                            body.get("atmosphereType")
-                            .lower()
-                            .replace("sulphur", "sulfur")
-                            .replace("-rich", " rich")
-                            .replace("no atmosphere", "no")
-                            + " atmosphere",
-                            conn,
-                        )
-                        if body.get("atmosphereType")
-                        else None,
-                        "volcanism_id": (
-                            get_lookup_id(
-                                "volcanisms",
-                                (body.get("volcanismType")).lower()
-                                + " volcanism",
-                                conn,
-                            )
-                            if body.get("volcanismType")
-                            else None
-                        ),
-                        "radius": radius,
-                        "mass_em": body.get("earthMasses"),
-                        "surface_gravity": gravity,
-                        "surface_temperature": body.get("surfaceTemperature"),
-                        "surface_pressure": pressure,
-                        "axial_tilt": body.get("axialTilt"),
-                        "semi_major_axis": semi_major_axis,
-                        "eccentricity": body.get("orbitalEccentricity"),
-                        "orbital_inclination": body.get("orbitalInclination"),
-                        "periapsis": body.get("argOfPeriapsis"),
-                        "mean_anomaly": body.get("meanAnomaly"),
-                        "orbital_period": to_seconds(
-                            body.get("orbitalPeriod")
-                        ),
-                        "rotation_period": to_seconds(
-                            body.get("rotationalPeriod")
-                        ),
-                        "ascending_node": body.get("ascendingNode"),
-                        "distance_from_arrival_ls": body.get(
-                            "distanceToArrival"
-                        ),
-                        "age_my": body.get("age"),
-                        "absolute_magnitude": body.get("absoluteMagnitude"),
-                        "luminosity_id": get_lookup_id(
-                            "luminosities", body.get("luminosity"), conn
-                        ),
-                        "star_type_id": get_lookup_id(
-                            "star_types", star_type_name, conn
-                        )
-                        if star_type_name
-                        else None,
-                        "subclass": parse_subclass(body.get("spectralClass"))
-                        if body.get("type") == "Star"
-                        else None,
-                        "stellar_mass": body.get("solarMasses"),
-                        "composition_ice": composition_ice / 100
-                        if composition_ice is not None
-                        else None,
-                        "composition_metal": composition_metal / 100
-                        if composition_metal is not None
-                        else None,
-                        "composition_rock": composition_rock / 100
-                        if composition_rock is not None
-                        else None,
-                        "parents": json.dumps(body.get("parents"))
-                        if body.get("parents")
-                        else None,
-                        "tidally_locked": body.get(
-                            "rotationalPeriodTidallyLocked"
-                        ),
-                        "landable": body.get("isLandable"),
-                        "updatetime": parse_timestamp(body.get("updateTime"))
-                        or updatetime,
-                        "ring_class_id": None,
-                        "ring_inner_rad": None,
-                        "ring_outer_rad": None,
-                        "ring_mass_mt": None,
-                    }
-                    try:
-                        body_cursor.execute(UPSERT_BODY, list(row.values()))
-                    except Exception as e:
-                        bodyname = body.get("name")
-                        tqdm.write(f"Error processing body {bodyname}: {e}")
-                        conn.rollback()  # Reset transaction on error
-                        reset_cursors()
-                        continue
-
-                    # Process materials
-                    materials = body.get("materials", {})
-                    if materials:
-                        for name, percent in materials.items():
-                            try:
-                                mat_id = get_lookup_id(
-                                    "material_names", name.lower(), conn
-                                )
-                            except Exception as e:
-                                tqdm.write(
-                                    f"Error inserting material {name.lower()} for body {body.get('name')}: {e}"
-                                )
-                                conn.rollback()
-                                reset_cursors()
-                                continue
-
-                            material_batch.append(
-                                (
-                                    sys_id,
-                                    body.get("bodyId"),
-                                    mat_id,
-                                    float(percent),
-                                )
-                            )
-                            if len(material_batch) >= MATERIAL_BATCH_SIZE:
-                                flush_batches()
-
-                    # Process atmosphere compositions
-                    atmosphere_composition = body.get(
-                        "atmosphereComposition", {}
-                    )
-                    if atmosphere_composition:
-                        for raw_name, percent in sorted(
-                            atmosphere_composition.items(),
-                            key=lambda kv: kv[1],
-                            reverse=True,
-                        ):
-                            try:
-                                # Match the capitalization style used before
-                                formatted_name = "".join(
-                                    word.capitalize()
-                                    for word in raw_name.split()
-                                )
-
-                                # Lookup or insert gas_id
-                                gas_id = get_lookup_id(
-                                    "atmosphere_gases", formatted_name, conn
-                                )
-
-                            except Exception as e:
-                                tqdm.write(
-                                    f"Error inserting gas {raw_name} for body {body.get('name')}: {e}"
-                                )
-                                conn.rollback()
-                                reset_cursors()
-                                continue
-
-                            gas_batch.append(
-                                (
-                                    sys_id,
-                                    body.get("bodyId"),
-                                    gas_id,
-                                    float(percent),
-                                )
-                            )
-                            if len(gas_batch) >= GAS_BATCH_SIZE:
-                                flush_batches()
-
-                    # Process rings as separate bodies
-                    for i, ring in enumerate(body.get("rings", []), start=1):
-                        ring_row = {
-                            "system_id64": sys_id,
-                            "body_id": body.get("bodyId")
-                            + i,  # increment bodyId
-                            "body_name": ring.get("name"),
-                            "body_type_id": get_lookup_id(
-                                "body_types", "PlanetaryRing", conn
-                            ),
-                            "planet_class_id": None,
-                            "terraform_state_id": None,
-                            "atmosphere_type_id": None,
-                            "atmosphere_id": None,
-                            "volcanism_id": None,
-                            "radius": None,
-                            "mass_em": None,
-                            "surface_gravity": None,
-                            "surface_temperature": None,
-                            "surface_pressure": None,
-                            "axial_tilt": None,
-                            "semi_major_axis": None,
-                            "eccentricity": None,
-                            "orbital_inclination": None,
-                            "periapsis": None,
-                            "mean_anomaly": None,
-                            "orbital_period": None,
-                            "rotation_period": None,
-                            "ascending_node": None,
-                            "distance_from_arrival_ls": body.get(
-                                "distanceToArrival"
-                            ),
-                            "age_my": body.get("age"),
-                            "absolute_magnitude": None,
-                            "luminosity_id": None,
-                            "star_type_id": None,
-                            "subclass": None,
-                            "stellar_mass": None,
-                            "composition_ice": None,
-                            "composition_metal": None,
-                            "composition_rock": None,
-                            "parents": json.dumps(
-                                [{"parent_id": body.get("bodyId")}]
-                            ),
-                            "tidally_locked": None,
-                            "landable": None,
-                            "updatetime": parse_timestamp(
-                                ring.get("updateTime")
-                            )
-                            or updatetime,
-                            "ring_class_id": get_lookup_id(
-                                "ring_classes",
-                                "eRingClass_"
-                                + ring.get("type", "").replace(" ", ""),
-                                conn,
-                            )
-                            if ring.get("type")
-                            else None,
-                            "ring_inner_rad": ring.get("innerRadius"),
-                            "ring_outer_rad": ring.get("outerRadius"),
-                            "ring_mass_mt": ring.get("mass"),
-                        }
-                        try:
-                            body_cursor.execute(
-                                UPSERT_BODY, list(ring_row.values())
-                            )
-                        except Exception as e:
-                            tqdm.write(
-                                f"Error processing ring {ring.get('name')}: {e}"
-                            )
-                            conn.rollback()
-                            reset_cursors()
-
+                    session.process_body(body, sys_id, updatetime)
                     count += 1
                     if count % 10000 == 0:
-                        flush_batches()
+                        session.flush_batches()
                         conn.commit()
 
                 # update progress bar based on file position
                 pbar.update(f.tell() - pbar.n)
 
-    flush_batches()
+    session.flush_batches()
     conn.commit()
-    body_cursor.close()
-    material_cursor.close()
-    gas_cursor.close()
-    for cursor in lookup_cursors.values():
-        if cursor and not cursor.closed:
-            cursor.close()
+    session.close()
     print(f"Done. Inserted/updated {count} bodies.")
 
 

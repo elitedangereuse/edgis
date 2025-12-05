@@ -1305,6 +1305,55 @@ async def test_proxy_spansh_autocomplete_controlling_minor_faction_empty_query()
     assert excinfo.value.status_code == 400
 
 
+def test_spansh_refresh_success(monkeypatch):
+    called: dict[str, object] = {}
+
+    class DummyConn:
+        def __enter__(self):
+            called["entered"] = True
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            called["exited"] = True
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    def fake_connect(**kwargs):
+        called["connect_kwargs"] = kwargs
+        return DummyConn()
+
+    def fake_ingest(system_id64, *, connection):
+        called["system_id64"] = system_id64
+        called["connection"] = connection
+
+    monkeypatch.setattr(systems.psycopg, "connect", fake_connect)
+    monkeypatch.setattr(systems.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(systems, "spansh_ingest_system", fake_ingest)
+    monkeypatch.setattr(systems, "_SPANSH_IMPORT_ERROR", None)
+
+    response = client.post("/bodies/42/spansh-refresh")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "system_id64": 42}
+    assert called["system_id64"] == 42
+    assert isinstance(called["connection"], DummyConn)
+    assert called.get("entered") and called.get("exited")
+
+
+def test_spansh_refresh_unavailable(monkeypatch):
+    monkeypatch.setattr(systems, "spansh_ingest_system", None)
+    monkeypatch.setattr(systems, "_SPANSH_IMPORT_ERROR", "missing module")
+
+    response = client.post("/bodies/99/spansh-refresh")
+    assert response.status_code == 501
+    assert "missing module" in response.json()["detail"]
+
+
+def test_spansh_refresh_invalid_id():
+    response = client.post("/bodies/0/spansh-refresh")
+    assert response.status_code == 400
+
+
 def test_favicon_and_index_routes(tmp_path, monkeypatch):
     # ensure static dir accessible
     static_dir = tmp_path / "static"

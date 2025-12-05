@@ -113,3 +113,30 @@ def test_resolve_star_type_prefers_secondary_fields(spansh_module):
 
 def test_resolve_star_type_handles_missing_data(spansh_module):
     assert spansh_module.resolve_star_type({}) is None
+
+
+@pytest.mark.parametrize(
+    "description,subtype,expected",
+    [
+        ("Hot thick methane atmosphere", "Earth-like world", "EarthLike"),
+        ("Sulfur-dioxide-rich atmosphere", "Gas Giant", "Sulphur-dioxideRich"),
+        ("Thin carbon dioxide atmosphere", None, "CarbonDioxide"),
+    ],
+)
+def test_convert_atmosphere_type_variants(spansh_module, description, subtype, expected):
+    assert (
+        spansh_module.convert_atmosphere_type(description, subtype, "Demo") == expected
+    )
+
+
+@pytest.mark.parametrize(
+    "value,multiplier,expected",
+    [
+        (2, 86400, 172800),
+        (1.5, 1, 1.5),
+        (None, 1, None),
+        ("bad", 60, None),
+    ],
+)
+def test_to_seconds(spansh_module, value, multiplier, expected):
+    assert spansh_module.to_seconds(value, multiplier=multiplier) == expected
