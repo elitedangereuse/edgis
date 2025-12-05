@@ -28,7 +28,9 @@ from dotenv import load_dotenv
 
 _SPANSH_IMPORT_ERROR: str | None = None
 try:
-    from feeders.spansh_system_ingestor import ingest_system as spansh_ingest_system
+    from feeders.spansh_system_ingestor import (
+        ingest_system as spansh_ingest_system,
+    )
 except ModuleNotFoundError:
     import sys
     from pathlib import Path
@@ -37,7 +39,9 @@ except ModuleNotFoundError:
     if str(_repo_root) not in sys.path:
         sys.path.append(str(_repo_root))
     try:
-        from feeders.spansh_system_ingestor import ingest_system as spansh_ingest_system
+        from feeders.spansh_system_ingestor import (
+            ingest_system as spansh_ingest_system,
+        )
     except ModuleNotFoundError as exc:
         spansh_ingest_system = None
         _SPANSH_IMPORT_ERROR = str(exc)
@@ -50,10 +54,14 @@ load_dotenv()
 EXTERNAL_USER_AGENT = os.getenv("EDGIS_USER_AGENT", "EDGIS")
 NEIGHBORS_CONCURRENCY_LIMIT = 2
 neighbors_semaphore = asyncio.Semaphore(NEIGHBORS_CONCURRENCY_LIMIT)
-NEIGHBORS_MAX_RADIUS = max(0.0, float(os.getenv("NEIGHBORS_MAX_RADIUS") or "3000"))
-NEIGHBORS_RESULT_LIMIT = max(1, int(os.getenv("NEIGHBORS_RESULT_LIMIT") or "100000"))
+NEIGHBORS_MAX_RADIUS = max(
+    0.0, float(os.getenv("NEIGHBORS_MAX_RADIUS") or "3000")
+)
+NEIGHBORS_RESULT_LIMIT = max(
+    1, int(os.getenv("NEIGHBORS_RESULT_LIMIT") or "100000")
+)
 NEIGHBORS_STATEMENT_TIMEOUT_MS = max(
-    0, int(os.getenv("NEIGHBORS_STATEMENT_TIMEOUT_MS") or "15000")
+    0, int(os.getenv("NEIGHBORS_STATEMENT_TIMEOUT_MS") or "30000")
 )
 app = FastAPI()
 SYSTEM_NOT_FOUND = "System not found"
@@ -66,7 +74,9 @@ def _load_cors_origins() -> list[str]:
     configured = os.getenv("CORS_ORIGINS", "")
     if not configured:
         return []
-    return [origin.strip() for origin in configured.split(",") if origin.strip()]
+    return [
+        origin.strip() for origin in configured.split(",") if origin.strip()
+    ]
 
 
 origins = _load_cors_origins()
@@ -226,7 +236,9 @@ def _fetch_system_names_from_db(term: str, limit: int) -> list[str]:
                 timeouts.append(retry_timeout)
 
             for attempt, timeout_ms in enumerate(timeouts, start=1):
-                timeout_statement = f"SET LOCAL statement_timeout = {timeout_ms}"
+                timeout_statement = (
+                    f"SET LOCAL statement_timeout = {timeout_ms}"
+                )
                 logger.debug(
                     "autocomplete DB lookup",
                     extra={
@@ -349,7 +361,9 @@ async def _fetch_edsm_autocomplete(term: str) -> list[str]:
             if isinstance(item, str):
                 names.append(item)
             elif isinstance(item, dict):
-                candidate = item.get("value") or item.get("name") or item.get("label")
+                candidate = (
+                    item.get("value") or item.get("name") or item.get("label")
+                )
                 if candidate:
                     names.append(candidate)
 
@@ -564,7 +578,9 @@ async def fetch_system_from_db(name_or_id: str):
         return None
 
     point_coordinates = row[3]
-    coords = point_coordinates.replace("POINT Z (", "").replace(")", "").split()
+    coords = (
+        point_coordinates.replace("POINT Z (", "").replace(")", "").split()
+    )
     x_coord = float(coords[0])
     y_coord = float(coords[1])
     z_coord = float(coords[2])
@@ -631,7 +647,9 @@ def _format_neutron_result(row: Optional[Sequence[Any]]):
     coords = _parse_point_wkt(coords_wkt)
 
     payload: dict[str, Any] = {
-        "neutron_id64": int(neutron_id64) if neutron_id64 is not None else None,
+        "neutron_id64": int(neutron_id64)
+        if neutron_id64 is not None
+        else None,
         "neutron_name": neutron_name,
         "distance_ly": formatted_distance,
     }
@@ -767,7 +785,9 @@ def _build_conversion_map() -> dict[str, float]:
     }
 
 
-def _scale_radius(record: dict[str, Any], numeric_types: tuple[type, ...]) -> None:
+def _scale_radius(
+    record: dict[str, Any], numeric_types: tuple[type, ...]
+) -> None:
     radius = record.get("radius")
     if not isinstance(radius, numeric_types):
         return
@@ -957,21 +977,27 @@ def bodies(
     body_id: Optional[int] = Query(
         None, description="Optional body_id to narrow to a single body"
     ),
-    mode: Optional[str] = Query(None, description="Optional response mode adjustments"),
+    mode: Optional[str] = Query(
+        None, description="Optional response mode adjustments"
+    ),
 ):
     if body_id is None:
         result = fetch_bodies_from_db(name_or_id, mode=mode)
     else:
         result = fetch_bodies_from_db(name_or_id, mode=mode, body_id=body_id)
     if result is None:
-        return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
+        return JSONResponse(
+            content={"error": SYSTEM_NOT_FOUND}, status_code=404
+        )
     return result
 
 
 @app.post("/bodies/{system_id64}/spansh-refresh", include_in_schema=False)
 async def refresh_bodies_from_spansh(system_id64: int):
     if system_id64 <= 0:
-        raise HTTPException(status_code=400, detail="system_id64 must be positive")
+        raise HTTPException(
+            status_code=400, detail="system_id64 must be positive"
+        )
     if spansh_ingest_system is None:
         detail = "Spansh ingestor unavailable"
         if _SPANSH_IMPORT_ERROR:
@@ -991,7 +1017,9 @@ async def refresh_bodies_from_spansh(system_id64: int):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:  # pragma: no cover - defensive logging path
-        logger.exception("Failed to refresh system %s from Spansh", system_id64)
+        logger.exception(
+            "Failed to refresh system %s from Spansh", system_id64
+        )
         raise HTTPException(
             status_code=500, detail="Failed to refresh system from Spansh"
         ) from exc
@@ -1047,7 +1075,9 @@ async def proxy_edsm_bodies(
 async def get_coords(name_or_id: str = Query(..., alias="q")):
     result = await fetch_system_from_db(name_or_id)
     if result is None:
-        return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
+        return JSONResponse(
+            content={"error": SYSTEM_NOT_FOUND}, status_code=404
+        )
     return result
 
 
@@ -1087,7 +1117,9 @@ async def get_coords(name_or_id: str = Query(..., alias="q")):
                 None, system.from_name, name_or_id, False, False
             )
         if sys_obj is None:
-            return JSONResponse(content={"error": SYSTEM_NOT_FOUND}, status_code=404)
+            return JSONResponse(
+                content={"error": SYSTEM_NOT_FOUND}, status_code=404
+            )
 
         return SystemResponse(
             id64=getattr(sys_obj, "id64", None),
@@ -1116,9 +1148,14 @@ async def get_nearest_neutron_star(
     if not trimmed_name:
         raise HTTPException(status_code=400, detail="System name is required")
 
-    result = await fetch_nearest_neutron_star(trimmed_name)
+    try:
+        result = await fetch_nearest_neutron_star(trimmed_name)
+    except Exception:
+        raise HTTPException(status_code=404, detail="System not found")
     if not result:
-        return JSONResponse(content={"error": "No neutron star found"}, status_code=404)
+        return JSONResponse(
+            content={"error": "No neutron star found"}, status_code=404
+        )
     return result
 
 
@@ -1133,7 +1170,9 @@ async def get_nearest_neutron_star_from_coords(
 ):
     result = await fetch_nearest_neutron_star_at_coords(x, y, z)
     if not result:
-        return JSONResponse(content={"error": "No neutron star found"}, status_code=404)
+        return JSONResponse(
+            content={"error": "No neutron star found"}, status_code=404
+        )
     return result
 
 
@@ -1171,7 +1210,9 @@ async def proxy_spansh_faction_presence(
     MAX_PAGE_SIZE = 500  # Maximum results per page
 
     payload = {
-        "filters": {"minor_faction_presences": [{"name": {"value": [faction]}}]},
+        "filters": {
+            "minor_faction_presences": [{"name": {"value": [faction]}}]
+        },
         "sort": [],
         "size": MAX_PAGE_SIZE,
         "page": 0,
@@ -1190,7 +1231,9 @@ async def proxy_spansh_faction_presence(
         save_data = save_response.json()
         search_reference = save_data.get("search_reference")
         if not search_reference:
-            raise HTTPException(status_code=500, detail="No search_reference returned")
+            raise HTTPException(
+                status_code=500, detail="No search_reference returned"
+            )
 
         # Step 2: Recall search (handle pagination)
         all_results = []
@@ -1223,7 +1266,8 @@ async def proxy_spansh_faction_presence(
         {
             "id64": system.get("id64"),
             "name": system.get("name"),
-            "is_controlling": system.get("controlling_minor_faction") == faction,
+            "is_controlling": system.get("controlling_minor_faction")
+            == faction,
         }
         for system in all_results
     ]
@@ -1252,7 +1296,9 @@ async def proxy_spansh_faction_presence(
     serializer=PickleSerializer(),
 )
 async def proxy_spansh_autocomplete_controlling_minor_faction(
-    q: str = Query(..., description="Search fragment for the controlling faction name"),
+    q: str = Query(
+        ..., description="Search fragment for the controlling faction name"
+    ),
 ):
     query = q.strip()
     if not query:
@@ -1284,7 +1330,9 @@ async def proxy_spansh_autocomplete_controlling_minor_faction(
 
 
 @app.get("/systems/autocomplete")
-async def autocomplete_systems(q: str = Query(..., description="System name prefix")):
+async def autocomplete_systems(
+    q: str = Query(..., description="System name prefix")
+):
     query = q.strip()
     if len(query) < 2:
         return {"suggestions": []}
@@ -1292,7 +1340,9 @@ async def autocomplete_systems(q: str = Query(..., description="System name pref
         suggestions = await fetch_system_name_suggestions(query)
         return {"suggestions": suggestions}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail="Autocomplete failed") from exc
+        raise HTTPException(
+            status_code=500, detail="Autocomplete failed"
+        ) from exc
 
 
 @app.get("/stats/total-systems")
