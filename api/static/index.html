@@ -1138,6 +1138,7 @@
          btn.title = 'Refreshing via Spansh…';
        }
 
+       beginApiRequest(); // animate logo
        setStatus(`Refreshing ${id} from Spansh...`);
 
        try {
@@ -1183,6 +1184,7 @@
              btn.title = 'Refresh system from Spansh';
            }
          }
+         endApiRequest();
        }
      }
      globalThis.refreshSystemFromSpansh = refreshSystemFromSpansh;
