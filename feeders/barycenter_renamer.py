@@ -1,13 +1,17 @@
+import argparse
 import json
 import os
 import psycopg
 import re
 import sys
+from collections import defaultdict
+from string import ascii_lowercase, ascii_uppercase
+from typing import Optional, Tuple
 from tqdm import tqdm
 from dotenv import load_dotenv
 
 
-def insert_barycenter_first_pass(conn, system_id, debug=False):
+def insert_barycenter_first_pass(conn, system_id, debug=False, dry_run=False):
     cur = conn.cursor()
 
     # Look for BodyID=1 with parents [{"Null": 0}]
@@ -36,230 +40,337 @@ def insert_barycenter_first_pass(conn, system_id, debug=False):
             if debug:
                 tqdm.write("Barycenter0 already exists, skipping insert.")
         else:
-            if debug:
-                tqdm.write(f"Inserting Barycenter0 into system {system_id}")
-            cur.execute(
-                """
-                INSERT INTO bodies (system_id64, body_id, body_name, body_type_id, parents)
-                VALUES (%s, %s, %s, %s, %s)
-                """,
-                (system_id, 0, "Barycenter0", 2, json.dumps([])),
-            )
+            if dry_run:
+                if debug:
+                    tqdm.write(
+                        f"[DRY-RUN] Would insert Barycenter0 into system {system_id}"
+                    )
+            else:
+                if debug:
+                    tqdm.write(f"Inserting Barycenter0 into system {system_id}")
+                cur.execute(
+                    """
+                    INSERT INTO bodies (system_id64, body_id, body_name, body_type_id, parents)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (system_id, 0, "Barycenter0", 2, json.dumps([])),
+                )
 
     cur.close()
-    conn.commit()
+    if not dry_run:
+        conn.commit()
 
 
-def rename_barycenters_second_pass(conn, system_id, debug=False):
+def rename_barycenters_second_pass(
+    conn, system_id, debug=False, dry_run=False, reset=False
+):
     cur = conn.cursor()
 
     cur.execute(
-        "SELECT body_id, body_name, body_type_id, parents FROM bodies WHERE system_id64 = %s ORDER BY body_id",
+        "SELECT body_id, body_name, body_type_id, parents FROM bodies WHERE system_id64 = %s",
         (system_id,),
     )
     rows = cur.fetchall()
 
-    bodies = {
-        row[0]: {
-            "body_id": row[0],
-            "body_name": row[1],
-            "body_type_id": row[2],
-            "parents": row[3] if row[3] else [],
+    if not rows:
+        cur.close()
+        return []
+
+    system_name = fetch_system_name(conn, system_id)
+
+    if reset:
+        updates = []
+        for body_id, name, type_id, _ in rows:
+            if type_id != 2:
+                continue
+            new_name = f"Barycenter{body_id}"
+            if new_name != name:
+                if dry_run or debug:
+                    prefix = "[DRY-RUN] " if dry_run else ""
+                    tqdm.write(f"{prefix}{name} -> {new_name}")
+                updates.append((new_name, system_id, body_id))
+        if not dry_run and updates:
+            for new_name, sys_id, body_id in updates:
+                cur.execute(
+                    "UPDATE bodies SET body_name = %s WHERE system_id64 = %s AND body_id = %s",
+                    (new_name, sys_id, body_id),
+                )
+            conn.commit()
+        cur.close()
+        return updates
+
+    nodes: dict[int, dict] = {}
+    barycenter_children: dict[int, list[int]] = defaultdict(list)
+
+    for body_id, name, type_id, parents in rows:
+        if isinstance(parents, str):
+            try:
+                parents = json.loads(parents)
+            except json.JSONDecodeError:
+                parents = []
+        null_parent, body_parent = parse_parents(parents)
+        node = {
+            "body_id": body_id,
+            "body_name": name,
+            "body_type_id": type_id,
+            "parents": parents if parents else [],
+            "null_parent": null_parent,
+            "body_parent": body_parent,
+            "parent_id": None,
+            "parent_resolved": False,
+            "level": None,
+            "token": None,
         }
-        for row in rows
-    }
+        nodes[body_id] = node
+        if null_parent is not None:
+            barycenter_children[null_parent].append(body_id)
 
-    renamed_count = 0
+    def resolve_parent(body_id: int) -> Optional[int]:
+        node = nodes[body_id]
+        if node["parent_resolved"]:
+            return node["parent_id"]
+        if node["body_parent"] is not None:
+            node["parent_id"] = node["body_parent"]
+            node["parent_resolved"] = True
+            return node["body_parent"]
+        null_parent = node["null_parent"]
+        if null_parent is None:
+            node["parent_id"] = None
+            node["parent_resolved"] = True
+            return None
+        parent_node = nodes.get(null_parent)
+        if not parent_node:
+            node["parent_id"] = None
+            node["parent_resolved"] = True
+            return None
+        resolved = resolve_parent(null_parent)
+        node["parent_id"] = resolved
+        node["parent_resolved"] = True
+        return resolved
 
-    # Helper: extract suffix and base name
-    def get_suffix_and_base(name: str):
-        parts = name.split(" ")
-        if len(parts) < 2:
-            return None, name
-        suffix = parts[-1]
-        base = " ".join(parts[:-1])
-        return suffix, base
-
-    for body_id, body in bodies.items():
-        if body["body_type_id"] != 2 or not re.match(
-            r"Barycenter\d+", body["body_name"]
-        ):
-            continue
-
-        # === Step 1: Get immediate next body (body_id + 1) ===
-        candidate_child1_id = body_id + 1
-        child1 = bodies.get(candidate_child1_id)
-
-        if not child1:
-            if debug:
-                tqdm.write(
-                    f"Skipping {body['body_name']} – no body with ID {candidate_child1_id}"
-                )
-            continue
-
-        # Check if child1 is actually a child (has Null: body_id in parents)
-        parent_nulls = [p for p in child1["parents"] if "Null" in p]
-        if not any(p["Null"] == body_id for p in parent_nulls):
-            if debug:
-                tqdm.write(
-                    f"Skipping {body['body_name']} – next body (ID {candidate_child1_id}) is not a child"
-                )
-            continue
-
-        # Must be a planet or star or barycenter
-        if child1["body_type_id"] not in (
-            3,
-            5,
-            2,
-        ):  # "Planet", "Star", "Barycenter"
-            if debug:
-                tqdm.write(
-                    f"Skipping {body['body_name']} – child1 is a {child1['body_type_id']}"
-                )
-            continue
-
-        suffix1, base1 = get_suffix_and_base(child1["body_name"])
-        if not suffix1:
-            if debug:
-                tqdm.write(
-                    f"Skipping {body['body_name']} – child1 has no suffix: {child1['body_name']}"
-                )
-            continue
-
-        type1 = get_suffix_type(suffix1)
-        # === Step 2: Find second child ===
-        # Look through ALL bodies for another planet/star with:
-        # - Same barycenter parent
-        # - Same suffix type
-        # - Same base name (optional, but preferred)
-        candidates = []
-        for b_id, b in bodies.items():
-            if debug:
-                tqdm.write(f"processing {b_id}")
-            if b_id == candidate_child1_id:  # skip the first child
-                if debug:
-                    tqdm.write(
-                        f"skip first child {b_id} (type: {type1} / suffix: {suffix1})"
-                    )
-                continue
-            if b["body_type_id"] not in (
-                3,
-                5,
-                2,
-            ):  # "Planet", "Star", "Barycenter"
-                if debug:
-                    tqdm.write(f"not in Planet or Star or Barycenter {b_id}")
-                continue
-
-            b_parent_nulls = [p for p in b["parents"] if "Null" in p]
-            if not any(p["Null"] == body_id for p in b_parent_nulls):
-                if debug:
-                    tqdm.write(f"not any Null {b_id}")
-                continue
-
-            # Check if the VERY FIRST parent is {"Null": body_id}
-            parent_list = b["parents"]
-            if not parent_list or not isinstance(parent_list, list):
-                if debug:
-                    tqdm.write(f"skip {b_id} - invalid or missing parents list")
-                continue
-
-            first_parent = parent_list[0]
-            if (
-                not isinstance(first_parent, dict)
-                or "Null" not in first_parent
-                or first_parent["Null"] != body_id
-            ):
-                if debug:
-                    tqdm.write(
-                        f"skip {b_id} - first parent is not {{'Null': {body_id}}}"
-                    )
-                continue
-
-            suffix2, base2 = get_suffix_and_base(b["body_name"])
-            if not suffix2:
-                if debug:
-                    tqdm.write(f"skip suffix issue {b_id}")
-                continue
-
-            type2 = get_suffix_type(suffix2)
-            if type2 != type1:
-                if debug:
-                    tqdm.write(f"skip different suffix types {b_id}: {type2} - {type1}")
-                continue  # must match suffix type
-
-            # Prefer same base name, but allow fallback
-            if base2 == base1:
-                candidates.insert(0, (b, suffix2))  # prioritize matching base
-            else:
-                candidates.append((b, suffix2))
-
-        if not candidates:
-            if debug:
-                tqdm.write(
-                    f"Skipping {body['body_name']} – no valid second child found"
-                )
-            continue
-
-        _, suffix2 = candidates[0]  # pick best candidate
-        type2 = get_suffix_type(suffix2)
-        if debug:
-            tqdm.write(f"candidate: {suffix2} ({type2} vs {type1})")
-
-        # === Step 3: Generate new name ===
-        if type1 == "UPPER" and type2 == "UPPER":
-            new_name = f"{base1} {suffix1}{suffix2}"
-        elif type1 in ("DIGIT", "LOWER"):
-            new_name = f"{base1} {suffix1}+{suffix2}"
+    def compute_level(body_id: int) -> int:
+        node = nodes[body_id]
+        if node["level"] is not None:
+            return node["level"]
+        parent_id = resolve_parent(body_id)
+        if parent_id is None:
+            node["level"] = 0
         else:
-            new_name = f"{base1} {suffix1}+{suffix2}"
+            parent = nodes.get(parent_id)
+            parent_level = compute_level(parent_id) if parent else 0
+            node["level"] = parent_level + 1
+        return node["level"]
 
-        tqdm.write(f"{new_name}")
-        bodies[candidate_child1_id]["parents"].pop(0)
-        # Fix parents of the barycenter
-        cur.execute(
-            "UPDATE bodies SET body_name = %s, parents = %s WHERE system_id64 = %s AND body_id = %s",
-            (
-                new_name,
-                json.dumps(bodies[candidate_child1_id]["parents"]),
-                system_id,
-                body_id,
-            ),
-        )
-        renamed_count += 1
+    for body_id in nodes:
+        resolve_parent(body_id)
+        compute_level(body_id)
 
-    conn.commit()
+    groups: dict[tuple[Optional[int], int], list[int]] = defaultdict(list)
+    TOKEN_ELIGIBLE_TYPES = {3, 5}
+
+    for body_id, node in nodes.items():
+        if node["body_type_id"] not in TOKEN_ELIGIBLE_TYPES:
+            continue
+        level = node["level"] if node["level"] is not None else 0
+        parent_key = node.get("parent_id")
+        groups[(parent_key, level)].append(body_id)
+
+    for (parent_key, level), child_ids in groups.items():
+        sorted_ids = sorted(child_ids)
+        tokens = generate_tokens_for_level(level, len(sorted_ids))
+        for idx, body_id in enumerate(sorted_ids):
+            nodes[body_id]["token"] = tokens[idx]
+
+    primary_stars = [
+        node
+        for node in nodes.values()
+        if node["body_type_id"] == 5 and node["level"] == 0
+    ]
+    if len(primary_stars) == 1:
+        primary_stars[0]["token"] = ""
+
+    barycenter_token_cache: dict[int, Optional[str]] = {}
+
+    def compute_barycenter_token(body_id: int) -> Optional[str]:
+        if body_id in barycenter_token_cache:
+            return barycenter_token_cache[body_id]
+        children = sorted(barycenter_children.get(body_id, []))
+        collected = []
+        bary_parent = nodes[body_id].get("parent_id")
+        target_parent = bary_parent
+        if target_parent is None:
+            for child_id in children:
+                child_parent = nodes.get(child_id, {}).get("parent_id")
+                if child_parent is not None:
+                    target_parent = child_parent
+                    break
+        for child_id in children:
+            child = nodes[child_id]
+            if target_parent is not None and child.get("parent_id") != target_parent:
+                continue
+            token: Optional[str]
+            if child["body_type_id"] == 2:
+                token = compute_barycenter_token(child_id)
+            else:
+                token = child.get("token")
+            if token:
+                collected.append((child_id, token))
+        if len(collected) < 2:
+            barycenter_token_cache[body_id] = None
+            return None
+        if len(collected) > 2:
+            barycenter_token_cache[body_id] = None
+            return None
+        tokens = [token for _, token in collected]
+        if all(is_uppercase_token(t) for t in tokens):
+            combined = "".join(tokens)
+        else:
+            combined = "+".join(tokens)
+        barycenter_token_cache[body_id] = combined
+        return combined
+
+    path_cache: dict[int, list[str]] = {}
+
+    def collect_path_tokens(body_id: Optional[int]) -> list[str]:
+        if body_id is None:
+            return []
+        if body_id in path_cache:
+            return path_cache[body_id]
+        node = nodes.get(body_id)
+        if not node:
+            return []
+        parent_tokens = collect_path_tokens(node.get("parent_id"))
+        if node["body_type_id"] == 2:
+            tokens = parent_tokens
+        else:
+            token = node.get("token")
+            tokens = parent_tokens + [token] if token else parent_tokens
+        path_cache[body_id] = tokens
+        return tokens
+
+    updates = []
+
+    for body_id, node in nodes.items():
+        if node["body_type_id"] != 2 or body_id == 0:
+            continue
+        if not re.match(r"^Barycenter\s*\d+$", node["body_name"] or ""):
+            continue
+        token = compute_barycenter_token(body_id)
+        if not token:
+            if debug:
+                tqdm.write(
+                    f"Skipping {node['body_name']} – unable to compute child tokens"
+                )
+            continue
+        parent_tokens = collect_path_tokens(node.get("parent_id"))
+        all_tokens = parent_tokens + [token]
+        suffix = " ".join(t for t in all_tokens if t)
+        new_name = f"{system_name} {suffix}".strip() if suffix else system_name
+        if new_name != node["body_name"]:
+            if dry_run or debug:
+                prefix = "[DRY-RUN] " if dry_run else ""
+                tqdm.write(f"{prefix}{node['body_name']} -> {new_name}")
+            updates.append((new_name, system_id, body_id))
+
+    if not dry_run and updates:
+        for new_name, sys_id, body_id in updates:
+            cur.execute(
+                "UPDATE bodies SET body_name = %s WHERE system_id64 = %s AND body_id = %s",
+                (new_name, sys_id, body_id),
+            )
+        conn.commit()
+
     cur.close()
-    return renamed_count
+    return updates
 
 
-def get_suffix_type(suffix: str) -> str:
-    parts = suffix.split("+")
-    if all(re.fullmatch(r"[A-Z]+", p) for p in parts):
-        return "UPPER"
-    elif all(re.fullmatch(r"[a-z]+", p) for p in parts):
-        return "LOWER"
-    elif all(re.fullmatch(r"\d+", p) for p in parts):
-        return "DIGIT"
-    else:
-        return "OTHER"
+def fetch_system_name(conn, system_id: int) -> str:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT name FROM systems_big WHERE id64 = %s",
+            (system_id,),
+        )
+        row = cur.fetchone()
+    return row[0] if row and row[0] else str(system_id)
 
 
-def get_last_suffix(name: str) -> str:
-    """Extracts the last suffix (A, B, C, 1, 2, 10, a, b, etc.) from a body name."""
-    parts = name.split(" ")
-    return parts[-1]
+def parse_parents(parents) -> Tuple[Optional[int], Optional[int]]:
+    if not parents or not isinstance(parents, list):
+        return None, None
+    null_parent: Optional[int] = None
+    body_parent: Optional[int] = None
+    for parent in parents:
+        if not isinstance(parent, dict):
+            continue
+        for key, value in parent.items():
+            try:
+                parent_id = int(value)
+            except (TypeError, ValueError):
+                parent_id = None
+            if parent_id is None:
+                continue
+            if key == "Null":
+                if null_parent is None:
+                    null_parent = parent_id
+            else:
+                if body_parent is None:
+                    body_parent = parent_id
+        if null_parent is not None and body_parent is not None:
+            break
+    return null_parent, body_parent
+
+
+def generate_tokens_for_level(level: int, count: int) -> list[str]:
+    if count <= 0:
+        return []
+    if level == 0:
+        alphabet = ascii_uppercase
+        return [letters_from_index(i, alphabet) for i in range(count)]
+    if level % 2 == 1:
+        return [str(i) for i in range(1, count + 1)]
+    alphabet = ascii_lowercase
+    return [letters_from_index(i, alphabet) for i in range(count)]
+
+
+def letters_from_index(index: int, alphabet: str) -> str:
+    base = len(alphabet)
+    value = index
+    token = ""
+    while True:
+        token = alphabet[value % base] + token
+        value = value // base - 1
+        if value < 0:
+            break
+    return token
+
+
+def is_uppercase_token(token: str) -> bool:
+    return bool(token) and token.replace(" ", "").isalpha() and token.upper() == token
 
 
 def main():
-    # === Parse Command Line Arguments ===
-    if len(sys.argv) != 1 and len(sys.argv) != 2:
-        tqdm.write("Usage: python script.py [system_id64]")
-        tqdm.write("  - No argument: process all systems from 'new_barycenters.txt'")
-        tqdm.write("  - With argument: process only that system_id64")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description="Rename barycenters using structural positions instead of child names."
+    )
+    parser.add_argument(
+        "system_id64",
+        nargs="?",
+        type=int,
+        help="Process only this system_id64 when provided",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show the planned renames without touching the database",
+    )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Reset barycenter names to 'Barycenter <body_id>' instead of computing tree-based names",
+    )
+    args = parser.parse_args()
 
-    system_id_arg = sys.argv[1] if len(sys.argv) == 2 else None
+    system_id_arg = args.system_id64
 
     # === Database Connection ===
     load_dotenv()
@@ -283,7 +394,7 @@ def main():
 
     debug = False
     # specific system
-    if system_id_arg:
+    if system_id_arg is not None:
         debug = True
         system_ids = [system_id_arg]
     # all candidates from the database
@@ -298,17 +409,26 @@ def main():
                 LIMIT 100000
             """
             )
-            system_ids = [str(row[0]) for row in cur.fetchall()]
+            system_ids = [int(row[0]) for row in cur.fetchall()]
         tqdm.write(f"Found {len(system_ids)} systems with barycenters to fix")
 
     # === Process Each System ===
     for system_id in tqdm(system_ids, desc="Processing systems", unit="system"):
         try:
-            insert_barycenter_first_pass(conn, system_id, debug)
-            while True:
-                renamed_count = rename_barycenters_second_pass(conn, system_id, debug)
-                if renamed_count == 0:
-                    break
+            insert_barycenter_first_pass(conn, system_id, debug, dry_run=args.dry_run)
+            updates = rename_barycenters_second_pass(
+                conn,
+                system_id,
+                debug,
+                dry_run=args.dry_run,
+                reset=args.reset,
+            )
+            if updates:
+                action_word = "reset" if args.reset else "renamed"
+                tqdm.write(
+                    f"System {system_id}: {len(updates)} barycenter(s) "
+                    f"{'would be ' if args.dry_run else ''}{action_word}"
+                )
         except Exception as e:
             tqdm.write(f"Error processing system {system_id}: {e}")
             conn.rollback()  # Reset transaction on error
