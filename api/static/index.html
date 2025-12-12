@@ -188,11 +188,6 @@
                   Search
                 </button>
               </div>
-              <label for="bodiesModeEdsm" class="inline-flex items-center gap-2 text-xs text-gray-400">
-                <input id="bodiesModeEdsm" type="checkbox"
-                       class="h-4 w-4 rounded border-gray-500 bg-transparent text-[var(--accent-blue)] focus:ring-[var(--accent-blue)]" />
-                <span>Apply EDSM scaling</span>
-              </label>
             </div>
             <form id="neutronForm" class="flex flex-col gap-2" style="margin-top:10px">
               <label for="neutronInput" class="text-sm font-semibold flex items-center gap-2">
@@ -636,7 +631,6 @@
      const PERMALINK_PARAMS = {
        lookup: 'lookup',
        bodies: 'bodies',
-       bodiesMode: 'bodies_mode',
        neighbors: 'neighbors',
        predict: 'predict',
        neutron: 'neutron',
@@ -803,7 +797,6 @@
      const searchBtn = document.getElementById('searchBtn');
      const bodiesInput = document.getElementById('bodiesInput');
      const bodiesBtn = document.getElementById('bodiesBtn');
-     const bodiesModeEdsm = document.getElementById('bodiesModeEdsm');
      const predictInput = document.getElementById('predictInput');
      const predictBtn = document.getElementById('predictBtn');
      const neighborsInput = document.getElementById('neighborsInput');
@@ -1095,14 +1088,8 @@
        }
        lastBodiesLookupValue = value;
        let path = '/bodies?name_or_id=' + encodeURIComponent(value);
-       if (bodiesModeEdsm?.checked) {
-         path += '&mode=edsm';
-       }
        if (!skipPermalinkUpdate) {
          const updates = { [PERMALINK_PARAMS.bodies]: value };
-         if (bodiesModeEdsm?.checked) {
-           updates[PERMALINK_PARAMS.bodiesMode] = 'edsm';
-         }
          updatePermalinkParams(updates);
        }
        callApi(path, 'bodies');
@@ -1115,17 +1102,16 @@
        const sys = encodeURIComponent(String(systemId64));
        const body = encodeURIComponent(String(bodyId));
        let path = `/bodies?name_or_id=${sys}&body_id=${body}`;
-       if (bodiesModeEdsm?.checked) {
-         path += '&mode=edsm';
-       }
        callApi(path, 'body-detail');
      }
 
-     async function refreshSystemFromSpansh(systemId64, buttonEl) {
-       const id = String(systemId64 ?? '').trim();
-       if (!id) {
-         return;
-       }
+    async function refreshSystemFromSpansh(systemId64, buttonEl) {
+      beginApiRequest();
+      const id = String(systemId64 ?? '').trim();
+      if (!id) {
+        endApiRequest();
+        return;
+      }
 
        const btn = buttonEl || null;
        if (btn) {
@@ -1141,10 +1127,10 @@
        beginApiRequest(); // animate logo
        setStatus(`Refreshing ${id} from Spansh...`);
 
-       try {
-         const response = await fetch(`/bodies/${encodeURIComponent(id)}/spansh-refresh`, {
-           method: 'POST',
-         });
+      try {
+        const response = await fetch(`/bodies/${encodeURIComponent(id)}/spansh-refresh`, {
+          method: 'POST',
+        });
          let payload = {};
          try {
            payload = await response.json();
@@ -1169,12 +1155,13 @@
              targetTab: null,
            });
          }
-       } catch (err) {
-         console.error('Failed to refresh system from Spansh', err);
-         setStatus(`Failed to refresh ${id}: ${err?.message || err}`);
-       } finally {
-         if (btn) {
-           btn.disabled = false;
+      } catch (err) {
+        console.error('Failed to refresh system from Spansh', err);
+        setStatus(`Failed to refresh ${id}: ${err?.message || err}`);
+      } finally {
+        endApiRequest();
+        if (btn) {
+          btn.disabled = false;
            btn.removeAttribute('aria-busy');
            btn.classList.remove('is-busy');
            if (btn.dataset.originalTitle) {
@@ -1356,9 +1343,6 @@
        const bodiesValue = params.get(PERMALINK_PARAMS.bodies);
        if (bodiesValue && bodiesInput) {
          bodiesInput.value = bodiesValue;
-         if (bodiesModeEdsm) {
-           bodiesModeEdsm.checked = params.get(PERMALINK_PARAMS.bodiesMode) === 'edsm';
-         }
          submitBodies({ skipPermalinkUpdate: true });
          return;
        }
