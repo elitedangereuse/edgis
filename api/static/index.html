@@ -978,11 +978,23 @@
          if (!response.ok) {
            throw new Error(`HTTP ${response.status}`);
          }
-         const payload = await response.json();
-         const suggestions = (Array.isArray(payload?.suggestions)
-                            ? payload.suggestions
-                            : [])
-           .filter(name => typeof name === 'string' && name.trim().toLowerCase() !== trimmed.toLowerCase());
+        const payload = await response.json();
+        const seenSuggestions = new Set();
+        const suggestions = (Array.isArray(payload?.suggestions)
+                           ? payload.suggestions
+                           : [])
+          .map(name => (typeof name === 'string' ? name.trim() : ''))
+          .filter(name => {
+            if (!name) {
+              return false;
+            }
+            const key = name.toLowerCase();
+            if (seenSuggestions.has(key)) {
+              return false;
+            }
+            seenSuggestions.add(key);
+            return true;
+          });
          if (typeof isSuppressed === 'function' && isSuppressed()) {
            return;
          }
