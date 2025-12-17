@@ -16,3 +16,4 @@ AGENTS.md
 /api/.coverage
 /api/.envrc
 /api/.venv/
+/api/static/index-staging.html
