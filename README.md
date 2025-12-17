@@ -29,6 +29,11 @@ Expose the development server on a predictable port by setting `UVICORN_PORT` (d
 ```
 UVICORN_PORT=8383
 ```
+#### Landing page override
+Serve an alternate landing page by pointing `INDEX_HTML_FILENAME` to a file inside `api/static`.
+```
+INDEX_HTML_FILENAME=index-staging.html
+```
 #### Autocomplete tuning
 Cap autocomplete query duration with `AUTOCOMPLETE_STATEMENT_TIMEOUT_MS` (first attempt) and optionally fall back to a slower retry with `AUTOCOMPLETE_TIMEOUT_RETRY_MS`.
 ```

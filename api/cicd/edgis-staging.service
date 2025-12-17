@@ -1,0 +1,20 @@
+[Unit]
+Description=EDGIS Staging Service
+After=network.target
+
+[Service]
+Type=simple
+User=debian
+WorkingDirectory=/mnt/data/trilateration
+Environment=EDGIS_APP_DIR=/mnt/data/trilateration
+Environment=EDGIS_VENV_PATH=/mnt/data/trilateration/.direnv
+Environment=UVICORN_HOST=0.0.0.0
+Environment=UVICORN_PORT=8384
+Environment=INDEX_HTML_FILENAME=index-staging.html
+ExecStart=/usr/local/bin/edgis_staging_service.sh
+Restart=on-failure
+StandardOutput=append:/var/log/edgis-staging.log
+StandardError=append:/var/log/edgis-staging.log
+
+[Install]
+WantedBy=multi-user.target

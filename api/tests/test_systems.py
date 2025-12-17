@@ -854,6 +854,24 @@ def test_load_cors_origins_respects_env(monkeypatch):
     ]
 
 
+def test_read_index_uses_configured_path(tmp_path, monkeypatch):
+    custom_index = tmp_path / "custom.html"
+    custom_index.write_text("<html>staging</html>", encoding="utf-8")
+
+    monkeypatch.setattr(systems, "INDEX_HTML_PATH", str(custom_index))
+
+    response = systems.read_index()
+    assert isinstance(response, FileResponse)
+    assert response.path == str(custom_index)
+
+
+@pytest.mark.anyio
+async def test_favicon_serves_static_png():
+    response = await systems.favicon()
+    assert isinstance(response, FileResponse)
+    assert response.path.endswith(os.path.join("static", "favicon.png"))
+
+
 def test_get_neighbors_returns_500_on_error(monkeypatch):
     async def boom(*args, **kwargs):
         raise RuntimeError("boom")

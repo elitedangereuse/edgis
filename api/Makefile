@@ -3,7 +3,7 @@ COVERAGE_DIR=htmlcov
 COVERAGE_HTML=index.html
 
 # Targets
-.PHONY: all test coverage clean deploy-prod deploy-prod-dry-run
+.PHONY: all test coverage clean deploy-prod deploy-prod-dry-run deploy-staging
 
 # Default target
 all: test
@@ -26,3 +26,6 @@ clean:
 # Deployment
 deploy: test
 	cicd/deploy.sh
+
+deploy-staging: test
+	cicd/deploy.sh staging
