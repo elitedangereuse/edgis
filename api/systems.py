@@ -95,6 +95,10 @@ DB_NAME = os.getenv("DB_NAME")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 UVICORN_PORT = int(os.getenv("UVICORN_PORT") or "8383")
+INDEX_HTML_FILENAME = os.path.basename(
+    os.getenv("INDEX_HTML_FILENAME") or "index.html"
+)
+INDEX_HTML_PATH = os.path.join("static", INDEX_HTML_FILENAME)
 
 REDIS_HOST = os.getenv("REDIS_HOST") or "localhost"
 REDIS_PORT = int(os.getenv("REDIS_PORT") or "6379")
@@ -1371,7 +1375,7 @@ async def favicon():
 # Route to serve index.html
 @app.get("/", include_in_schema=False)
 def read_index():
-    return FileResponse(os.path.join("static", "index.html"))
+    return FileResponse(INDEX_HTML_PATH)
 
 
 if __name__ == "__main__":
