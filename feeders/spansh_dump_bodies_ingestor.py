@@ -9,6 +9,7 @@ from collections.abc import Callable
 from datetime import datetime
 import os
 import re
+import time
 from tqdm import tqdm
 import decimal
 from dotenv import load_dotenv
@@ -28,9 +29,18 @@ DB_NAME = os.getenv("DB_NAME")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 
-conn = psycopg.connect(
-    host=DB_HOST, port=5432, dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD
-)
+RECONNECT_MAX_ATTEMPTS = int(os.getenv("DB_RECONNECT_MAX_ATTEMPTS", "5"))
+# Set DB_RECONNECT_MAX_ATTEMPTS=0 to retry indefinitely.
+RECONNECT_BACKOFF_SECONDS = float(os.getenv("DB_RECONNECT_BACKOFF_SECONDS", "5"))
+
+
+def create_connection() -> PGConnection:
+    return psycopg.connect(
+        host=DB_HOST, port=5432, dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD
+    )
+
+
+conn = create_connection()
 
 
 def execute_batch(cursor: PGCursor, sql: str, argslist: Sequence[Sequence], page_size: int) -> None:
@@ -172,30 +182,6 @@ def get_lookup_cursor(table: str, connection: PGConnection) -> PGCursor:
         lookup_cursors[table] = cursor
     return cursor
 
-
-def get_lookup_id(table, name, conn):
-    """Get the ID for a lookup value, inserting it if needed."""
-    if not name:
-        return None
-
-    # Use cache first
-    cache = lookup_cache.get(table, {})
-    if name in cache:
-        return cache[name]
-
-    cur = get_lookup_cursor(table, conn)
-    cur.execute(f"SELECT id FROM {table} WHERE name = %s;", (name,))
-    row = cur.fetchone()
-    if row:
-        cache[name] = row[0]
-        return row[0]
-
-    cur.execute(
-        f"INSERT INTO {table} (name) VALUES (%s) RETURNING id;", (name,)
-    )
-    new_id = cur.fetchone()[0]
-    cache[name] = new_id
-    return new_id
 
 
 def parse_timestamp(ts_str):
@@ -460,31 +446,119 @@ class SpanshBodyIngestSession:
         self.material_batch: list[tuple[int, int, int, float]] = []
         self.gas_batch: list[tuple[int, int, int, float]] = []
 
+    def _safe_close_cursor(self, cursor: PGCursor | None) -> None:
+        if not cursor:
+            return
+        try:
+            if not cursor.closed:
+                cursor.close()
+        except Exception:
+            return
+
+    def _safe_rollback(self) -> None:
+        try:
+            self.conn.rollback()
+        except Exception:
+            return
+
+    def _reconnect(self, reason: str, attempt: int) -> None:
+        if RECONNECT_MAX_ATTEMPTS <= 0:
+            attempt_label = f"attempt {attempt}/unlimited"
+        else:
+            attempt_label = f"attempt {attempt}/{RECONNECT_MAX_ATTEMPTS}"
+        self._log(f"{reason} ({attempt_label}); reconnecting...")
+        self._safe_close_cursor(self.body_cursor)
+        self._safe_close_cursor(self.material_cursor)
+        self._safe_close_cursor(self.gas_cursor)
+        for cursor in lookup_cursors.values():
+            self._safe_close_cursor(cursor)
+        lookup_cursors.clear()
+        try:
+            self.conn.close()
+        except Exception:
+            pass
+        time.sleep(RECONNECT_BACKOFF_SECONDS * attempt)
+        self.conn = create_connection()
+        # Refresh lookup caches after reconnect to avoid stale IDs.
+        for cache in lookup_cache.values():
+            cache.clear()
+        initialize_lookup_cache(self.conn)
+        self.body_cursor = self.conn.cursor()
+        self.material_cursor = self.conn.cursor()
+        self.gas_cursor = self.conn.cursor()
+
+    def _run_with_retry(self, action: Callable[[], object], label: str) -> object:
+        last_exc: Exception | None = None
+        attempt = 0
+        while RECONNECT_MAX_ATTEMPTS <= 0 or attempt < RECONNECT_MAX_ATTEMPTS:
+            attempt += 1
+            try:
+                return action()
+            except psycopg.OperationalError as exc:
+                last_exc = exc
+                self._safe_rollback()
+                self._reconnect(f"{label} failed: {exc}", attempt)
+        if last_exc:
+            raise last_exc
+        return None
+
+    def get_lookup_id(self, table: str, name: str | None) -> int | None:
+        """Get the ID for a lookup value, inserting it if needed."""
+        if not name:
+            return None
+
+        # Use cache first
+        cache = lookup_cache.get(table, {})
+        if name in cache:
+            return cache[name]
+
+        def _fetch_lookup_id() -> int:
+            cur = get_lookup_cursor(table, self.conn)
+            cur.execute(f"SELECT id FROM {table} WHERE name = %s;", (name,))
+            row = cur.fetchone()
+            if row:
+                cache[name] = row[0]
+                return row[0]
+
+            cur.execute(
+                f"INSERT INTO {table} (name) VALUES (%s) RETURNING id;", (name,)
+            )
+            new_id = cur.fetchone()[0]
+            cache[name] = new_id
+            return new_id
+
+        return self._run_with_retry(_fetch_lookup_id, f"Lookup {table}")  # type: ignore[return-value]
+
     def flush_batches(self) -> None:
         if self.material_batch:
-            execute_batch(
-                self.material_cursor,
-                UPSERT_MATERIAL,
-                self.material_batch,
-                page_size=min(len(self.material_batch), MATERIAL_BATCH_SIZE),
-            )
+            def _flush_materials() -> None:
+                execute_batch(
+                    self.material_cursor,
+                    UPSERT_MATERIAL,
+                    self.material_batch,
+                    page_size=min(len(self.material_batch), MATERIAL_BATCH_SIZE),
+                )
+
+            self._run_with_retry(_flush_materials, "Flush materials")
             self.material_batch.clear()
         if self.gas_batch:
-            execute_batch(
-                self.gas_cursor,
-                UPSERT_ATMOSPHERE_GAS,
-                self.gas_batch,
-                page_size=min(len(self.gas_batch), GAS_BATCH_SIZE),
-            )
+            def _flush_gases() -> None:
+                execute_batch(
+                    self.gas_cursor,
+                    UPSERT_ATMOSPHERE_GAS,
+                    self.gas_batch,
+                    page_size=min(len(self.gas_batch), GAS_BATCH_SIZE),
+                )
+
+            self._run_with_retry(_flush_gases, "Flush gases")
             self.gas_batch.clear()
 
     def reset_cursors(self) -> None:
-        self.body_cursor.close()
-        self.material_cursor.close()
-        self.gas_cursor.close()
+        self._safe_close_cursor(self.body_cursor)
+        self._safe_close_cursor(self.material_cursor)
+        self._safe_close_cursor(self.gas_cursor)
         for cursor in lookup_cursors.values():
-            if cursor and not cursor.closed:
-                cursor.close()
+            self._safe_close_cursor(cursor)
         lookup_cursors.clear()
         self.material_batch.clear()
         self.gas_batch.clear()
@@ -496,13 +570,16 @@ class SpanshBodyIngestSession:
         self.gas_cursor = self.conn.cursor()
 
     def close(self) -> None:
-        self.body_cursor.close()
-        self.material_cursor.close()
-        self.gas_cursor.close()
+        self._safe_close_cursor(self.body_cursor)
+        self._safe_close_cursor(self.material_cursor)
+        self._safe_close_cursor(self.gas_cursor)
         for cursor in lookup_cursors.values():
-            if cursor and not cursor.closed:
-                cursor.close()
+            self._safe_close_cursor(cursor)
         lookup_cursors.clear()
+        try:
+            self.conn.close()
+        except Exception:
+            return
 
     def _log(self, message: str) -> None:
         if self.log:
@@ -555,44 +632,40 @@ class SpanshBodyIngestSession:
                 if body.get("type") == "Barycentre"
                 else body.get("name")
             ),
-            "body_type_id": get_lookup_id(
-                "body_types", "Barycenter", self.conn
-            )
+            "body_type_id": self.get_lookup_id("body_types", "Barycenter")
             if body.get("type") == "Barycentre"
-            else get_lookup_id("body_types", body.get("type"), self.conn),
+            else self.get_lookup_id("body_types", body.get("type")),
             "planet_class_id": (
-                get_lookup_id("planet_classes", "Earthlike body", self.conn)
+                self.get_lookup_id("planet_classes", "Earthlike body")
                 if body.get("type") == "Planet"
                 and body.get("subType") == "Earth-like world"
                 else (
-                    get_lookup_id(
+                    self.get_lookup_id(
                         "planet_classes",
                         body.get("subType").replace(
                             "ammonia-based", "ammonia based"
                         )
                         if body.get("subType")
                         else None,
-                        self.conn,
                     )
                     if body.get("type") == "Planet"
                     else None
                 )
             ),
-            "terraform_state_id": get_lookup_id(
-                "terraform_states", body.get("terraformingState"), self.conn
+            "terraform_state_id": self.get_lookup_id(
+                "terraform_states", body.get("terraformingState")
             ),
-            "atmosphere_type_id": get_lookup_id(
+            "atmosphere_type_id": self.get_lookup_id(
                 "atmosphere_types",
                 convert_atmosphere_type(
                     body.get("atmosphereType"),
                     body.get("subType"),
                     body.get("name"),
                 ),
-                self.conn,
             )
             if body.get("type") == "Planet"
             else None,
-            "atmosphere_id": get_lookup_id(
+            "atmosphere_id": self.get_lookup_id(
                 "atmospheres",
                 body.get("atmosphereType")
                 .lower()
@@ -600,15 +673,13 @@ class SpanshBodyIngestSession:
                 .replace("-rich", " rich")
                 .replace("no atmosphere", "no")
                 + " atmosphere",
-                self.conn,
             )
             if body.get("atmosphereType")
             else None,
             "volcanism_id": (
-                get_lookup_id(
+                self.get_lookup_id(
                     "volcanisms",
                     (body.get("volcanismType")).lower() + " volcanism",
-                    self.conn,
                 )
                 if body.get("volcanismType")
                 else None
@@ -630,11 +701,11 @@ class SpanshBodyIngestSession:
             "distance_from_arrival_ls": body.get("distanceToArrival"),
             "age_my": body.get("age"),
             "absolute_magnitude": body.get("absoluteMagnitude"),
-            "luminosity_id": get_lookup_id(
-                "luminosities", body.get("luminosity"), self.conn
+            "luminosity_id": self.get_lookup_id(
+                "luminosities", body.get("luminosity")
             ),
-            "star_type_id": get_lookup_id(
-                "star_types", star_type_name, self.conn
+            "star_type_id": self.get_lookup_id(
+                "star_types", star_type_name
             )
             if star_type_name
             else None,
@@ -658,7 +729,10 @@ class SpanshBodyIngestSession:
         }
 
         try:
-            self.body_cursor.execute(UPSERT_BODY, list(row.values()))
+            self._run_with_retry(
+                lambda: self.body_cursor.execute(UPSERT_BODY, list(row.values())),
+                "UPSERT_BODY",
+            )
         except Exception as exc:
             bodyname = body.get("name")
             self._log(f"Error processing body {bodyname}: {exc}")
@@ -672,9 +746,7 @@ class SpanshBodyIngestSession:
         if materials:
             for name, percent in materials.items():
                 try:
-                    mat_id = get_lookup_id(
-                        "material_names", name.lower(), self.conn
-                    )
+                    mat_id = self.get_lookup_id("material_names", name.lower())
                 except Exception as exc:
                     self._log(
                         f"Error inserting material {name.lower()} for body {body.get('name')}: {exc}"
@@ -698,9 +770,7 @@ class SpanshBodyIngestSession:
                     formatted_name = "".join(
                         word.capitalize() for word in raw_name.split()
                     )
-                    gas_id = get_lookup_id(
-                        "atmosphere_gases", formatted_name, self.conn
-                    )
+                    gas_id = self.get_lookup_id("atmosphere_gases", formatted_name)
                 except Exception as exc:
                     self._log(
                         f"Error inserting gas {raw_name} for body {body.get('name')}: {exc}"
@@ -720,9 +790,7 @@ class SpanshBodyIngestSession:
                 "system_id64": sys_id,
                 "body_id": body.get("bodyId") + i,
                 "body_name": ring.get("name"),
-                "body_type_id": get_lookup_id(
-                    "body_types", "PlanetaryRing", self.conn
-                ),
+                "body_type_id": self.get_lookup_id("body_types", "PlanetaryRing"),
                 "planet_class_id": None,
                 "terraform_state_id": None,
                 "atmosphere_type_id": None,
@@ -757,10 +825,9 @@ class SpanshBodyIngestSession:
                 "landable": None,
                 "updatetime": parse_timestamp(ring.get("updateTime"))
                 or updatetime,
-                "ring_class_id": get_lookup_id(
+                "ring_class_id": self.get_lookup_id(
                     "ring_classes",
                     "eRingClass_" + ring.get("type", "").replace(" ", ""),
-                    self.conn,
                 )
                 if ring.get("type")
                 else None,
@@ -769,7 +836,12 @@ class SpanshBodyIngestSession:
                 "ring_mass_mt": ring.get("mass"),
             }
             try:
-                self.body_cursor.execute(UPSERT_BODY, list(ring_row.values()))
+                self._run_with_retry(
+                    lambda: self.body_cursor.execute(
+                        UPSERT_BODY, list(ring_row.values())
+                    ),
+                    "UPSERT_BODY ring",
+                )
             except Exception as exc:
                 self._log(
                     f"Error processing ring {ring.get('name')}: {exc}"
@@ -796,17 +868,22 @@ def ingest_streaming(path):
                     count += 1
                     if count % 10000 == 0:
                         session.flush_batches()
-                        conn.commit()
+                        session._run_with_retry(
+                            lambda: session.conn.commit(), "Commit"
+                        )
 
                 # update progress bar based on file position
                 pbar.update(f.tell() - pbar.n)
 
     session.flush_batches()
-    conn.commit()
+    session._run_with_retry(lambda: session.conn.commit(), "Commit")
     session.close()
     print(f"Done. Inserted/updated {count} bodies.")
 
 
 if __name__ == "__main__":
     ingest_streaming("dump.json.gz")
-    conn.close()
+    try:
+        conn.close()
+    except Exception:
+        pass
