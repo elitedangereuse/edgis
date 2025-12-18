@@ -1592,7 +1592,7 @@
 
      function openSystemMap(text, btnElement){
        const encoded = encodeURIComponent(String(text ?? ''));
-       const url = `https://elitedangereuse.fr/outils/sysmap.php?system=${encoded}`;
+       const url = `https://edgis.elitedangereuse.fr/static/sysmap.html?system=${encoded}`;
        window.open(url, "_blank");
      }
      globalThis.openSystemMap = openSystemMap;
@@ -2018,7 +2018,7 @@
      }
 
      function buildBodiesEmbedUrl(systemName) {
-       return `https://elitedangereuse.fr/outils/sysmap.php?svgOnly=1&system=${encodeURIComponent(systemName)}`;
+       return `https://edgis.elitedangereuse.fr/static/sysmap.html?svgOnly=1&system=${encodeURIComponent(systemName)}`;
      }
 
      function resetBodiesEmbed() {
