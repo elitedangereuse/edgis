@@ -15,6 +15,7 @@
     const embedLinkCopyButton = document.getElementById('embedLinkCopyButton');
     const embedCodeOutput = document.getElementById('embedCodeOutput');
     const embedCodeCopyButton = document.getElementById('embedCodeCopyButton');
+    const systemSuggestions = document.getElementById('systemSuggestions');
     const sameHostBaseUrl =
           window.location.origin || `${window.location.protocol}//${window.location.host || ''}`;
     const radius = 8;
@@ -22,7 +23,7 @@
     const hGap = 40;      // horizontal spacing unit
     const rootX = 60;
     const SOL_RADIUS_KM = 696340; // actual km radius
-    const EARTH_MASS_TO_SOLAR = 1 / 332946.0487; // 1 M⊕ in M☉
+    const EARTH_MASS_TO_SOLAR = 1 / 332946.0487; // 1 earth mass in solar masses
     const AU_IN_METERS = 149597870700;
     const BARY_CLEARANCE = 16;
     const BARY_BRACKET_STROKE = '#333';
@@ -172,16 +173,98 @@
         });
     }
 
+    // Lightweight autocomplete for system names
+    const SYSTEM_AUTOCOMPLETE_DELAY_MS = 200;
+    let systemAutocompleteTimer = null;
+    const renderSystemSuggestions = (names) => {
+        if(!systemSuggestions) return;
+        systemSuggestions.innerHTML = '';
+        names.forEach(name => {
+            const option = document.createElement('option');
+            option.value = name;
+            systemSuggestions.appendChild(option);
+        });
+    };
+    const fetchSystemSuggestions = async (prefix) => {
+        const trimmed = (prefix || '').trim();
+        if(trimmed.length < 2){
+            renderSystemSuggestions([]);
+            return;
+        }
+        try {
+            const res = await fetch(`${sameHostBaseUrl}/systems/autocomplete?q=${encodeURIComponent(trimmed)}`);
+            if(!res.ok){
+                return;
+            }
+            const data = await res.json();
+            const suggestions = Array.isArray(data?.suggestions) ? data.suggestions : [];
+            renderSystemSuggestions(suggestions);
+        } catch(err){
+            console.error('Failed to fetch system suggestions', err);
+        }
+    };
+    if(systemInput){
+        systemInput.addEventListener('input', () => {
+            if(systemAutocompleteTimer){
+                clearTimeout(systemAutocompleteTimer);
+            }
+            systemAutocompleteTimer = setTimeout(() => {
+                fetchSystemSuggestions(systemInput.value);
+            }, SYSTEM_AUTOCOMPLETE_DELAY_MS);
+        });
+        systemInput.addEventListener('focus', () => {
+            fetchSystemSuggestions(systemInput.value);
+        });
+    }
+
     if(controlsToggleButton && controlsPanel){
         controlsToggleButton.addEventListener('click', () => {
             const shouldShow = !isControlsPanelVisible();
             if(shouldShow){
                 hideInfoPanel();
                 setEmbedPanelVisible(false);
+                if(systemInput){
+                    setTimeout(() => {
+                        systemInput.focus();
+                        systemInput.select();
+                    }, 0);
+                }
             }
             setControlsPanelVisible(shouldShow);
         });
     }
+
+    // Show search when pressing Enter (if hidden)
+    document.addEventListener('keydown', (event) => {
+        if(event.key !== 'Enter'){
+            return;
+        }
+        if(systemInput && document.activeElement === systemInput){
+            return; // let the input's own Enter handler run
+        }
+        if(isControlsPanelVisible()){
+            return;
+        }
+        hideInfoPanel();
+        setEmbedPanelVisible(false);
+        setControlsPanelVisible(true);
+        if(systemInput){
+            setTimeout(() => {
+                systemInput.focus();
+                systemInput.select();
+            }, 0);
+        }
+    });
+
+    // Hide the search controls when pressing Escape
+    document.addEventListener('keydown', (event) => {
+        if(event.key === 'Escape'){
+            hideControlsPanel();
+            if(systemInput){
+                systemInput.blur();
+            }
+        }
+    });
 
     if(bodyInfoButton){
         bodyInfoButton.addEventListener('click', () => {
@@ -3194,7 +3277,7 @@
         if(!systemName){
             return '';
         }
-        return `https://edgis.elitedangereuse.fr/?lookup=${encodeURIComponent(systemName)}`;
+        return `${sameHostBaseUrl}/?lookup=${encodeURIComponent(systemName)}`;
     }
 
     function updateEdgisButtonState(){

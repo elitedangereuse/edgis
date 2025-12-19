@@ -528,6 +528,9 @@
        'nearest-neutron': new Set(['neutron_id64']),
      };
 
+     const sameHostBaseUrl =
+       window.location.origin || `${window.location.protocol}//${window.location.host || ''}`;
+
      function getColumnLabel(key) {
        return COLUMN_LABELS[key] ?? key;
      }
@@ -1592,7 +1595,7 @@
 
      function openSystemMap(text, btnElement){
        const encoded = encodeURIComponent(String(text ?? ''));
-       const url = `https://edgis.elitedangereuse.fr/static/sysmap.html?system=${encoded}`;
+       const url = `${sameHostBaseUrl}/static/sysmap.html?system=${encoded}`;
        window.open(url, "_blank");
      }
      globalThis.openSystemMap = openSystemMap;
@@ -2018,7 +2021,7 @@
      }
 
      function buildBodiesEmbedUrl(systemName) {
-       return `https://edgis.elitedangereuse.fr/static/sysmap.html?svgOnly=1&system=${encodeURIComponent(systemName)}`;
+       return `${sameHostBaseUrl}/static/sysmap.html?svgOnly=1&system=${encodeURIComponent(systemName)}`;
      }
 
      function resetBodiesEmbed() {
