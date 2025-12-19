@@ -14,7 +14,7 @@ function syncViewBoxFromSvg() {
     if (!svg) return;
 
     const liveViewBox = svg.viewBox?.baseVal;
-    if (liveViewBox && liveViewBox.width && liveViewBox.height) {
+    if (liveViewBox?.width && liveViewBox?.height) {
         viewBox = {
             x: liveViewBox.x,
             y: liveViewBox.y,
@@ -100,12 +100,12 @@ function updateViewBox() {
 }
 
 // Call after load, with delay for mobile layout stability
-window.addEventListener('load', () => {
+globalThis.addEventListener?.('load', () => {
     setTimeout(fitToScreen, 100);
 });
 
 // On resize and orientation change
-window.addEventListener('resize', () => {
+globalThis.addEventListener?.('resize', () => {
     clearTimeout(resizeTimeout);
     resizeTimeout = setTimeout(fitToScreen, 100);
 });
@@ -113,7 +113,7 @@ window.addEventListener('resize', () => {
 let resizeTimeout;
 
 // Critical: on mobile rotate
-window.addEventListener('orientationchange', () => {
+globalThis.addEventListener?.('orientationchange', () => {
     setTimeout(fitToScreen, 150);
 });
 
@@ -287,7 +287,7 @@ stage.addEventListener('touchend', (e) => {
     }
 });
 
-window.addEventListener('load', () => {
+globalThis.addEventListener?.('load', () => {
     const nodes = document.querySelectorAll('.node');
 
     nodes.forEach(node => {

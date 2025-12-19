@@ -1,6 +1,6 @@
 (async function(){
     const svg = document.getElementById('svg');
-    const config = window.EDGIS_SYSMAP_CONFIG || {};
+    const config = globalThis.EDGIS_SYSMAP_CONFIG || {};
     const svgOnlyMode = Boolean(config.svgOnly);
     const defaultSystemName = config.defaultSystemName || 'Maia';
     const infoPanel = document.getElementById('InfoPanel');
@@ -17,10 +17,10 @@
     const embedCodeCopyButton = document.getElementById('embedCodeCopyButton');
     const systemSuggestions = document.getElementById('systemSuggestions');
     const sameHostBaseUrl =
-          window.location.origin || `${window.location.protocol}//${window.location.host || ''}`;
+          globalThis.location?.origin || `${globalThis.location?.protocol}//${globalThis.location?.host || ''}`;
     const radius = 8;
-    const vGap = 30;      // vertical spacing unit
-    const hGap = 40;      // horizontal spacing unit
+    const vGap = 25;      // vertical spacing unit
+    const hGap = 30;      // horizontal spacing unit
     const rootX = 60;
     const SOL_RADIUS_KM = 696340; // actual km radius
     const EARTH_MASS_TO_SOLAR = 1 / 332946.0487; // 1 earth mass in solar masses
@@ -45,7 +45,7 @@
 
     const systemInput = document.getElementById('system');
     const loadButton = document.getElementById('load');
-    const urlParams = new URLSearchParams(window.location.search);
+    const urlParams = new URLSearchParams(globalThis.location?.search || '');
     const systemFromURL = (urlParams.get('system') || '').trim();
     const parseBodyIdParam = (value) => {
         if(value === null || value === undefined || value === ''){
@@ -102,8 +102,8 @@
     };
 
     function updateUrlState(systemName, bodyId){
-        if(typeof window === 'undefined' || !window.history || !window.location) return;
-        const url = new URL(window.location.href);
+        if(typeof globalThis === 'undefined' || !globalThis.history || !globalThis.location) return;
+        const url = new URL(globalThis.location.href);
         const activeSystem = systemName ?? resolveActiveSystemName();
         if(activeSystem){
             url.searchParams.set('system', activeSystem);
@@ -117,7 +117,7 @@
         } else {
             url.searchParams.delete('body_id');
         }
-        window.history.replaceState({}, '', url);
+        globalThis.history.replaceState({}, '', url);
     }
 
     function handleSelectionChange(){
@@ -239,6 +239,9 @@
         if(event.key !== 'Enter'){
             return;
         }
+        if(event.target && typeof event.target.closest === 'function' && event.target.closest('.bary-layer')){
+            return;
+        }
         if(systemInput && document.activeElement === systemInput){
             return; // let the input's own Enter handler run
         }
@@ -339,11 +342,11 @@
             if(resetTimeout){
                 clearTimeout(resetTimeout);
             }
-            resetTimeout = window.setTimeout(() => {
+            resetTimeout = globalThis.setTimeout?.(() => {
                 button.setAttribute('aria-label', defaultLabel);
                 button.classList.remove('copied', 'error');
                 resetTimeout = null;
-            }, 2000);
+            }, 2000) ?? null;
         };
         button.addEventListener('click', async () => {
             try {
@@ -1351,7 +1354,6 @@
     function placeChildren(parent, depth){
         const kids = parent.children;
         if(kids.length === 0) return;
-
         if(depth % 2 === 1){ // horizontal
             let xCursor = parent.x + parent.radiusScaled + hGap;
             if (depth > 1) {
@@ -1360,6 +1362,7 @@
             kids.forEach(c => {
                 c.y = parent.y;
                 c.x = xCursor + c.radiusScaled;
+                console.log(c.name, c.x, c.radiusScaled);
                 placeChildren(c, depth+1);
                 if (c.rings) {
                     xCursor += c.width * 1.3 + hGap;
@@ -1406,7 +1409,7 @@
         if (n.radiusScaled > 10) {
             radius = 17;
         }
-        angleStart = 55 * Math.PI/180;
+        const angleStart = 55 * Math.PI/180;
         const xStart = radius * Math.cos(angleStart);
         const yStart = -radius * Math.sin(angleStart);
         //const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
@@ -2288,12 +2291,18 @@
             line.setAttribute('stroke', BARY_BRACKET_STROKE);
             line.setAttribute('stroke-width', '1.4');
             line.setAttribute('stroke-linecap', 'round');
+            line.setAttribute('pointer-events', 'stroke');
             line.setAttribute('class', 'bary-bracket');
             if(debugLabel){
                 line.dataset.barycenter = debugLabel;
             }
             if(baryNode){
                 line.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    showBarycenterInfo(baryNode);
+                    infoPanel?.scrollTo({ top: 0, behavior: 'smooth' });
+                });
+                line.addEventListener('pointerup', (event) => {
                     event.stopPropagation();
                     showBarycenterInfo(baryNode);
                     infoPanel?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2317,6 +2326,7 @@
             pointer.setAttribute('stroke-width', '1.4');
             pointer.setAttribute('stroke-linecap', 'round');
             pointer.setAttribute('stroke-linejoin', 'round');
+            pointer.setAttribute('pointer-events', 'stroke');
             pointer.setAttribute('class', 'bary-bracket');
             if(debugLabel){
                 pointer.dataset.barycenter = debugLabel;
@@ -2428,6 +2438,9 @@
             if(baryNode?.id != null){
                 group.dataset.bodyId = String(baryNode.id);
             }
+            group.setAttribute('tabindex', '0');
+            group.setAttribute('role', 'button');
+            group.setAttribute('aria-label', baryNode?.name ? `Barycenter ${baryNode.name}` : 'Barycenter');
 
             const outerRadius = 6;
             const innerRadius = 3;
@@ -2460,11 +2473,22 @@
             group.appendChild(rightDot);
             group.style.cursor = 'pointer';
             group.style.pointerEvents = 'auto';
+            group.style.touchAction = 'manipulation';
             group.addEventListener('click', (event) => {
                 event.stopPropagation();
                 selectNode(group, null, baryNode);
                 infoPanel?.scrollTo({ top: 0, behavior: 'smooth' });
             });
+            group.addEventListener('pointerup', (event) => {
+                event.stopPropagation();
+                selectNode(group, null, baryNode);
+                infoPanel?.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+            group.addEventListener('touchend', (event) => {
+                event.stopPropagation();
+                selectNode(group, null, baryNode);
+                infoPanel?.scrollTo({ top: 0, behavior: 'smooth' });
+            }, { passive: true });
             group.addEventListener('mouseenter', () => {
                 group.classList.add('active');
             });
@@ -3298,7 +3322,7 @@
         if(!systemName){
             return '';
         }
-        const url = new URL(window.location.href);
+        const url = new URL(globalThis.location?.href || '');
         url.searchParams.set('system', systemName);
         const selectedId = resolveNodeBodyId(selectedBodyNode);
         if(selectedId != null){
