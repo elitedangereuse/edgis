@@ -1352,7 +1352,7 @@
 
     // Place nodes based on computed sizes
     function placeChildren(parent, depth){
-        const kids = parent.children;
+        const kids = parent.children.filter(child => !isBarycenter(child));
         if(kids.length === 0) return;
         if(depth % 2 === 1){ // horizontal
             let xCursor = parent.x + parent.radiusScaled + hGap;
