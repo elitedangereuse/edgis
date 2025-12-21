@@ -1316,10 +1316,15 @@
     function computeSize(node, depth){
         const nodeLabel = `${node.name || 'unnamed'} (#${node.id || '??'})`;
         node.radiusScaled = scaleRadius(node.radius, node.type, node.subType);
+        node.layoutRadius = node.radiusScaled;
+        if(isStellarRingNode(node)){
+            const baseRadius = Math.max(node.radiusScaled || 0, 12);
+            node.layoutRadius = Math.max(node.layoutRadius, baseRadius * 1.05);
+        }
 
         if(node.children.length === 0){
-            node.width = node.radiusScaled * 2;
-            node.height = node.radiusScaled * 2;
+            node.width = node.layoutRadius * 2;
+            node.height = node.layoutRadius * 2;
             return {width: node.width, height: node.height};
         }
 
@@ -1333,8 +1338,8 @@
                 totalW += sz.width + hGap;
                 if(sz.height > maxH) maxH = sz.height;
             });
-            node.width = Math.max(node.radiusScaled*2, totalW);
-            node.height = Math.max(node.radiusScaled*2, maxH);
+            node.width = Math.max(node.layoutRadius*2, totalW);
+            node.height = Math.max(node.layoutRadius*2, maxH);
         } else {  // vertical layout
             let maxW = 0;
             node.children.forEach(c => {
@@ -1343,8 +1348,8 @@
                 totalH += sz.height + vGap;
                 if(sz.width > maxW) maxW = sz.width;
             });
-            node.width = Math.max(node.radiusScaled*2, maxW);
-            node.height = Math.max(node.radiusScaled*2, totalH);
+            node.width = Math.max(node.layoutRadius*2, maxW);
+            node.height = Math.max(node.layoutRadius*2, totalH);
         }
 
         return {width: node.width, height: node.height};
@@ -1384,7 +1389,9 @@
     function computeBounds(nodes){
         let maxX = 0, maxY = 0;
         for(const n of nodes){
-            if(n.x > maxX) maxX = n.x;
+            const layoutRadius = Number.isFinite(n.layoutRadius) ? n.layoutRadius : (n.radiusScaled || 0);
+            const xExtent = n.x + layoutRadius;
+            if(xExtent > maxX) maxX = xExtent;
             if(n.y > maxY) maxY = n.y;
         }
         return { maxX: maxX + 120, maxY: maxY + 120 };
