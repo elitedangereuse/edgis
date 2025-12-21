@@ -1,0 +1,78 @@
+[
+  {
+    "body_id": 0,
+    "body_name": "Cubeo",
+    "type": "Star",
+    "parents": [],
+    "mass": 1.0625
+  },
+  {
+    "body_id": 1,
+    "body_name": "Cubeo 1",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.465579
+  },
+  {
+    "body_id": 2,
+    "body_name": "Cubeo 2",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.696314
+  },
+  {
+    "body_id": 3,
+    "body_name": "Cubeo 3",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 1.431693
+  },
+  {
+    "body_id": 4,
+    "body_name": "Cubeo 3 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 3
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.049755
+  },
+  {
+    "body_id": 5,
+    "body_name": "Cubeo 4",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.450983
+  },
+  {
+    "body_id": 6,
+    "body_name": "Cubeo 5",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.47953
+  }
+]

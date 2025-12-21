@@ -1,0 +1,748 @@
+[
+  {
+    "body_id": 0,
+    "body_name": "Shinrarta Dezhra AB",
+    "type": "Barycenter",
+    "parents": []
+  },
+  {
+    "body_id": 1,
+    "body_name": "Shinrarta Dezhra",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.648438
+  },
+  {
+    "body_id": 2,
+    "body_name": "LTT 4550",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.40625
+  },
+  {
+    "body_id": 3,
+    "body_name": "Shinrarta Dezhra A A Belt",
+    "type": "StellarRing",
+    "parents": [
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 4,
+    "body_name": "Shinrarta Dezhra A A Belt Cluster 1",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 3
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 5,
+    "body_name": "Shinrarta Dezhra A A Belt Cluster 2",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 3
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 6,
+    "body_name": "Shinrarta Dezhra A A Belt Cluster 3",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 3
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 7,
+    "body_name": "Shinrarta Dezhra A A Belt Cluster 4",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 3
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 8,
+    "body_name": "Shinrarta Dezhra A A Belt Cluster 5",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 3
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 9,
+    "body_name": "Shinrarta Dezhra A A Belt Cluster 6",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 3
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 10,
+    "body_name": "Shinrarta Dezhra A A Belt Cluster 7",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 3
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 11,
+    "body_name": "Shinrarta Dezhra A 1",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.777331
+  },
+  {
+    "body_id": 12,
+    "body_name": "Shinrarta Dezhra A 2",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.325897
+  },
+  {
+    "body_id": 13,
+    "body_name": "Shinrarta Dezhra A 3",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 1.412444
+  },
+  {
+    "body_id": 14,
+    "body_name": "Founders World",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.69
+  },
+  {
+    "body_id": 15,
+    "body_name": "Shinrarta Dezhra B 1",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.016934
+  },
+  {
+    "body_id": 16,
+    "body_name": "Shinrarta Dezhra B 2",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.020105
+  },
+  {
+    "body_id": 17,
+    "body_name": "Shinrarta Dezhra B 3",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 270.341034
+  },
+  {
+    "body_id": 18,
+    "body_name": "Shinrarta Dezhra AB 1",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 685.480835
+  },
+  {
+    "body_id": 19,
+    "body_name": "Shinrarta Dezhra AB 1 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "ParentBody": 18
+      }
+    ]
+  },
+  {
+    "body_id": 20,
+    "body_name": "Shinrarta Dezhra AB 1 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 18
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.003891
+  },
+  {
+    "body_id": 21,
+    "body_name": "Shinrarta Dezhra AB 1 b",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 18
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.004357
+  },
+  {
+    "body_id": 22,
+    "body_name": "Shinrarta Dezhra AB 1 b a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 21
+      },
+      {
+        "Planet": 18
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000334
+  },
+  {
+    "body_id": 23,
+    "body_name": "Shinrarta Dezhra AB 1 c+d",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Planet": 18
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 24,
+    "body_name": "Shinrarta Dezhra AB 1 c",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 23
+      },
+      {
+        "Planet": 18
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.005679
+  },
+  {
+    "body_id": 25,
+    "body_name": "Shinrarta Dezhra AB 1 d",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 23
+      },
+      {
+        "Planet": 18
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.005564
+  },
+  {
+    "body_id": 26,
+    "body_name": "Shinrarta Dezhra AB 1 e",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 18
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.005336
+  },
+  {
+    "body_id": 28,
+    "body_name": "Shinrarta Dezhra AB 1 f",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 18
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.007146
+  },
+  {
+    "body_id": 30,
+    "body_name": "Shinrarta Dezhra AB 2",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 484.303284
+  },
+  {
+    "body_id": 31,
+    "body_name": "Shinrarta Dezhra AB 2 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "ParentBody": 30
+      }
+    ]
+  },
+  {
+    "body_id": 32,
+    "body_name": "Shinrarta Dezhra AB 2 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 30
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000357
+  },
+  {
+    "body_id": 33,
+    "body_name": "Shinrarta Dezhra AB 2 b",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 30
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000586
+  },
+  {
+    "body_id": 34,
+    "body_name": "Shinrarta Dezhra AB 2 c",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 30
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000344
+  },
+  {
+    "body_id": 35,
+    "body_name": "Shinrarta Dezhra AB 2 d",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 30
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001512
+  },
+  {
+    "body_id": 36,
+    "body_name": "Shinrarta Dezhra AB 2 e",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 30
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.00394
+  },
+  {
+    "body_id": 37,
+    "body_name": "Shinrarta Dezhra AB 2 f",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 30
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.010652
+  },
+  {
+    "body_id": 38,
+    "body_name": "Shinrarta Dezhra AB 2 f a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 37
+      },
+      {
+        "Planet": 30
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000179
+  },
+  {
+    "body_id": 39,
+    "body_name": "Shinrarta Dezhra AB 2 g",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 30
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.011738
+  },
+  {
+    "body_id": 40,
+    "body_name": "Shinrarta Dezhra AB 2 h",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 30
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.010854
+  },
+  {
+    "body_id": 41,
+    "body_name": "Shinrarta Dezhra AB 2 i",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 30
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.034888
+  },
+  {
+    "body_id": 42,
+    "body_name": "Shinrarta Dezhra AB 2 j",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 30
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.343425
+  },
+  {
+    "body_id": 43,
+    "body_name": "Shinrarta Dezhra AB 2 j A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "ParentBody": 42
+      }
+    ]
+  },
+  {
+    "body_id": 56,
+    "body_name": "Shinrarta Dezhra AB 3",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 72.080849
+  },
+  {
+    "body_id": 57,
+    "body_name": "Shinrarta Dezhra AB 3 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "ParentBody": 56
+      }
+    ]
+  },
+  {
+    "body_id": 58,
+    "body_name": "Shinrarta Dezhra AB 3 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 56
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001172
+  },
+  {
+    "body_id": 59,
+    "body_name": "Shinrarta Dezhra AB 3 b+c",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Planet": 56
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 60,
+    "body_name": "Shinrarta Dezhra AB 3 b",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 59
+      },
+      {
+        "Planet": 56
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000834
+  },
+  {
+    "body_id": 61,
+    "body_name": "Shinrarta Dezhra AB 3 c",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 59
+      },
+      {
+        "Planet": 56
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000534
+  },
+  {
+    "body_id": 62,
+    "body_name": "Shinrarta Dezhra AB 3 d",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 56
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.003515
+  },
+  {
+    "body_id": 63,
+    "body_name": "Shinrarta Dezhra AB 3 e",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 56
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001166
+  },
+  {
+    "body_id": 64,
+    "body_name": "Shinrarta Dezhra AB 3 f",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 56
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.003834
+  },
+  {
+    "body_id": 65,
+    "body_name": "Shinrarta Dezhra AB 3 g",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 56
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.002674
+  },
+  {
+    "body_id": 66,
+    "body_name": "Shinrarta Dezhra AB 3 h",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 56
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001448
+  },
+  {
+    "body_id": 67,
+    "body_name": "Shinrarta Dezhra AB 3 i",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 56
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.002191
+  }
+]
