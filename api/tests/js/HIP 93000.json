@@ -1,0 +1,729 @@
+[
+  {
+    "body_id": 0,
+    "body_name": "HIP 93000 ABC",
+    "type": "Barycenter",
+    "parents": []
+  },
+  {
+    "body_id": 1,
+    "body_name": "HIP 93000 AB",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 2,
+    "body_name": "HIP 93000 A",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 9.640625
+  },
+  {
+    "body_id": 3,
+    "body_name": "HIP 93000 B",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 2.039063
+  },
+  {
+    "body_id": 4,
+    "body_name": "HIP 93000 C",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 1.101563
+  },
+  {
+    "body_id": 5,
+    "body_name": "HIP 93000 AB 1",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.027344
+  },
+  {
+    "body_id": 6,
+    "body_name": "HIP 93000 AB 1 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 5
+      }
+    ]
+  },
+  {
+    "body_id": 7,
+    "body_name": "HIP 93000 AB 1 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 5
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.010099
+  },
+  {
+    "body_id": 8,
+    "body_name": "HIP 93000 AB 1 b",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 5
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.010581
+  },
+  {
+    "body_id": 9,
+    "body_name": "HIP 93000 AB 1 c",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 5
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.040724
+  },
+  {
+    "body_id": 10,
+    "body_name": "HIP 93000 AB 2+3",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 11,
+    "body_name": "HIP 93000 AB 2",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 10
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.054688
+  },
+  {
+    "body_id": 12,
+    "body_name": "HIP 93000 AB 3",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 10
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 480.659729
+  },
+  {
+    "body_id": 13,
+    "body_name": "HIP 93000 AB 3 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 12
+      }
+    ]
+  },
+  {
+    "body_id": 14,
+    "body_name": "HIP 93000 AB 4",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.1875
+  },
+  {
+    "body_id": 15,
+    "body_name": "HIP 93000 AB 4 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 14
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 1278.125244
+  },
+  {
+    "body_id": 16,
+    "body_name": "HIP 93000 AB 4 a A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 15
+      }
+    ]
+  },
+  {
+    "body_id": 17,
+    "body_name": "HIP 93000 AB 4 a B Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 15
+      }
+    ]
+  },
+  {
+    "body_id": 18,
+    "body_name": "HIP 93000 AB 5",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.132813
+  },
+  {
+    "body_id": 19,
+    "body_name": "HIP 93000 AB 5 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 18
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.062388
+  },
+  {
+    "body_id": 20,
+    "body_name": "HIP 93000 AB 5 b",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 18
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.07168
+  },
+  {
+    "body_id": 21,
+    "body_name": "HIP 93000 AB 5 c",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 18
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.257389
+  },
+  {
+    "body_id": 22,
+    "body_name": "HIP 93000 AB 5 d",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 18
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.425947
+  },
+  {
+    "body_id": 23,
+    "body_name": "HIP 93000 AB 5 d a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 22
+      },
+      {
+        "Star": 18
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.009104
+  },
+  {
+    "body_id": 24,
+    "body_name": "HIP 93000 AB 5 e",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 18
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.149935
+  },
+  {
+    "body_id": 25,
+    "body_name": "HIP 93000 AB 6",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.164063
+  },
+  {
+    "body_id": 26,
+    "body_name": "HIP 93000 AB 6 A Ring",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 25
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.005239
+  },
+  {
+    "body_id": 28,
+    "body_name": "HIP 93000 AB 6 b",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 25
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.076837
+  },
+  {
+    "body_id": 29,
+    "body_name": "HIP 93000 AB 6 b A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 28
+      }
+    ]
+  },
+  {
+    "body_id": 30,
+    "body_name": "HIP 93000 AB 6 b B Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 28
+      }
+    ]
+  },
+  {
+    "body_id": 31,
+    "body_name": "HIP 93000 C 1",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 4
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 17.856628
+  },
+  {
+    "body_id": 32,
+    "body_name": "HIP 93000 C 1 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 31
+      },
+      {
+        "Star": 4
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001344
+  },
+  {
+    "body_id": 33,
+    "body_name": "HIP 93000 C 1 b",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 31
+      },
+      {
+        "Star": 4
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000909
+  },
+  {
+    "body_id": 34,
+    "body_name": "HIP 93000 C 1 c",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 31
+      },
+      {
+        "Star": 4
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000586
+  },
+  {
+    "body_id": 35,
+    "body_name": "HIP 93000 C 1 d",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 31
+      },
+      {
+        "Star": 4
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001797
+  },
+  {
+    "body_id": 36,
+    "body_name": "HIP 93000 C 2+3",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Star": 4
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 37,
+    "body_name": "HIP 93000 C 2",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 36
+      },
+      {
+        "Star": 4
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.019531
+  },
+  {
+    "body_id": 38,
+    "body_name": "HIP 93000 C 2 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 37
+      }
+    ]
+  },
+  {
+    "body_id": 39,
+    "body_name": "HIP 93000 C 2 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 37
+      },
+      {
+        "Null": 36
+      },
+      {
+        "Star": 4
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.003174
+  },
+  {
+    "body_id": 40,
+    "body_name": "HIP 93000 C 2 b",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 37
+      },
+      {
+        "Null": 36
+      },
+      {
+        "Star": 4
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001757
+  },
+  {
+    "body_id": 41,
+    "body_name": "HIP 93000 C 2 c",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 37
+      },
+      {
+        "Null": 36
+      },
+      {
+        "Star": 4
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.00248
+  },
+  {
+    "body_id": 42,
+    "body_name": "HIP 93000 C 2 d",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 37
+      },
+      {
+        "Null": 36
+      },
+      {
+        "Star": 4
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001866
+  },
+  {
+    "body_id": 43,
+    "body_name": "HIP 93000 C 2 e",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 37
+      },
+      {
+        "Null": 36
+      },
+      {
+        "Star": 4
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.005471
+  },
+  {
+    "body_id": 44,
+    "body_name": "HIP 93000 C 2 e a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 43
+      },
+      {
+        "Star": 37
+      },
+      {
+        "Null": 36
+      },
+      {
+        "Star": 4
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000251
+  },
+  {
+    "body_id": 45,
+    "body_name": "HIP 93000 C 2 f",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 37
+      },
+      {
+        "Null": 36
+      },
+      {
+        "Star": 4
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.0031
+  },
+  {
+    "body_id": 46,
+    "body_name": "HIP 93000 C 3",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 36
+      },
+      {
+        "Star": 4
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 1.683741
+  },
+  {
+    "body_id": 47,
+    "body_name": "HIP 93000 C 3 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 46
+      }
+    ]
+  },
+  {
+    "body_id": 48,
+    "body_name": "HIP 93000 C 3 B Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 46
+      }
+    ]
+  }
+]

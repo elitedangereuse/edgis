@@ -1,0 +1,228 @@
+[
+  {
+    "body_id": 0,
+    "body_name": "Puelua BA-A g3 ABCDEFGH",
+    "type": "Barycenter",
+    "parents": []
+  },
+  {
+    "body_id": 1,
+    "body_name": "Puelua BA-A g3 ABCD",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 2,
+    "body_name": "Puelua BA-A g3 ABC",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 3,
+    "body_name": "Puelua BA-A g3 A",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 2
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 18.503906
+  },
+  {
+    "body_id": 4,
+    "body_name": "Puelua BA-A g3 BC",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Null": 2
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 5,
+    "body_name": "Puelua BA-A g3 B",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 4
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 9.996094
+  },
+  {
+    "body_id": 6,
+    "body_name": "Puelua BA-A g3 C",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 4
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 4.941406
+  },
+  {
+    "body_id": 7,
+    "body_name": "Puelua BA-A g3 D",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 7.199219
+  },
+  {
+    "body_id": 8,
+    "body_name": "Puelua BA-A g3 EFGH",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 9,
+    "body_name": "Puelua BA-A g3 E",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 8
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 10.027344
+  },
+  {
+    "body_id": 10,
+    "body_name": "Puelua BA-A g3 FGH",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Null": 8
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 11,
+    "body_name": "Puelua BA-A g3 FG",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Null": 10
+      },
+      {
+        "Null": 8
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 12,
+    "body_name": "Puelua BA-A g3 F",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 11
+      },
+      {
+        "Null": 10
+      },
+      {
+        "Null": 8
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 4.117188
+  },
+  {
+    "body_id": 13,
+    "body_name": "Puelua BA-A g3 G",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 11
+      },
+      {
+        "Null": 10
+      },
+      {
+        "Null": 8
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 2.355469
+  },
+  {
+    "body_id": 14,
+    "body_name": "Puelua BA-A g3 H",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 10
+      },
+      {
+        "Null": 8
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 4.117188
+  }
+]
