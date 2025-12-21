@@ -1,0 +1,1431 @@
+[
+  {
+    "body_id": 0,
+    "body_name": "Barycenter0",
+    "type": "Barycenter",
+    "parents": []
+  },
+  {
+    "body_id": 1,
+    "body_name": "Auphaigh KN-S e4-6 A",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 2.523438
+  },
+  {
+    "body_id": 2,
+    "body_name": "Auphaigh KN-S e4-6 BC",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 3,
+    "body_name": "Auphaigh KN-S e4-6 B",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.746094
+  },
+  {
+    "body_id": 4,
+    "body_name": "Auphaigh KN-S e4-6 C",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.292969
+  },
+  {
+    "body_id": 5,
+    "body_name": "Auphaigh KN-S e4-6 A 1",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 6.858725
+  },
+  {
+    "body_id": 6,
+    "body_name": "Auphaigh KN-S e4-6 A 1 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 5
+      }
+    ]
+  },
+  {
+    "body_id": 7,
+    "body_name": "Auphaigh KN-S e4-6 A 2",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 2.005852
+  },
+  {
+    "body_id": 8,
+    "body_name": "Auphaigh KN-S e4-6 A 2 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 7
+      }
+    ]
+  },
+  {
+    "body_id": 9,
+    "body_name": "Auphaigh KN-S e4-6 A 2 B Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 7
+      }
+    ]
+  },
+  {
+    "body_id": 10,
+    "body_name": "Auphaigh KN-S e4-6 A 3+4",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 11,
+    "body_name": "Auphaigh KN-S e4-6 A 3",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 10
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 8.056918
+  },
+  {
+    "body_id": 12,
+    "body_name": "Auphaigh KN-S e4-6 A 3 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 11
+      }
+    ]
+  },
+  {
+    "body_id": 13,
+    "body_name": "Auphaigh KN-S e4-6 A 4",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 10
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 5.153706
+  },
+  {
+    "body_id": 14,
+    "body_name": "Auphaigh KN-S e4-6 A 4 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 13
+      }
+    ]
+  },
+  {
+    "body_id": 15,
+    "body_name": "Auphaigh KN-S e4-6 A 4 B Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 13
+      }
+    ]
+  },
+  {
+    "body_id": 16,
+    "body_name": "Auphaigh KN-S e4-6 A 5",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 16.968082
+  },
+  {
+    "body_id": 17,
+    "body_name": "Auphaigh KN-S e4-6 A 5 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 16
+      }
+    ]
+  },
+  {
+    "body_id": 18,
+    "body_name": "Auphaigh KN-S e4-6 A 5 B Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 16
+      }
+    ]
+  },
+  {
+    "body_id": 19,
+    "body_name": "Auphaigh KN-S e4-6 A 5 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 16
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.002006
+  },
+  {
+    "body_id": 20,
+    "body_name": "Auphaigh KN-S e4-6 A 5 b",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 16
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000231
+  },
+  {
+    "body_id": 21,
+    "body_name": "Auphaigh KN-S e4-6 A 5 c",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 16
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000339
+  },
+  {
+    "body_id": 22,
+    "body_name": "Auphaigh KN-S e4-6 A 5 d",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 16
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000645
+  },
+  {
+    "body_id": 23,
+    "body_name": "Auphaigh KN-S e4-6 A 6+7",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 24,
+    "body_name": "Auphaigh KN-S e4-6 A 6",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 23
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 13.897738
+  },
+  {
+    "body_id": 25,
+    "body_name": "Auphaigh KN-S e4-6 A 6 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 24
+      }
+    ]
+  },
+  {
+    "body_id": 26,
+    "body_name": "Auphaigh KN-S e4-6 A 6 B Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 24
+      }
+    ]
+  },
+  {
+    "body_id": 27,
+    "body_name": "Auphaigh KN-S e4-6 A 6 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 24
+      },
+      {
+        "Null": 23
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000291
+  },
+  {
+    "body_id": 28,
+    "body_name": "Auphaigh KN-S e4-6 A 7",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 23
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 1.871057
+  },
+  {
+    "body_id": 29,
+    "body_name": "Auphaigh KN-S e4-6 A 8+9",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 30,
+    "body_name": "Auphaigh KN-S e4-6 A 8",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 29
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 33.284031
+  },
+  {
+    "body_id": 31,
+    "body_name": "Auphaigh KN-S e4-6 A 8 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 30
+      }
+    ]
+  },
+  {
+    "body_id": 32,
+    "body_name": "Auphaigh KN-S e4-6 A 8 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 30
+      },
+      {
+        "Null": 29
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001307
+  },
+  {
+    "body_id": 33,
+    "body_name": "Auphaigh KN-S e4-6 A 8 b",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 30
+      },
+      {
+        "Null": 29
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000935
+  },
+  {
+    "body_id": 34,
+    "body_name": "Auphaigh KN-S e4-6 A 9",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 29
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 3.500402
+  },
+  {
+    "body_id": 35,
+    "body_name": "Auphaigh KN-S e4-6 A 10+11",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 36,
+    "body_name": "Auphaigh KN-S e4-6 A 10",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 35
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 22.701096
+  },
+  {
+    "body_id": 37,
+    "body_name": "Auphaigh KN-S e4-6 A 10 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 36
+      }
+    ]
+  },
+  {
+    "body_id": 38,
+    "body_name": "Auphaigh KN-S e4-6 A 10 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 36
+      },
+      {
+        "Null": 35
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000492
+  },
+  {
+    "body_id": 39,
+    "body_name": "Auphaigh KN-S e4-6 A 10 b+c",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Planet": 36
+      },
+      {
+        "Null": 35
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 40,
+    "body_name": "Auphaigh KN-S e4-6 A 10 b",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 39
+      },
+      {
+        "Planet": 36
+      },
+      {
+        "Null": 35
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000541
+  },
+  {
+    "body_id": 41,
+    "body_name": "Auphaigh KN-S e4-6 A 10 c",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 39
+      },
+      {
+        "Planet": 36
+      },
+      {
+        "Null": 35
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000494
+  },
+  {
+    "body_id": 42,
+    "body_name": "Auphaigh KN-S e4-6 A 11",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 35
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 1.985621
+  },
+  {
+    "body_id": 43,
+    "body_name": "Auphaigh KN-S e4-6 A 12",
+    "type": "Star",
+    "parents": [
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.035156
+  },
+  {
+    "body_id": 44,
+    "body_name": "Auphaigh KN-S e4-6 A 12 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 43
+      }
+    ]
+  },
+  {
+    "body_id": 45,
+    "body_name": "Auphaigh KN-S e4-6 A 12 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 43
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 408.990326
+  },
+  {
+    "body_id": 46,
+    "body_name": "Auphaigh KN-S e4-6 A 12 a A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 45
+      }
+    ]
+  },
+  {
+    "body_id": 47,
+    "body_name": "Auphaigh KN-S e4-6 A 12 a B Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 45
+      }
+    ]
+  },
+  {
+    "body_id": 48,
+    "body_name": "Auphaigh KN-S e4-6 A 13",
+    "type": "Star",
+    "parents": [
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.015625
+  },
+  {
+    "body_id": 49,
+    "body_name": "Auphaigh KN-S e4-6 A 13 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 48
+      }
+    ]
+  },
+  {
+    "body_id": 50,
+    "body_name": "Auphaigh KN-S e4-6 A 13 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 48
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.002827
+  },
+  {
+    "body_id": 51,
+    "body_name": "Auphaigh KN-S e4-6 A 13 b+c",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Star": 48
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 52,
+    "body_name": "Auphaigh KN-S e4-6 A 13 b",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 51
+      },
+      {
+        "Star": 48
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001805
+  },
+  {
+    "body_id": 53,
+    "body_name": "Auphaigh KN-S e4-6 A 13 c",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 51
+      },
+      {
+        "Star": 48
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001189
+  },
+  {
+    "body_id": 54,
+    "body_name": "Auphaigh KN-S e4-6 A 13 d",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 48
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.012944
+  },
+  {
+    "body_id": 55,
+    "body_name": "Auphaigh KN-S e4-6 A 13 e",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 48
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.157841
+  },
+  {
+    "body_id": 56,
+    "body_name": "Auphaigh KN-S e4-6 A 13 e A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 55
+      }
+    ]
+  },
+  {
+    "body_id": 57,
+    "body_name": "Barycenter57",
+    "type": "Barycenter",
+    "parents": null
+  },
+  {
+    "body_id": 58,
+    "body_name": "Auphaigh KN-S e4-6 BC 1",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 57
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 882.454773
+  },
+  {
+    "body_id": 59,
+    "body_name": "Auphaigh KN-S e4-6 BC 1 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 58
+      }
+    ]
+  },
+  {
+    "body_id": 60,
+    "body_name": "Auphaigh KN-S e4-6 BC 1 B Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 58
+      }
+    ]
+  },
+  {
+    "body_id": 61,
+    "body_name": "Auphaigh KN-S e4-6 BC 1 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 58
+      },
+      {
+        "Null": 57
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.007913
+  },
+  {
+    "body_id": 62,
+    "body_name": "Auphaigh KN-S e4-6 BC 1 b",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 58
+      },
+      {
+        "Null": 57
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.004847
+  },
+  {
+    "body_id": 63,
+    "body_name": "Auphaigh KN-S e4-6 BC 1 c",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 58
+      },
+      {
+        "Null": 57
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.008187
+  },
+  {
+    "body_id": 64,
+    "body_name": "Auphaigh KN-S e4-6 BC 1 c a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 63
+      },
+      {
+        "Planet": 58
+      },
+      {
+        "Null": 57
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.00089
+  },
+  {
+    "body_id": 65,
+    "body_name": "Auphaigh KN-S e4-6 BC 1 d",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 58
+      },
+      {
+        "Null": 57
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.019778
+  },
+  {
+    "body_id": 66,
+    "body_name": "Auphaigh KN-S e4-6 BC 2+3",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Null": 57
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 67,
+    "body_name": "Auphaigh KN-S e4-6 BC 2",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 66
+      },
+      {
+        "Null": 57
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 363.834137
+  },
+  {
+    "body_id": 68,
+    "body_name": "Auphaigh KN-S e4-6 BC 2 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 67
+      }
+    ]
+  },
+  {
+    "body_id": 69,
+    "body_name": "Auphaigh KN-S e4-6 BC 2 B Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 67
+      }
+    ]
+  },
+  {
+    "body_id": 70,
+    "body_name": "Auphaigh KN-S e4-6 BC 2 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 67
+      },
+      {
+        "Null": 66
+      },
+      {
+        "Null": 57
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000406
+  },
+  {
+    "body_id": 71,
+    "body_name": "Auphaigh KN-S e4-6 BC 2 b",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 67
+      },
+      {
+        "Null": 66
+      },
+      {
+        "Null": 57
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000362
+  },
+  {
+    "body_id": 72,
+    "body_name": "Auphaigh KN-S e4-6 BC 2 c",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 67
+      },
+      {
+        "Null": 66
+      },
+      {
+        "Null": 57
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000596
+  },
+  {
+    "body_id": 73,
+    "body_name": "Auphaigh KN-S e4-6 BC 2 d",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 67
+      },
+      {
+        "Null": 66
+      },
+      {
+        "Null": 57
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001504
+  },
+  {
+    "body_id": 74,
+    "body_name": "Auphaigh KN-S e4-6 BC 3",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 66
+      },
+      {
+        "Null": 57
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 23.061367
+  },
+  {
+    "body_id": 75,
+    "body_name": "Auphaigh KN-S e4-6 BC 3 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 74
+      }
+    ]
+  },
+  {
+    "body_id": 76,
+    "body_name": "Auphaigh KN-S e4-6 BC 3 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 74
+      },
+      {
+        "Null": 66
+      },
+      {
+        "Null": 57
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001848
+  },
+  {
+    "body_id": 77,
+    "body_name": "Auphaigh KN-S e4-6 BC 4",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 630.62439
+  },
+  {
+    "body_id": 78,
+    "body_name": "Auphaigh KN-S e4-6 BC 4 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 77
+      }
+    ]
+  },
+  {
+    "body_id": 79,
+    "body_name": "Auphaigh KN-S e4-6 BC 4 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 77
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.00132
+  },
+  {
+    "body_id": 80,
+    "body_name": "Auphaigh KN-S e4-6 BC 4 b",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 77
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001821
+  },
+  {
+    "body_id": 81,
+    "body_name": "Auphaigh KN-S e4-6 BC 4 c+d",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Planet": 77
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 82,
+    "body_name": "Auphaigh KN-S e4-6 BC 4 c",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 81
+      },
+      {
+        "Planet": 77
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001444
+  },
+  {
+    "body_id": 83,
+    "body_name": "Auphaigh KN-S e4-6 BC 4 d",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 81
+      },
+      {
+        "Planet": 77
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001298
+  },
+  {
+    "body_id": 84,
+    "body_name": "Auphaigh KN-S e4-6 BC 4 e",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 77
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001627
+  },
+  {
+    "body_id": 85,
+    "body_name": "Auphaigh KN-S e4-6 BC 4 f",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 77
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001638
+  },
+  {
+    "body_id": 86,
+    "body_name": "Auphaigh KN-S e4-6 BC 4 g",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 77
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.003894
+  },
+  {
+    "body_id": 87,
+    "body_name": "Auphaigh KN-S e4-6 BC 4 h+i",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Planet": 77
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 88,
+    "body_name": "Auphaigh KN-S e4-6 BC 4 h",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 87
+      },
+      {
+        "Planet": 77
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.005119
+  },
+  {
+    "body_id": 89,
+    "body_name": "Auphaigh KN-S e4-6 BC 4 i",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 87
+      },
+      {
+        "Planet": 77
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.003323
+  },
+  {
+    "body_id": 90,
+    "body_name": "Auphaigh KN-S e4-6 BC 4 j",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 77
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.04296
+  },
+  {
+    "body_id": 91,
+    "body_name": "Auphaigh KN-S e4-6 BC 5",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 9.528117
+  },
+  {
+    "body_id": 92,
+    "body_name": "Auphaigh KN-S e4-6 BC 5 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 91
+      }
+    ]
+  }
+]

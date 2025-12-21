@@ -47,3 +47,14 @@ edgis/api$ uvicorn systems:app --reload --host 0.0.0.0 --port $UVICORN_PORT
 ```
 
 ## Frontend
+### Tests
+
+To add a now test system:
+```
+curl -s "https://edgis.elitedangereuse.fr/bodies?name_or_id=HIP%2086672" | jq '[.[] | {body_id, body_name, type, parents }  + (
+    if .type == "Star" and .stellar_mass != null then {mass: .stellar_mass}
+    elif .type == "Planet" and .mass_em != null then {mass: .mass_em}
+    else {}
+    end
+  )]
+```

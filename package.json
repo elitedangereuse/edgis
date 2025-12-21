@@ -1,0 +1,13 @@
+{
+  "name": "edgis-sysmap-tests",
+  "private": true,
+  "type": "commonjs",
+  "devDependencies": {
+    "c8": "^9.1.0"
+  },
+  "scripts": {
+    "test:js": "node --test api/tests/js/*.test.js",
+    "test:js:coverage": "c8 --reporter=lcov --reporter=text --report-dir coverage/js node --test api/tests/js/*.test.js",
+    "roots:print": "node api/tests/js/print_sysmap_roots.js"
+  }
+}

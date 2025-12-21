@@ -19,16 +19,25 @@ jobs:
         with:
           python-version: '3.10'
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Install dependencies
         run: |
           pip install -r api/requirements.txt
           pip install pytest pytest-cov
+          npm install
 
       - name: Fetch EDTS submodule
         run: git submodule update --init --recursive
 
       - name: Run tests with coverage (generates coverage.xml)
         run: cd api && make test-with-coverage
+
+      - name: Run JS tests with coverage (generates lcov.info)
+        run: npm run test:js:coverage
 
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602
