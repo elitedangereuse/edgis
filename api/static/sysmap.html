@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <meta http-equiv="X-Frame-Options" content="ALLOWALL">
+    <meta http-equiv="Content-Security-Policy" content="frame-ancestors *;">
+    <title>EDGIS:System Map</title>
+    <link rel="stylesheet" href="sysmap.css">
+    <style>
+      html[data-svg-only="true"] body {
+        margin: 0;
+      }
+      html[data-svg-only="true"] .controls-panel,
+      html[data-svg-only="true"] .toolbar,
+      html[data-svg-only="true"] .embed-panel,
+      html[data-svg-only="true"] #InfoPanel,
+      html[data-svg-only="true"] footer {
+        display: none !important;
+      }
+      html[data-svg-only="true"] #stage {
+        box-shadow: none;
+        padding: 0;
+        background: transparent;
+      }
+      html[data-svg-only="true"] #svg {
+        width: auto !important;
+        height: auto !important;
+      }
+    </style>
+    <script>
+      (function () {
+        const parseBoolQueryParam = (value) => {
+          if (value === null || value === undefined) {
+            return false;
+          }
+          if (typeof value === 'boolean') {
+            return value;
+          }
+          const normalized = String(value).trim().toLowerCase();
+          if (!normalized) {
+            return false;
+          }
+          return ['1', 'true', 'yes', 'on'].includes(normalized);
+        };
+
+        const escapeRegexComponent = (value) => {
+          const specials = new Set(['.', '*', '+', '?', '^', '$', '{', '}', '(', ')', '|', '[', ']', '\\']);
+          let escaped = '';
+          for (const char of String(value)) {
+            escaped += specials.has(char) ? '\\' + char : char;
+          }
+          return escaped;
+        };
+
+        const getQueryParam = (nameVariants) => {
+          if (!Array.isArray(nameVariants)) {
+            return null;
+          }
+          const searchParamsSupported = typeof URLSearchParams === 'function';
+          const query = window.location.search || '';
+          const params = searchParamsSupported ? new URLSearchParams(query) : null;
+          for (const name of nameVariants) {
+            if (!name) continue;
+            if (params) {
+              const value = params.get(name);
+              if (value !== null) {
+                return value;
+              }
+            } else {
+              const pattern = new RegExp('(?:^|&)' + escapeRegexComponent(name) + '=([^&]*)', 'i');
+              const match = query.slice(1).match(pattern);
+              if (match) {
+                return decodeURIComponent(match[1].replace(/\+/g, ' '));
+              }
+            }
+          }
+          return null;
+        };
+
+        const svgOnly = parseBoolQueryParam(getQueryParam(['svgOnly', 'svg_only']));
+        const defaultSystemName = 'Maia';
+        document.documentElement.dataset.svgOnly = svgOnly ? 'true' : 'false';
+        window.EDGIS_SYSMAP_CONFIG = {
+          svgOnly,
+          defaultSystemName,
+        };
+        if (!svgOnly) {
+          const panzoomScript = document.createElement('script');
+          panzoomScript.src = '/static/js/panzoom.js';
+          panzoomScript.defer = true;
+          document.head.appendChild(panzoomScript);
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div class="controls-panel" id="controlsPanel" style="display:none">
+      <div class="form-grid">
+        <label for="system">System</label>
+        <input id="system" value="Maia" list="systemSuggestions">
+        <datalist id="systemSuggestions"></datalist>
+        <button id="load" aria-label="Render">
+          <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M5 5v14l7-5.5V19h3V5h-3v5.5z" fill="currentColor"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div id="stage">
+      <svg id="svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid meet"></svg>
+
+    </div>
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <button title="Search The Galaxy" id="controlsToggleButton">
+        <svg width="26" height="26" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="2" />
+          <line x1="15" y1="15" x2="20" y2="20" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        </svg>
+      </button>
+      <button title="Body Info" id="bodyInfoButton">
+        <svg width="26" height="26" version="1.1" viewBox="0 0 23.772 23.772" xmlns="http://www.w3.org/2000/svg" style="padding-top: 4px;">
+          <circle cx="11.886" cy="11.886" r="11.41" fill="none" stroke="currentColor" stroke-dashoffset="14.411" stroke-linecap="round" stroke-linejoin="round" stroke-width=".95167" style="paint-order:stroke markers fill"/>
+          <path d="m12.384 16.304v-6.1562h-2.6777m-0.29809 6.2688h5.4987" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <path d="m13.292 6.0588a1.1804 1.1804 0 0 1-1.1804 1.1804 1.1804 1.1804 0 0 1-1.1804-1.1804 1.1804 1.1804 0 0 1 1.1804-1.1804 1.1804 1.1804 0 0 1 1.1804 1.1804zm-7.1622 13.76a2.2382 2.2382 0 0 1-2.2382 2.2382 2.2382 2.2382 0 0 1-2.2382-2.2382 2.2382 2.2382 0 0 1 2.2382-2.2382 2.2382 2.2382 0 0 1 2.2382 2.2382zm16.16-16.248a2.2382 2.2382 0 0 1-2.2382 2.2382 2.2382 2.2382 0 0 1-2.2382-2.2382 2.2382 2.2382 0 0 1 2.2382-2.2382 2.2382 2.2382 0 0 1 2.2382 2.2382z" fill="currentColor" style="paint-order:stroke markers fill"/>
+        </svg>
+      </button>
+      <button title="Open in EDGIS" id="openEdgisButton">
+        <svg style="margin-left: -2px;padding-top: 1px" width="32" height="32" version="1.1" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <clipPath id="clipPath1257">
+              <circle cx=".88424" cy=".81788" r=".19725" d="M 1.0814924,0.81788176 A 0.19724794,0.19724794 0 0 1 0.88424444,1.0151297 0.19724794,0.19724794 0 0 1 0.6869965,0.81788176 0.19724794,0.19724794 0 0 1 0.88424444,0.62063383 0.19724794,0.19724794 0 0 1 1.0814924,0.81788176 Z" display="none" style="paint-order:stroke markers fill"/>
+              <path class="powerclip" d="m-5.0925-4.878h12.068v11.895h-12.068zm6.174 5.6959a0.19725 0.19725 0 0 0-0.19725-0.19725 0.19725 0.19725 0 0 0-0.19725 0.19725 0.19725 0.19725 0 0 0 0.19725 0.19725 0.19725 0.19725 0 0 0 0.19725-0.19725z" style="paint-order:stroke markers fill"/>
+            </clipPath>
+          </defs>
+          <path transform="matrix(15.476 0 0 15.476 1.4315 -.40001)" d="m0.87444 2.0171 0.59711-1.2805-0.5873 0.081246 0.27355 0.10095zm-0.96694-1.8951 0.70644 1.2236 0.27031-0.52769-0.2396 0.16618zm2.0678 0.19796-1.4129 4e-8 0.32184 0.49794-0.024115-0.29059z" clip-path="url(#clipPath1257)" fill="currentColor"/>
+        </svg>
+      </button>
+      <button title="Download SVG" id="downloadSvgButton" style="padding-bottom: 0px;">
+        <svg width="26" height="26" version="1.1" viewBox="0 0 6.5537 7.556" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <clipPath id="clipPath4297">
+              <path d="m69.88 287.7h3.481v1.3194h-3.481zm0.8445-3.1455h1.792v3.1455h-1.792z" display="none" stroke-dashoffset="14.411" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.1041" style="paint-order:stroke markers fill"/>
+              <path class="powerclip" d="m63.364 277.16h16.554v16.554h-16.554zm6.5159 10.545v1.3194h3.481v-1.3194zm0.8445-3.1455v3.1455h1.792v-3.1455z" display="block" stroke-dashoffset="14.411" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.1041" style="paint-order:stroke markers fill"/>
+            </clipPath>
+          </defs>
+          <g transform="translate(-68.364 -282.16)">
+            <path d="m73.385 285.44a1.7438 1.7438 0 0 1-1.7438 1.7438 1.7438 1.7438 0 0 1-1.7438-1.7438 1.7438 1.7438 0 0 1 1.7438-1.7438 1.7438 1.7438 0 0 1 1.7438 1.7438zm1.4007 0a3.1446 3.1446 0 0 1-3.1446 3.1446 3.1446 3.1446 0 0 1-3.1446-3.1446 3.1446 3.1446 0 0 1 3.1446-3.1446 3.1446 3.1446 0 0 1 3.1446 3.1446z" clip-path="url(#clipPath4297)" fill="none" stroke="currentColor" stroke-width=".26458" style="paint-order:stroke markers fill"/>
+            <path d="m72.143 285.41c0 0.27735-0.22483 0.50218-0.50218 0.50218s-0.50218-0.22483-0.50218-0.50218 0.22483-0.50218 0.50218-0.50218 0.50218 0.22483 0.50218 0.50218zm-2.6133 1.7774c0 0.27735-0.22483 0.50218-0.50218 0.50218-0.27735 0-0.50218-0.22483-0.50218-0.50218s0.22483-0.50218 0.50218-0.50218c0.27735 0 0.50218 0.22483 0.50218 0.50218zm3.0533-3.4471c0 0.27735-0.22483 0.50218-0.50218 0.50218-0.27735 0-0.50218-0.22483-0.50218-0.50218s0.22483-0.50218 0.50218-0.50218c0.27735 0 0.50218 0.22483 0.50218 0.50218zm2.116-0.14116c0 0.27735-0.22483 0.50218-0.50218 0.50218s-0.50218-0.22483-0.50218-0.50218 0.22483-0.50218 0.50218-0.50218 0.50218 0.22483 0.50218 0.50218z" fill="currentColor" stroke-width=".26458" style="paint-order:stroke markers fill"/>
+            <path d="m71.649 289.5-0.0076-4.0642m-0.66147 3.5294 0.66906 0.53477 0.61296-0.54012" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width=".39688"/>
+          </g>
+        </svg>
+      </button>
+      <button title="Embed Options" id="copyEmbedButton" style="padding-bottom: 0px;">
+        <svg width="26" height="26" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M10 6 5 12l5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M14 6l5 6-5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="info-panel embed-panel" id="embedPanel" style="display:none">
+      <div class="embed-panel__header">
+        <h2>Embed this map</h2>
+      </div>
+      <p class="small">Use this URL to embed the currently viewed system map.</p>
+      <div class="embed-panel__row">
+        <input type="text" id="embedLinkInput" readonly>
+        <button type="button" class="icon-button" id="embedLinkCopyButton" aria-label="Copy embed link">
+          <svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M8 8V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <rect x="3" y="8" width="13" height="13" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span class="sr-only">Copy</span>
+        </button>
+      </div>
+      <p class="small">Or drop this iframe snippet into your page:</p>
+      <div class="embed-panel__row embed-panel__row--textarea">
+        <textarea id="embedCodeOutput" rows="3" readonly></textarea>
+        <button type="button" class="icon-button" id="embedCodeCopyButton" aria-label="Copy iframe embed code">
+          <svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M8 8V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <rect x="3" y="8" width="13" height="13" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span class="sr-only">Copy iframe code</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Info Panel -->
+    <div class="info-panel" id="InfoPanel" style="display:none">
+    </div>
+
+    <footer>
+      <div class="credit">
+        <span>
+          powered by <b><a target="_blank" href="https://edgis.elitedangereuse.fr"><span>EDGIS</span></a></b>
+          of the <b><a target="_blank" href="https://elitedangereuse.fr"><span>Élite Dangereuse</span></a></b> Team
+        </span>
+        <img src="/static/assets/logo_o.svg" alt="Élite Dangereuse Logo"/>
+      </div>
+    </footer>
+
+    <script>
+      (function () {
+        const config = window.EDGIS_SYSMAP_CONFIG || {};
+        const svgOnlyMode = Boolean(config.svgOnly);
+        const body = document.body;
+        if (body) {
+          body.classList.toggle('svg-only', svgOnlyMode);
+          body.classList.toggle('full-ui', !svgOnlyMode);
+        }
+      })();
+    </script>
+    <script src="/static/js/sysmap.js" defer></script>
+  </body>
+</html>
