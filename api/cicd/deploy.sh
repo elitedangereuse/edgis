@@ -38,8 +38,11 @@ TMP_CHANGED_FILE_LIST=$(mktemp)
 {
     echo systems.py
     echo static/index.html
+    echo static/sysmap.html
     echo static/tailwind.css
     echo static/milkyway.css
+    echo statitc/js/panzoom.js
+    echo statitc/js/sysmap.js
     for file in "${EXTRA_FILES[@]}"; do
         if [[ -n "$file" ]]; then
             echo "$file"

@@ -528,6 +528,9 @@
        'nearest-neutron': new Set(['neutron_id64']),
      };
 
+    const sameHostBaseUrl =
+      globalThis.location?.origin || `${globalThis.location?.protocol}//${globalThis.location?.host || ''}`;
+
      function getColumnLabel(key) {
        return COLUMN_LABELS[key] ?? key;
      }
@@ -934,17 +937,17 @@
          setToolMenuOpen(false);
          activateTab('lookup');
          try {
-           const homeUrl = `${globalThis.location.origin}${globalThis.location.pathname}`;
-           if (globalThis.location.href === homeUrl) {
-             globalThis.location.reload();
-           } else {
-             globalThis.location.replace(homeUrl);
-           }
-         } catch {
-           globalThis.location.reload();
-         }
-       });
-     }
+          const homeUrl = `${globalThis.location?.origin}${globalThis.location?.pathname}`;
+          if (globalThis.location?.href === homeUrl) {
+            globalThis.location?.reload?.();
+          } else {
+            globalThis.location?.replace?.(homeUrl);
+          }
+        } catch {
+          globalThis.location?.reload?.();
+        }
+      });
+    }
 
      function clearSuggestions(targetList) {
        if (targetList) {
@@ -1391,7 +1394,7 @@
          }
          const fallbackHref = bodiesEmbedOpenBtn.dataset.href;
          if (fallbackHref) {
-           window.open(fallbackHref, '_blank');
+          globalThis.open?.(fallbackHref, '_blank');
          }
        };
        bodiesEmbedOpenBtn.addEventListener('click', openBodiesEmbed);
@@ -1592,14 +1595,14 @@
 
      function openSystemMap(text, btnElement){
        const encoded = encodeURIComponent(String(text ?? ''));
-       const url = `https://elitedangereuse.fr/outils/sysmap.php?system=${encoded}`;
-       window.open(url, "_blank");
+       const url = `${sameHostBaseUrl}/static/sysmap.html?system=${encoded}`;
+      globalThis.open?.(url, "_blank");
      }
      globalThis.openSystemMap = openSystemMap;
 
      function openCoordsMap(x, y, z){
        const url = convertEdUrl(`https://elitedangereuse.fr/outils/galaxymap.php?x=${x}&y=${y}&z=${z}&radius=20`);
-       window.open(url, "_blank");
+      globalThis.open?.(url, "_blank");
      }
      globalThis.openCoordsMap = openCoordsMap;
 
@@ -2018,7 +2021,7 @@
      }
 
      function buildBodiesEmbedUrl(systemName) {
-       return `https://elitedangereuse.fr/outils/sysmap.php?svgOnly=1&system=${encodeURIComponent(systemName)}`;
+       return `${sameHostBaseUrl}/static/sysmap.html?svgOnly=1&system=${encodeURIComponent(systemName)}`;
      }
 
      function resetBodiesEmbed() {
