@@ -35,17 +35,20 @@ case "$TARGET" in
 esac
 
 TMP_CHANGED_FILE_LIST=$(mktemp)
-trap 'rm -f "$TMP_CHANGED_FILE_LIST"' EXIT
-
 {
     echo systems.py
-    find static -type f | sort
+    echo static/index.html
+    echo static/sysmap.html
+    echo static/tailwind.css
+    echo static/milkyway.css
+    echo static/js/panzoom.js
+    echo static/js/sysmap.js
     for file in "${EXTRA_FILES[@]}"; do
         if [[ -n "$file" ]]; then
             echo "$file"
         fi
     done
-} | awk '!seen[$0]++' > "$TMP_CHANGED_FILE_LIST"
+} > "$TMP_CHANGED_FILE_LIST"
 
 SSH_CMD=(ssh -p "$TARGET_PORT")
 
@@ -54,5 +57,5 @@ rsync -avuP --files-from="$TMP_CHANGED_FILE_LIST" -e "${SSH_CMD[*]}" \
       --rsync-path="sudo -u $TARGET_USER rsync" ./ "$TARGET_USER@$TARGET_HOST:$TARGET_PATH"
 
 "${SSH_CMD[@]}" "$TARGET_USER@$TARGET_HOST" sudo systemctl restart "$TARGET_SERVICE"
-"${SSH_CMD[@]}" "$TARGET_USER@$TARGET_HOST" sudo systemctl --no-pager --full status "$TARGET_SERVICE"
+"${SSH_CMD[@]}" "$TARGET_USER@$TARGET_HOST" systemctl status "$TARGET_SERVICE"
 echo
