@@ -1,9 +1,11 @@
 import os
 import logging
+import time
 import httpx
 from decimal import Decimal
 from fastapi import HTTPException
 from fastapi import FastAPI, Query
+from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import psycopg
@@ -66,6 +68,7 @@ NEIGHBORS_STATEMENT_TIMEOUT_MS = max(
 app = FastAPI()
 SYSTEM_NOT_FOUND = "System not found"
 logger = logging.getLogger(__name__)
+request_logger = logging.getLogger("uvicorn.error")
 
 # Enable CORS for your app, you can restrict it to specific domains (origins)
 
@@ -88,6 +91,39 @@ app.add_middleware(
     allow_methods=["*"],  # Allows all methods (GET, POST, etc.)
     allow_headers=["*"],  # Allows all headers
 )
+
+
+def _truncate_header_value(value: str | None, max_length: int = 300) -> str:
+    if not value:
+        return ""
+    if len(value) <= max_length:
+        return value
+    return f"{value[:max_length]}..."
+
+
+@app.middleware("http")
+async def log_get_requests(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+
+    if request.method.upper() == "GET":
+        client_host = request.client.host if request.client else "unknown"
+        ua = _truncate_header_value(request.headers.get("user-agent"))
+        referer = _truncate_header_value(request.headers.get("referer"))
+        duration_ms = round((time.perf_counter() - start) * 1000, 2)
+        request_logger.info(
+            'request_details method=%s path="%s" query="%s" status=%d ip=%s ua="%s" referer="%s" duration_ms=%s',
+            request.method,
+            request.url.path,
+            request.url.query,
+            response.status_code,
+            f"{client_host}:{request.client.port if request.client else 0}",
+            ua,
+            referer,
+            duration_ms,
+        )
+
+    return response
 
 # Database connection parameters
 DB_HOST = os.getenv("DB_HOST")
