@@ -865,6 +865,31 @@ def test_read_index_uses_configured_path(tmp_path, monkeypatch):
     assert response.path == str(custom_index)
 
 
+def test_get_request_logs_user_agent(caplog):
+    caplog.set_level("INFO", logger="uvicorn.error")
+
+    response = client.get(
+        "/systems/autocomplete",
+        params={"q": "s"},
+        headers={
+            "User-Agent": "pytest-agent/1.0",
+            "Referer": "https://example.test/from",
+        },
+    )
+
+    assert response.status_code == 200
+    message = next(
+        rec.getMessage()
+        for rec in caplog.records
+        if rec.name == "uvicorn.error"
+        and 'request_details method=GET path="/systems/autocomplete"' in rec.getMessage()
+    )
+    assert 'query="q=s"' in message
+    assert 'ua="pytest-agent/1.0"' in message
+    assert 'referer="https://example.test/from"' in message
+    assert "duration_ms=" in message
+
+
 @pytest.mark.anyio
 async def test_favicon_serves_static_png():
     response = await systems.favicon()
