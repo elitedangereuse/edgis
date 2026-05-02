@@ -82,12 +82,18 @@ def _load_cors_origins() -> list[str]:
     ]
 
 
+def _allow_cors_credentials(cors_origins: Sequence[str]) -> bool:
+    return "*" not in cors_origins
+
+
 origins = _load_cors_origins()
+allow_cors_credentials = _allow_cors_credentials(origins)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,  # Only allow specified origins
-    allow_credentials=True,
+    allow_origins=origins,
+    # Wildcard CORS cannot be combined with credentialed requests.
+    allow_credentials=allow_cors_credentials,
     allow_methods=["*"],  # Allows all methods (GET, POST, etc.)
     allow_headers=["*"],  # Allows all headers
 )

@@ -854,6 +854,13 @@ def test_load_cors_origins_respects_env(monkeypatch):
     ]
 
 
+def test_wildcard_cors_disables_credentials(monkeypatch):
+    monkeypatch.setenv("CORS_ORIGINS", "*")
+    origins = systems._load_cors_origins()
+    assert origins == ["*"]
+    assert systems._allow_cors_credentials(origins) is False
+
+
 def test_read_index_uses_configured_path(tmp_path, monkeypatch):
     custom_index = tmp_path / "custom.html"
     custom_index.write_text("<html>staging</html>", encoding="utf-8")
