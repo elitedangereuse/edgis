@@ -32,8 +32,13 @@ var Galaxy = {
 
     var objVal = new Object;
     objVal.name = 'Sagittarius A*';
-    objVal.coords = {'x':this.x,'y':this.y,'z':this.z};
-    objVal.radius = 0;
+    objVal.coords = {
+      'x': this.x,
+      'y': this.y,
+      'z': this.z,
+      'radius': 0
+    };
+    objVal.forceSolidAnchor = true;
     objVal.cat = [];
 
     this.obj = System.create(objVal, true);
@@ -218,6 +223,7 @@ var Galaxy = {
       'size': size,
       'curveSegments': 12
     });
+    if(!textShapes || textShapes.length === 0) return;
 
     var textGeo = new THREE.ShapeGeometry(textShapes);
 
@@ -237,7 +243,7 @@ var Galaxy = {
     z -= middleTxt;
 
     textMesh.rotation.x = -Math.PI / 2;
-    textMesh.geometry.applyMatrix( new THREE.Matrix4().makeTranslation(-Math.round(textShow.length*size/2), 0, -middleTxt) );
+    textMesh.geometry.applyMatrix4( new THREE.Matrix4().makeTranslation(-Math.round(textShow.length*size/2), 0, -middleTxt) );
     if(rot != 0) {
       textMesh.rotateOnAxis (new THREE.Vector3( 0, 0, 1 ), Math.PI * (rot) / 180);
     }

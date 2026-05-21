@@ -547,6 +547,7 @@ var HUD = {
             'size': size,
             'curveSegments': 100
         });
+        if(!textShapes || textShapes.length === 0) return;
 
         var textGeo = new THREE.ShapeGeometry(textShapes);
 
