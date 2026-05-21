@@ -2,8 +2,6 @@
      const sameHostBaseUrl =
        window.location?.origin || `${window.location?.protocol}//${window.location?.host || ''}`;
      const CAMERA_REFRESH_DEBOUNCE_MS = 700;
-     const CAMERA_REFRESH_RADIUS_MAX = 30;
-     const CAMERA_REFRESH_MIN_DISTANCE_LY = 5;
      let manualSystemsLookup = new Map();
      let systemData = null;
      let lastClickedSystemName = null;
@@ -14,6 +12,8 @@
      let autoRefreshRequestId = 0;
      let autoRefreshInFlight = false;
      let systemInfoRequestId = 0;
+     let lastSelectedSystemInfo = null;
+     let suppressCameraRefreshUntil = 0;
      let currentSolidSystemNames = [];
      let activeNeighborhoodRadius = 20;
 
@@ -54,17 +54,95 @@
       return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackValue;
     }
 
+    function formatCoord(value) {
+      return Number(value).toFixed(2);
+    }
+
+    function formatRadiusValue(value) {
+      const numericValue = Number(value);
+      if (!Number.isFinite(numericValue) || numericValue <= 0) {
+        return '20';
+      }
+      if (Number.isInteger(numericValue)) {
+        return String(numericValue);
+      }
+      return numericValue.toFixed(2).replace(/\.?0+$/, '');
+    }
+
+    function getCurrentRadiusParamValue() {
+      return formatRadiusValue(activeNeighborhoodRadius || getRequestedNeighborhoodRadius());
+    }
+
+    function buildNeighborsInputValue(center) {
+      if (!center) {
+        return null;
+      }
+      return [
+        formatCoord(center.x),
+        formatCoord(center.y),
+        formatCoord(center.z),
+        getCurrentRadiusParamValue()
+      ].join(',');
+    }
+
+    function buildEdgisHomeUrl(center) {
+      const url = new URL('/static/index.html', sameHostBaseUrl);
+      const neighborsValue = buildNeighborsInputValue(center);
+      if (neighborsValue) {
+        url.searchParams.set('neighbors', neighborsValue);
+      }
+      return url.toString();
+    }
+
+    function buildNeighborsJsonUrl(center) {
+      const url = new URL('/neighbors', sameHostBaseUrl);
+      if (!center) {
+        return url.toString();
+      }
+      url.searchParams.set('x', formatCoord(center.x));
+      url.searchParams.set('y', formatCoord(center.y));
+      url.searchParams.set('z', formatCoord(center.z));
+      url.searchParams.set('radius', getCurrentRadiusParamValue());
+      return url.toString();
+    }
+
+    function updateEdgisLinks(center) {
+      const homeButton = document.getElementById('openEdgisButton');
+      const jsonLink = document.getElementById('edgis');
+      const homeHref = buildEdgisHomeUrl(center);
+
+      if (homeButton) {
+        homeButton.dataset.href = homeHref;
+        homeButton.setAttribute('title', 'Open in EDGIS');
+        homeButton.setAttribute('aria-label', 'Open in EDGIS');
+      }
+
+      if (jsonLink) {
+        jsonLink.href = buildNeighborsJsonUrl(center);
+      }
+    }
+
+    function setEdgisHomeLoadingState(isLoading) {
+      const homeButton = document.getElementById('openEdgisButton');
+      if (!homeButton) {
+        return;
+      }
+      homeButton.classList.toggle('is-loading', Boolean(isLoading));
+      homeButton.setAttribute('aria-busy', isLoading ? 'true' : 'false');
+      homeButton.title = isLoading
+        ? 'Refreshing nearby systems... Open in EDGIS'
+        : 'Open in EDGIS';
+      homeButton.setAttribute('aria-label', homeButton.title);
+    }
+
     function getRequestedNeighborhoodRadius() {
-      const rawRadius = urlParams.get('radius') ?? urlParams.get('r');
+      const liveParams = new URLSearchParams(window.location.search);
+      const rawRadius = liveParams.get('radius') ?? liveParams.get('r');
       return parsePositiveNumber(rawRadius, activeNeighborhoodRadius);
     }
 
     function getAutoRefreshRadius() {
-      return Math.min(getRequestedNeighborhoodRadius(), CAMERA_REFRESH_RADIUS_MAX);
-    }
-
-    function getCameraRefreshThreshold() {
-      return Math.max(CAMERA_REFRESH_MIN_DISTANCE_LY, getAutoRefreshRadius() / 2);
+      return getRequestedNeighborhoodRadius();
     }
 
     function updateBrowserUrlFromCurrentCenter(center) {
@@ -76,9 +154,20 @@
       nextUrl.searchParams.set('x', Number(center.x).toFixed(2));
       nextUrl.searchParams.set('y', Number(center.y).toFixed(2));
       nextUrl.searchParams.set('z', Number(center.z).toFixed(2));
-      nextUrl.searchParams.set('radius', String(Math.round(activeNeighborhoodRadius || getRequestedNeighborhoodRadius())));
+      nextUrl.searchParams.set('radius', getCurrentRadiusParamValue());
       window.history.replaceState({}, '', nextUrl);
+      updateEdgisLinks(center);
     }
+
+    function suppressCameraRefresh(durationMs = 1500) {
+      suppressCameraRefreshUntil = Math.max(suppressCameraRefreshUntil, Date.now() + durationMs);
+    }
+
+    function isCameraRefreshSuppressed() {
+      return Date.now() < suppressCameraRefreshUntil;
+    }
+
+    window.EDGIS_SUPPRESS_CAMERA_REFRESH = suppressCameraRefresh;
 
      function initSolutionJson(x, y, z, mode = "simple") {
        if (mode === "expert") {
@@ -86,7 +175,7 @@
            categories: {
              EDGIS: {
                "Target": {
-                 name: `Target (${x}, ${y}, ${z})`,
+                 name: `Target (${formatCoord(x)}, ${formatCoord(y)}, ${formatCoord(z)})`,
                  color: "00ff1c"
                },
                "Neighbors": {
@@ -164,7 +253,7 @@
            categories: {
              EDGIS: {
                "Target": {
-                 name: `Target (${x}, ${y}, ${z})`,
+                 name: `Target (${formatCoord(x)}, ${formatCoord(y)}, ${formatCoord(z)})`,
                  color: "00ff1c"
                },
                "Neighbors": {
@@ -420,6 +509,54 @@
       });
     }
 
+    function showInfoPanel() {
+      const infoPanel = document.getElementById("InfoPanel");
+      if (infoPanel) {
+        infoPanel.style.display = "block";
+      }
+    }
+
+    function renderInfoPanelLoading(selectedInfo) {
+      const infoPanel = document.getElementById("InfoPanel");
+      if (!infoPanel || !selectedInfo) {
+        return;
+      }
+
+      const systemName = selectedInfo.name ?? 'Unknown';
+      const coords = selectedInfo.coords || manualSystemsLookup.get(systemName)?.coords || { x: 0, y: 0, z: 0 };
+      const radius = typeof selectedInfo.radius === 'number'
+        ? selectedInfo.radius
+        : (coords?.radius ?? 0);
+      const mainStar = selectedInfo.mainStar ?? selectedInfo?.infos?.mainStar ?? 'Unknown';
+      const distanceValue = typeof selectedInfo.distance === 'number'
+        ? `${selectedInfo.distance.toFixed(2)} LY`
+        : (typeof selectedInfo?.infos?.distance === 'number' ? `${selectedInfo.infos.distance.toFixed(2)} LY` : 'Unknown');
+
+      infoPanel.innerHTML = `
+        <article class="card">
+          <header>
+            <h2>SYSTEM INFORMATION</h2>
+            <ul>
+              <li><span style="font-size: x-large;margin-top: -7px;">${systemName}</span> <span><a title="CENTER VIEW" href="/static/galaxymap.html?x=${coords.x ?? 0}&y=${coords.y ?? 0}&z=${coords.z ?? 0}&radius=${radius ?? 0}"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-border-center" viewBox="0 0 16 16">
+                <path d="M.969 0H0v.969h.5V1h.469V.969H1V.5H.969zm.937 1h.938V0h-.938zm1.875 0h.938V0H3.78v1zm1.875 0h.938V0h-.938zM7.531.969V1h.938V.969H8.5V.5h-.031V0H7.53v.5H7.5v.469zM9.406 1h.938V0h-.938zm1.875 0h.938V0h-.938zm1.875 0h.938V0h-.938zm1.875 0h.469V.969h.5V0h-.969v.5H15v.469h.031zM1 2.844v-.938H0v.938zm6.5-.938v.938h1v-.938zm7.5 0v.938h1v-.938zM1 4.719V3.78H0v.938h1zm6.5-.938v.938h1V3.78h-1zm7.5 0v.938h1V3.78h-1zM1 6.594v-.938H0v.938zm6.5-.938v.938h1v-.938zm7.5 0v.938h1v-.938zM0 8.5v-1h16v1zm0 .906v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zm-16 .937v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zm-16 .937v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zM0 16h.969v-.5H1v-.469H.969V15H.5v.031H0zm1.906 0h.938v-1h-.938zm1.875 0h.938v-1H3.78v1zm1.875 0h.938v-1h-.938zm1.875-.5v.5h.938v-.5H8.5v-.469h-.031V15H7.53v.031H7.5v.469zm1.875.5h.938v-1h-.938zm1.875 0h.938v-1h-.938zm1.875 0h.938v-1h-.938zm1.875-.5v.5H16v-.969h-.5V15h-.469v.031H15v.469z"/>
+              </svg></a></span></li>
+            </ul>
+            <h2>ASTRONOMICAL INFORMATION</h2>
+            <ul>
+              <li><span class="label">DISTANCE: </span>${distanceValue}</li>
+              <li><span class="label">STAR CLASS: </span>${mainStar}</li>
+            </ul>
+          </header>
+          <section>
+            <h2>LOADING</h2>
+            <ul>
+              <li>Fetching bodies and main star details...</li>
+            </ul>
+          </section>
+        </article>
+      `;
+    }
+
     function collectInactiveFilterIds() {
       if (!window.$) {
         return [];
@@ -518,6 +655,11 @@
 
     async function reloadSystemsAroundCurrentCamera(center) {
       if (!center || externalSolutionJson) {
+        setEdgisHomeLoadingState(false);
+        return;
+      }
+      if (isCameraRefreshSuppressed()) {
+        setEdgisHomeLoadingState(false);
         return;
       }
       if (autoRefreshInFlight) {
@@ -525,6 +667,7 @@
         return;
       }
       autoRefreshInFlight = true;
+      setEdgisHomeLoadingState(true);
       const requestId = ++autoRefreshRequestId;
       try {
         const autoRefreshRadius = getAutoRefreshRadius();
@@ -547,6 +690,7 @@
         console.error('Failed to reload nearby systems', error);
       } finally {
         autoRefreshInFlight = false;
+        setEdgisHomeLoadingState(false);
       }
     }
 
@@ -554,17 +698,19 @@
       if (externalSolutionJson) {
         return;
       }
-      const center = getCurrentMapCenter();
-      if (!center) {
+      if (isCameraRefreshSuppressed()) {
         return;
       }
-      if (lastAutoLoadCenter && distanceBetweenCenters(center, lastAutoLoadCenter) < getCameraRefreshThreshold()) {
+      const center = getCurrentMapCenter();
+      if (!center) {
         return;
       }
       if (cameraRefreshTimer) {
         clearTimeout(cameraRefreshTimer);
       }
+      setEdgisHomeLoadingState(true);
       cameraRefreshTimer = setTimeout(() => {
+        cameraRefreshTimer = null;
         reloadSystemsAroundCurrentCamera(center);
       }, CAMERA_REFRESH_DEBOUNCE_MS);
     }
@@ -585,7 +731,8 @@
           return;
         }
         updateBrowserUrlFromCurrentCenter(center);
-        if (lastCameraTarget && distanceBetweenCenters(center, lastCameraTarget) < 0.5) {
+        if (isCameraRefreshSuppressed()) {
+          lastCameraTarget = center;
           return;
         }
         lastCameraTarget = center;
@@ -593,18 +740,35 @@
       });
     }
 
-    function computeEffectScales(systemCount) {
-      const count = Math.max(systemCount || 0, 1);
-      let effectScaleMax = 10000 / count;
-      let effectScaleMin = 1000 / count;
-      if (effectScaleMin < 1) effectScaleMin = 1;
-      if (effectScaleMin > 3) effectScaleMin = 3;
-      if (effectScaleMax < 10) effectScaleMax = 10;
-      return [effectScaleMin, effectScaleMax];
+    function clamp(value, minValue, maxValue) {
+      return Math.min(Math.max(value, minValue), maxValue);
     }
 
-    function startEd3dMap(solutionjson, playerPos, cameraPos, effectScaleMin, effectScaleMax) {
+    function computeDensityProfile(systemCount, radius) {
+      const count = Math.max(systemCount || 0, 1);
+      const effectiveRadius = parsePositiveNumber(radius, activeNeighborhoodRadius || 20);
+      const volume = (4 / 3) * Math.PI * Math.pow(effectiveRadius, 3);
+      const meanSpacing = Math.log(volume / count);
+      const densityScale = clamp(meanSpacing / 5, 0.35, 1.4);
+      const crowdingPenalty = clamp(14 / Math.max(meanSpacing, 0.01), 1, 6.5);
+      const radiusScaleFactor = clamp(Math.pow(effectiveRadius / 140, 50), 0.04, 1.5);
+      const particleScaleFactor = clamp((1 / crowdingPenalty) * radiusScaleFactor, 0.08, 1);
+      const bloomScaleFactor = Math.pow(particleScaleFactor, 0.55);
+
+      return {
+        effectScaleMin: clamp(6 * particleScaleFactor, 3.5, 10),
+        effectScaleMax: clamp(140 * particleScaleFactor + 18, 24, 150),
+        particleScaleFactor,
+        particleOpacity: clamp(((0.3 + densityScale * 0.1) * bloomScaleFactor), 0.07, 0.21)
+      };
+    }
+
+    function startEd3dMap(solutionjson, playerPos, cameraPos, densityProfile) {
       const hudpanel = true;
+      if (window.System && densityProfile?.particleOpacity) {
+        window.System.opacity = densityProfile.particleOpacity;
+      }
+      Ed3d.systemSizeScaleFactor = densityProfile?.particleScaleFactor || 1;
       Ed3d.init({
         container   : 'edmap',
         json : solutionjson,
@@ -619,7 +783,7 @@
         showNameNear: false,
         playerPos: playerPos,
         cameraPos: cameraPos,
-        effectScaleSystem : [effectScaleMin, effectScaleMax],
+        effectScaleSystem : [densityProfile.effectScaleMin, densityProfile.effectScaleMax],
         finished: function () {
           attachCameraNeighborhoodRefresh();
           refreshHudFilterCounts();
@@ -813,27 +977,31 @@
       });
 
       const { playerPos, cameraPos } = calculatePositionsFromSystems(systems);
-      const [effectScaleMin, effectScaleMax] = computeEffectScales(systems.length);
-      startEd3dMap(manualSolutionJson, playerPos, cameraPos, effectScaleMin, effectScaleMax);
+      const densityProfile = computeDensityProfile(systems.length, activeNeighborhoodRadius);
+      startEd3dMap(manualSolutionJson, playerPos, cameraPos, densityProfile);
       updateTrackedSolidSystemNames(manualSolutionJson);
       autoSelectZeroDistanceSystem(manualSolutionJson);
     }
 
     async function drawSystems(x, y, z, radius, mode) {
+      setEdgisHomeLoadingState(true);
       try {
-        activeNeighborhoodRadius = radius;
-        const solutionjson = initSolutionJson(x, y, z, mode);
-        await drawSolution(x, y, z, radius, solutionjson, mode);
-        lastAutoLoadCenter = { x, y, z };
-        lastCameraTarget = { x, y, z };
-        const [effectScaleMin, effectScaleMax] = computeEffectScales(solutionjson['systems'].length);
+       activeNeighborhoodRadius = radius;
+       const solutionjson = initSolutionJson(x, y, z, mode);
+       await drawSolution(x, y, z, radius, solutionjson, mode);
+       lastAutoLoadCenter = { x, y, z };
+       lastCameraTarget = { x, y, z };
+       updateEdgisLinks({ x, y, z });
+        const densityProfile = computeDensityProfile(solutionjson['systems'].length, radius);
         const playerPos = [x, y, z];
         const cameraPos = [x, y + (1.5 * radius), z - (1.5 * radius)];
-        startEd3dMap(solutionjson, playerPos, cameraPos, effectScaleMin, effectScaleMax);
+        startEd3dMap(solutionjson, playerPos, cameraPos, densityProfile);
         updateTrackedSolidSystemNames(solutionjson);
         autoSelectZeroDistanceSystem(solutionjson);
       } catch (error) {
         console.error(error);
+      } finally {
+        setEdgisHomeLoadingState(false);
       }
     }
 
@@ -876,11 +1044,17 @@
 
        if (externalSolutionJson) {
          edgisHref.removeAttribute('href');
+         setEdgisHomeLoadingState(false);
          renderManualSolution(externalSolutionJson);
          return;
        }
 
        edgisHref.href = convertEdUrl(window.location.href);
+       updateEdgisLinks({
+         x: parsed.x,
+         y: parsed.y,
+         z: parsed.z
+       });
        drawSystems(parsed.x, parsed.y, parsed.z, parsed.radius, raw.mode);
 
        // Optional: If someone changes params manually via form encoded hash, live-update
@@ -889,7 +1063,6 @@
 
      $( document ).on( "systemClick", async function( event, name, infos, url ) {
        const requestId = ++systemInfoRequestId;
-       document.getElementById("InfoPanel").style.display = "block";
        let s = infos;
 
        if (!s && name) {
@@ -901,6 +1074,7 @@
          return;
        }
 
+       lastSelectedSystemInfo = s;
        lastClickedSystemName = s.name ?? name ?? null;
 
        async function getSystemBodies(systemName) {
@@ -1007,13 +1181,17 @@
 
       const systemInfoButton = document.querySelector('button[title="System Info"]');
       const systemMapButton = document.querySelector('button[title="System Map"]');
+      const openEdgisButton = document.getElementById('openEdgisButton');
       const infoPanel = document.getElementById("InfoPanel");
 
       systemInfoButton.addEventListener('click', () => {
       if (infoPanel.style.display === "none" || infoPanel.style.display === "") {
-      infoPanel.style.display = "block";
+        showInfoPanel();
+        if (!infoPanel.innerHTML && lastSelectedSystemInfo) {
+          renderInfoPanelLoading(lastSelectedSystemInfo);
+        }
       } else {
-      infoPanel.style.display = "none";
+        infoPanel.style.display = "none";
       }
       });
 
@@ -1026,3 +1204,10 @@
       const url = `${sameHostBaseUrl}/static/sysmap.html?system=${encodeURIComponent(systemName)}`;
       window.open(url, "_blank");
       });
+
+      if (openEdgisButton) {
+        openEdgisButton.addEventListener('click', () => {
+          const targetUrl = openEdgisButton.dataset.href || buildEdgisHomeUrl(getCurrentMapCenter());
+          window.location.href = targetUrl;
+        });
+      }

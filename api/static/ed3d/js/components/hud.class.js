@@ -161,6 +161,9 @@ var HUD = {
      * Move camera to a target
      */
     'moveCamera' : function(from, to) {
+        if (typeof window !== 'undefined' && typeof window.EDGIS_SUPPRESS_CAMERA_REFRESH === 'function') {
+            window.EDGIS_SUPPRESS_CAMERA_REFRESH(2000);
+        }
 
         Ed3d.tween = new TWEEN.Tween(from, {override:true}).to(to, 800)
             .start()
@@ -275,8 +278,6 @@ var HUD = {
                 obj.visible = (active==1);
                 obj.filtered = (active==1);
 
-                System.particleGeo.colorsNeedUpdate = true;
-
                 //-- Sum coords to detect the center & detect the most far point
                 if(center == null) {
                     center   = new THREE.Vector3(obj.x, obj.y, obj.z);
@@ -299,7 +300,10 @@ var HUD = {
 
             });
 
-            if(nbPoint==0) return;
+            if(nbPoint==0) {
+                System.syncParticleColors();
+                return;
+            }
 
             //------------------------------------------------------------------------
             //-- Calc center of all selected points
@@ -312,6 +316,7 @@ var HUD = {
 
             $(this).data('active',active);
             $(this).toggleClass('disabled');
+            System.syncParticleColors();
 
             //-- If current selection is no more visible, disable active selection
             if(Action.oldSel != null && !Action.oldSel.visible) Action.disableSelection();
