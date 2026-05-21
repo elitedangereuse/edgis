@@ -2,6 +2,7 @@
      const sameHostBaseUrl =
        window.location?.origin || `${window.location?.protocol}//${window.location?.host || ''}`;
      const CAMERA_REFRESH_DEBOUNCE_MS = 700;
+     const CAMERA_CENTER_CHANGE_EPSILON = 0.05;
      let manualSystemsLookup = new Map();
      let systemData = null;
      let lastClickedSystemName = null;
@@ -735,8 +736,11 @@
           lastCameraTarget = center;
           return;
         }
+        const centerMoved = !lastCameraTarget || distanceBetweenCenters(center, lastCameraTarget) > CAMERA_CENTER_CHANGE_EPSILON;
         lastCameraTarget = center;
-        scheduleCameraNeighborhoodRefresh();
+        if (centerMoved) {
+          scheduleCameraNeighborhoodRefresh();
+        }
       });
     }
 

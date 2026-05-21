@@ -15,10 +15,8 @@ var Action = {
   'raycaster' : null,
   'oldSel' : null,
   'objHover' : null,
-  'pendingSelectionIndex' : null,
   'mouseUpDownTimer' : null,
   'mouseDownPosition' : null,
-  'mouseDragExceeded' : false,
   'mouseHoverTimer' : null,
   'animPosition' : null,
 
@@ -45,7 +43,8 @@ var Action = {
     var inputTarget = renderer && renderer.domElement ? renderer.domElement : container;
 
     inputTarget.addEventListener('mousedown', function(e){obj.onMouseDown(e,obj);}, false);
-    document.addEventListener('mouseup', function(e){obj.onMouseUp(e,obj);}, false);
+    inputTarget.addEventListener('mouseup', function(e){obj.onMouseUp(e,obj);}, false);
+    inputTarget.addEventListener('click', function(e){obj.onClick(e,obj);}, false);
     inputTarget.addEventListener('mousemove', function(e){obj.onMouseHover(e,obj);}, false);
 
     inputTarget.addEventListener('mousewheel', this.stopWinScroll, false );
@@ -212,15 +211,6 @@ var Action = {
   'onMouseHover' : function (e, obj) {
 
     e.preventDefault();
-
-    if (obj.mouseDownPosition !== null) {
-      var moveDx = e.clientX - obj.mouseDownPosition.x;
-      var moveDy = e.clientY - obj.mouseDownPosition.y;
-      if (Math.sqrt(moveDx * moveDx + moveDy * moveDy) > 6) {
-        obj.mouseDragExceeded = true;
-      }
-    }
-
     obj.mouseVector = obj.getMouseVectorFromEvent(e);
 
     obj.mouseVector.unproject(camera);
@@ -279,26 +269,11 @@ var Action = {
 
   'onMouseDown' : function (e, obj) {
 
-    if (e.button !== 0) return;
-
     obj.mouseUpDownTimer = Date.now();
     obj.mouseDownPosition = {
       x: e.clientX,
       y: e.clientY
     };
-    obj.mouseDragExceeded = false;
-    obj.pendingSelectionIndex = obj.objHover;
-    if (obj.pendingSelectionIndex === null) {
-      obj.pendingSelectionIndex = obj.getHoveredIndexFromEvent(e, obj);
-    }
-
-    console.debug('[EDGIS select] down', {
-      hoverIndex: obj.objHover,
-      pendingIndex: obj.pendingSelectionIndex,
-      pendingName: (obj.pendingSelectionIndex !== null && System.particleGeo && System.particleGeo.vertices[obj.pendingSelectionIndex])
-        ? System.particleGeo.vertices[obj.pendingSelectionIndex].name
-        : null
-    });
 
   },
 
@@ -308,66 +283,12 @@ var Action = {
    */
 
   'onMouseUp' : function (e, obj) {
-    if (e.button !== 0) return;
-
-    var heldSeconds = 0;
-    if (obj.mouseUpDownTimer !== null) {
-      heldSeconds = (Date.now() - obj.mouseUpDownTimer) / 1000;
-    }
-    var pointerMoved = 0;
-    if (obj.mouseDownPosition !== null) {
-      var releaseDx = e.clientX - obj.mouseDownPosition.x;
-      var releaseDy = e.clientY - obj.mouseDownPosition.y;
-      pointerMoved = Math.sqrt(releaseDx * releaseDx + releaseDy * releaseDy);
-    }
-    var canSelect = pointerMoved <= 12 && heldSeconds <= 1.5;
-
-    console.debug('[EDGIS select] up', {
-      pointerMoved: Number(pointerMoved.toFixed(2)),
-      heldSeconds: Number(heldSeconds.toFixed(3)),
-      canSelect: canSelect,
-      pendingIndex: obj.pendingSelectionIndex
-    });
-
     obj.mouseUpDownTimer = null;
     obj.mouseDownPosition = null;
-    obj.mouseDragExceeded = false;
-    if (!canSelect) {
-      console.debug('[EDGIS select] rejected');
-      obj.pendingSelectionIndex = null;
-      return;
-    }
-
-    if (obj.pendingSelectionIndex !== null
-      && System.particleGeo
-      && System.particleGeo.vertices[obj.pendingSelectionIndex] != undefined
-    ) {
-      var pendingIndex = obj.pendingSelectionIndex;
-      var pendingPoint = System.particleGeo.vertices[pendingIndex];
-      obj.pendingSelectionIndex = null;
-      if (pendingPoint.visible) {
-        console.debug('[EDGIS select] selecting pending', {
-          index: pendingIndex,
-          name: pendingPoint.name
-        });
-        obj.selectPoint(pendingIndex, pendingPoint, obj);
-        return;
-      }
-    }
-
-    obj.pendingSelectionIndex = null;
-    console.debug('[EDGIS select] fallback raycast');
-    obj.attemptSelection(e, obj);
   },
 
   'selectPoint' : function (indexPoint, selPoint, obj) {
     obj.outOnObj();
-    console.debug('[EDGIS select] selectPoint', {
-      index: indexPoint,
-      name: selPoint ? selPoint.name : null,
-      visible: !!(selPoint && selPoint.visible),
-      hasInfos: !!(selPoint && selPoint.infos)
-    });
 
     $('#hud #infos').html(
       "<h2>"+selPoint.name+"</h2>"
@@ -382,15 +303,14 @@ var Action = {
     return isMove;
   },
 
-  'attemptSelection' : function (e, obj) {
+  'onClick' : function (e, obj) {
+
+    e.preventDefault();
+
     //-- Prefer the currently hovered system. Hover targeting already matches what the user sees.
     if (obj.objHover !== null && System.particleGeo && System.particleGeo.vertices[obj.objHover] != undefined) {
       var hoveredPoint = System.particleGeo.vertices[obj.objHover];
       if(hoveredPoint.visible) {
-        console.debug('[EDGIS select] using hover fallback', {
-          index: obj.objHover,
-          name: hoveredPoint.name
-        });
         if(obj.selectPoint(obj.objHover, hoveredPoint, obj)) return;
       }
     }
@@ -402,7 +322,6 @@ var Action = {
     obj.raycaster.params.Points.threshold = obj.pointCastRadius;
 
     var intersects = obj.raycaster.intersectObjects(scene.children);
-    console.debug('[EDGIS select] raycast intersects', intersects.length);
     if (intersects.length > 0) {
 
       for( var i = 0; i < intersects.length; i++ ) {
@@ -413,10 +332,6 @@ var Action = {
           var selPoint = System.particleGeo.vertices[indexPoint];
 
           if(selPoint.visible) {
-            console.debug('[EDGIS select] raycast hit', {
-              index: indexPoint,
-              name: selPoint.name
-            });
             if(obj.selectPoint(indexPoint, selPoint, obj)) return;
           }
 
