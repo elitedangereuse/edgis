@@ -13,6 +13,7 @@
      let controlsEndListenerAttached = false;
      let autoRefreshRequestId = 0;
      let autoRefreshInFlight = false;
+     let systemInfoRequestId = 0;
      let currentSolidSystemNames = [];
      let activeNeighborhoodRadius = 20;
 
@@ -64,6 +65,19 @@
 
     function getCameraRefreshThreshold() {
       return Math.max(CAMERA_REFRESH_MIN_DISTANCE_LY, getAutoRefreshRadius() / 2);
+    }
+
+    function updateBrowserUrlFromCurrentCenter(center) {
+      if (!center || externalSolutionJson) {
+        return;
+      }
+
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.set('x', Number(center.x).toFixed(2));
+      nextUrl.searchParams.set('y', Number(center.y).toFixed(2));
+      nextUrl.searchParams.set('z', Number(center.z).toFixed(2));
+      nextUrl.searchParams.set('radius', String(Math.round(activeNeighborhoodRadius || getRequestedNeighborhoodRadius())));
+      window.history.replaceState({}, '', nextUrl);
     }
 
      function initSolutionJson(x, y, z, mode = "simple") {
@@ -528,6 +542,7 @@
         reloadDynamicNeighborhood(nextResult, viewState, inactiveFilterIds);
         lastAutoLoadCenter = center;
         activeNeighborhoodRadius = autoRefreshRadius;
+        updateBrowserUrlFromCurrentCenter(center);
       } catch (error) {
         console.error('Failed to reload nearby systems', error);
       } finally {
@@ -569,6 +584,7 @@
         if (!center) {
           return;
         }
+        updateBrowserUrlFromCurrentCenter(center);
         if (lastCameraTarget && distanceBetweenCenters(center, lastCameraTarget) < 0.5) {
           return;
         }
@@ -872,6 +888,7 @@
      })();
 
      $( document ).on( "systemClick", async function( event, name, infos, url ) {
+       const requestId = ++systemInfoRequestId;
        document.getElementById("InfoPanel").style.display = "block";
        let s = infos;
 
@@ -914,8 +931,15 @@
 
        const systemName = s.name ?? name;
        if (systemName) {
-         systemData = await getSystemBodies(systemName) ?? { name: systemName, bodies: [] };
+         const nextSystemData = await getSystemBodies(systemName) ?? { name: systemName, bodies: [] };
+         if (requestId !== systemInfoRequestId) {
+           return;
+         }
+         systemData = nextSystemData;
        } else {
+         if (requestId !== systemInfoRequestId) {
+           return;
+         }
          systemData = null;
        }
 
@@ -971,6 +995,9 @@
          `;
 
          return card;
+       }
+       if (requestId !== systemInfoRequestId) {
+         return;
        }
        document.getElementById("InfoPanel").innerHTML = "";
        // fetch main star data

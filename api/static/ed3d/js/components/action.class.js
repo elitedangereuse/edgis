@@ -16,6 +16,7 @@ var Action = {
   'oldSel' : null,
   'objHover' : null,
   'mouseUpDownTimer' : null,
+  'mouseDownPosition' : null,
   'mouseHoverTimer' : null,
   'animPosition' : null,
 
@@ -42,6 +43,7 @@ var Action = {
 
     container.addEventListener('mousedown', function(e){obj.onMouseDown(e,obj);}, false);
     container.addEventListener('mouseup', function(e){obj.onMouseUp(e,obj);}, false);
+    container.addEventListener('click', function(e){obj.onClick(e,obj);}, false);
     container.addEventListener('mousemove', function(e){obj.onMouseHover(e,obj);}, false);
 
     container.addEventListener('mousewheel', this.stopWinScroll, false );
@@ -63,6 +65,18 @@ var Action = {
   'stopWinScroll' : function (event) {
     event.preventDefault();
     event.stopPropagation();
+  },
+
+  'getMouseVectorFromEvent' : function (e) {
+    var position = $('#ed3dmap').offset();
+    var scrollPos = $(window).scrollTop();
+    position.top -= scrollPos;
+
+    return new THREE.Vector3(
+      ( ( e.clientX - position.left ) / renderer.domElement.clientWidth ) * 2 - 1,
+      - ( ( e.clientY - position.top ) / renderer.domElement.clientHeight ) * 2 + 1,
+      1
+    );
   },
 
   /**
@@ -172,16 +186,7 @@ var Action = {
   'onMouseHover' : function (e, obj) {
 
     e.preventDefault();
-
-    var position = $('#ed3dmap').offset();
-    var scrollPos = $(window).scrollTop();
-    position.top -= scrollPos;
-
-      obj.mouseVector = new THREE.Vector3(
-          ( ( e.clientX - position.left ) / renderer.domElement.clientWidth ) * 2 - 1,
-          - ( ( e.clientY - position.top ) / renderer.domElement.clientHeight ) * 2 + 1,
-          1
-      );
+    obj.mouseVector = obj.getMouseVectorFromEvent(e);
 
     obj.mouseVector.unproject(camera);
     obj.raycaster = new THREE.Raycaster(camera.position, obj.mouseVector.sub(camera.position).normalize());
@@ -240,6 +245,10 @@ var Action = {
   'onMouseDown' : function (e, obj) {
 
     obj.mouseUpDownTimer = Date.now();
+    obj.mouseDownPosition = {
+      x: e.clientX,
+      y: e.clientY
+    };
 
   },
 
@@ -249,36 +258,42 @@ var Action = {
    */
 
   'onMouseUp' : function (e, obj) {
+    obj.mouseUpDownTimer = null;
+    obj.mouseDownPosition = null;
+  },
+
+  'selectPoint' : function (indexPoint, selPoint, obj) {
+    $('#hud #infos').html(
+      "<h2>"+selPoint.name+"</h2>"
+    );
+
+    var isMove = obj.moveToObj(indexPoint, selPoint);
+    var optInfos = (selPoint.infos != undefined) ? selPoint.infos : null;
+    var optUrl   = (selPoint.url != undefined) ? selPoint.url : null;
+
+    $(document).trigger( "systemClick", [ selPoint.name, optInfos, optUrl ] );
+
+    return isMove;
+  },
+
+  'onClick' : function (e, obj) {
 
     e.preventDefault();
 
-    //-- If long clic down, don't do anything
-
-    var difference = (Date.now()-obj.mouseUpDownTimer)/1000;
-    if (difference > 0.2) {
-      obj.mouseUpDownTimer = null;
-      return;
+    //-- Prefer the currently hovered system. Hover targeting already matches what the user sees.
+    if (obj.objHover !== null && System.particleGeo && System.particleGeo.vertices[obj.objHover] != undefined) {
+      var hoveredPoint = System.particleGeo.vertices[obj.objHover];
+      if(hoveredPoint.visible) {
+        if(obj.selectPoint(obj.objHover, hoveredPoint, obj)) return;
+      }
     }
-    obj.mouseUpDownTimer = null;
 
-    //-- Raycast object
-
-    var position = $('#ed3dmap').offset();
-    var scrollPos = $(window).scrollTop();
-    position.top -= scrollPos;
-
-    obj.mouseVector = new THREE.Vector3(
-      ( ( e.clientX - position.left ) / renderer.domElement.width ) * 2 - 1,
-      - ( ( e.clientY - position.top ) / renderer.domElement.height ) * 2 + 1,
-      1);
-
-
+    //-- Fallback to a fresh click raycast.
+    obj.mouseVector = obj.getMouseVectorFromEvent(e);
     obj.mouseVector.unproject(camera);
     obj.raycaster = new THREE.Raycaster(camera.position, obj.mouseVector.sub(camera.position).normalize());
     obj.raycaster.params.Points.threshold = obj.pointCastRadius;
 
-
-    // create an array containing all objects in the scene with which the ray intersects
     var intersects = obj.raycaster.intersectObjects(scene.children);
     if (intersects.length > 0) {
 
@@ -290,30 +305,13 @@ var Action = {
           var selPoint = intersection.object.geometry.vertices[indexPoint];
 
           if(selPoint.visible) {
-            $('#hud #infos').html(
-              "<h2>"+selPoint.name+"</h2>"
-            );
-
-            var isMove = obj.moveToObj(indexPoint, selPoint);
-
-            var opt = [ selPoint.name ];
-
-            var optInfos = (selPoint.infos != undefined) ? selPoint.infos : null;
-            var optUrl   = (selPoint.url != undefined) ? selPoint.url : null;
-
-            $(document).trigger( "systemClick", [ selPoint.name, optInfos, optUrl ] );
-
-            if(isMove) return;
+            if(obj.selectPoint(indexPoint, selPoint, obj)) return;
           }
 
         }
 
         if(intersection.object.showCoord) {
-
           $('#debug').html(Math.round(intersection.point.x)+' , '+Math.round(-intersection.point.z));
-
-          //Route.addPointToRoute(Math.round(intersection.point.x),0,Math.round(-intersection.point.z));
-
         }
       }
 
@@ -444,7 +442,8 @@ var Action = {
 
   'moveToObj' : function (index, obj) {
 
-    if (this.oldSel !== null && this.oldSel == index)  return false;
+    var selectionKey = [index, obj.name, obj.x, obj.y, obj.z].join('|');
+    if (this.oldSel !== null && this.oldSel === selectionKey)  return false;
 
     controls.enabled = false;
 
@@ -453,7 +452,7 @@ var Action = {
 //    if(obj.infos != undefined) HUD.openHudDetails();
 
 
-    this.oldSel = index;
+    this.oldSel = selectionKey;
     var goX = obj.x;
     var goY = obj.y;
     var goZ = obj.z;

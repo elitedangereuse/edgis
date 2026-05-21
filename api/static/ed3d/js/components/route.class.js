@@ -76,7 +76,7 @@ var Route = {
       // color = new THREE.MeshBasicMaterial({
       //   color: Ed3d.colors[route.cat[0]]
       // });
-      colorLine = new THREE.MeshBasicMaterial({
+      colorLine = new THREE.LineBasicMaterial({
         color: Ed3d.colors[route.cat[0]]
       });
     } else {
