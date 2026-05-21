@@ -129,6 +129,72 @@ def test_get_neighbors_success(monkeypatch, expected):
     assert response.json() == [expected]
 
 
+def test_get_neighbors_cursor_requires_page_size():
+    response = client.get(
+        "/neighbors",
+        params={
+            "x": 10,
+            "y": -2,
+            "z": 5,
+            "radius": 25,
+            "cursor": "abc",
+        },
+    )
+    assert response.status_code == 400
+    assert response.json() == {"error": "cursor requires page_size"}
+
+
+def test_get_neighbors_paged_success(monkeypatch):
+    async def fake_fetch_neighbors_seeded_page_from_db(x, y, z, radius, page_size):
+        assert page_size == 100
+        return {
+            "items": [
+                {
+                    "id64": 42,
+                    "name": "Test System",
+                    "mainstar": "G",
+                    "coords": {"x": 1.0, "y": 2.0, "z": 3.0},
+                    "distance": 0.5,
+                }
+            ],
+            "has_more": True,
+            "next_cursor": "cursor-1",
+        }
+
+    monkeypatch.setattr(
+        systems,
+        "fetch_neighbors_seeded_page_from_db",
+        fake_fetch_neighbors_seeded_page_from_db,
+    )
+
+    response = client.get(
+        "/neighbors",
+        params={"x": 10, "y": -2, "z": 5, "radius": 25, "page_size": 100},
+    )
+    assert response.status_code == 200
+    assert response.json()["has_more"] is True
+    assert response.json()["next_cursor"] == "cursor-1"
+
+
+def test_neighbors_seeded_radii_for_request():
+    assert systems._neighbors_seeded_radii_for_request(12.0) == [12.0]
+    assert systems._neighbors_seeded_radii_for_request(50.0) == [20.0, 50.0]
+    assert systems._neighbors_seeded_radii_for_request(200.0) == [
+        20.0,
+        50.0,
+        100.0,
+        200.0,
+    ]
+
+
+def test_neighbors_cursor_roundtrip():
+    encoded = systems._encode_neighbors_cursor(
+        {"distance": 12.5, "name": "Sol", "id64": 42}
+    )
+    decoded = systems._decode_neighbors_cursor(encoded)
+    assert decoded == (12.5, "Sol", 42)
+
+
 class TestSystem:
     id64 = 9469999523369
     name = "Swoilz GG-B b5-4"
@@ -985,6 +1051,50 @@ async def test_fetch_neighbors_from_db_parses_rows(monkeypatch):
         select_call = executed[0]
     assert select_call[0].strip().startswith("WITH ref AS")
     assert select_call[1][-1] == 25
+
+
+@pytest.mark.anyio("asyncio")
+async def test_fetch_neighbors_page_from_db_returns_cursor(monkeypatch):
+    cursor = _patch_db(
+        monkeypatch,
+        rows=[
+            (99, "Sol", "G", "POINT Z (1 2 3)", 4.2),
+            (100, "Achenar", "A", "POINT Z (4 5 6)", 5.2),
+            (101, "Alioth", "F", "POINT Z (7 8 9)", 6.2),
+        ],
+    )
+
+    payload = await systems.fetch_neighbors_page_from_db.__wrapped__(
+        0, 0, 0, 10, 2, None, None, None
+    )  # type: ignore[attr-defined]
+
+    assert len(payload["items"]) == 2
+    assert payload["has_more"] is True
+    assert payload["next_cursor"]
+    decoded = systems._decode_neighbors_cursor(payload["next_cursor"])
+    assert decoded == (5.2, "Achenar", 100)
+    select_query, select_params = cursor.executed[-1]
+    assert "WHERE (\n                    distance > %s" not in select_query
+    assert select_params == (0, 0, 0, 10, 3)
+
+
+@pytest.mark.anyio("asyncio")
+async def test_fetch_neighbors_page_from_db_with_cursor_uses_keyset(monkeypatch):
+    cursor = _patch_db(
+        monkeypatch,
+        rows=[
+            (101, "Alioth", "F", "POINT Z (7 8 9)", 6.2),
+        ],
+    )
+
+    payload = await systems.fetch_neighbors_page_from_db.__wrapped__(
+        0, 0, 0, 10, 2, 5.2, "Achenar", 100
+    )  # type: ignore[attr-defined]
+
+    assert payload["items"][0]["id64"] == 101
+    select_query, select_params = cursor.executed[-1]
+    assert "WHERE (\n                    distance > %s" in select_query
+    assert select_params == (0, 0, 0, 10, 5.2, 5.2, "Achenar", 5.2, "Achenar", 100, 3)
 
 
 @pytest.mark.anyio("asyncio")
