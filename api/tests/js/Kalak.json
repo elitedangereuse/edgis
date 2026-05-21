@@ -1,0 +1,582 @@
+[
+  {
+    "body_id": 0,
+    "body_name": "Kalak ABC",
+    "type": "Barycenter",
+    "distance_from_arrival_ls": null,
+    "parents": []
+  },
+  {
+    "body_id": 1,
+    "body_name": "Kalak AB",
+    "type": "Barycenter",
+    "distance_from_arrival_ls": 0,
+    "parents": [
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 2,
+    "body_name": "Kalak A",
+    "type": "Star",
+    "distance_from_arrival_ls": 0,
+    "parents": [
+      {
+        "Null": 1
+      }
+    ],
+    "mass": 0.207031
+  },
+  {
+    "body_id": 3,
+    "body_name": "Kalak B",
+    "type": "Star",
+    "distance_from_arrival_ls": 130.201385,
+    "parents": [
+      {
+        "Null": 1
+      }
+    ],
+    "mass": 0.054688
+  },
+  {
+    "body_id": 4,
+    "body_name": "Kalak C",
+    "type": "Star",
+    "distance_from_arrival_ls": 945.716796,
+    "parents": [
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.089844
+  },
+  {
+    "body_id": 5,
+    "body_name": "Kalak A A Belt",
+    "type": "StellarRing",
+    "distance_from_arrival_ls": 4.692915,
+    "parents": [
+      {
+        "Star": 2
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 6,
+    "body_name": "Kalak A A Belt Cluster 1",
+    "type": "AsteroidCluster",
+    "distance_from_arrival_ls": 2.268882,
+    "parents": [
+      {
+        "Ring": 5
+      },
+      {
+        "Star": 2
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 7,
+    "body_name": "Kalak A A Belt Cluster 2",
+    "type": "AsteroidCluster",
+    "distance_from_arrival_ls": 3.725802,
+    "parents": [
+      {
+        "Ring": 5
+      },
+      {
+        "Star": 2
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 8,
+    "body_name": "Kalak A A Belt Cluster 3",
+    "type": "AsteroidCluster",
+    "distance_from_arrival_ls": 4.692915,
+    "parents": [
+      {
+        "Ring": 5
+      },
+      {
+        "Star": 2
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 9,
+    "body_name": "Kalak A 1",
+    "type": "Planet",
+    "distance_from_arrival_ls": 8.353554,
+    "parents": [
+      {
+        "Star": 2
+      },
+      {
+        "Null": 1
+      }
+    ],
+    "mass": 0.00457
+  },
+  {
+    "body_id": 10,
+    "body_name": "Kalak A 2",
+    "type": "Planet",
+    "distance_from_arrival_ls": 11.477518,
+    "parents": [
+      {
+        "Star": 2
+      },
+      {
+        "Null": 1
+      }
+    ],
+    "mass": 0.007412
+  },
+  {
+    "body_id": 11,
+    "body_name": "Kalak B A Belt",
+    "type": "StellarRing",
+    "distance_from_arrival_ls": 129.002689,
+    "parents": [
+      {
+        "Star": 3
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 12,
+    "body_name": "Kalak B A Belt Cluster 1",
+    "type": "AsteroidCluster",
+    "distance_from_arrival_ls": 129.368344,
+    "parents": [
+      {
+        "Ring": 11
+      },
+      {
+        "Star": 3
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 13,
+    "body_name": "Kalak B A Belt Cluster 2",
+    "type": "AsteroidCluster",
+    "distance_from_arrival_ls": 130.572255,
+    "parents": [
+      {
+        "Ring": 11
+      },
+      {
+        "Star": 3
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 14,
+    "body_name": "Kalak B A Belt Cluster 3",
+    "type": "AsteroidCluster",
+    "distance_from_arrival_ls": 129.002689,
+    "parents": [
+      {
+        "Ring": 11
+      },
+      {
+        "Star": 3
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 15,
+    "body_name": "Kalak B 1",
+    "type": "Planet",
+    "distance_from_arrival_ls": 130.331253,
+    "parents": [
+      {
+        "Star": 3
+      },
+      {
+        "Null": 1
+      }
+    ],
+    "mass": 0.001975
+  },
+  {
+    "body_id": 16,
+    "body_name": "Kalak B 2",
+    "type": "Planet",
+    "distance_from_arrival_ls": 129.03676,
+    "parents": [
+      {
+        "Star": 3
+      },
+      {
+        "Null": 1
+      }
+    ],
+    "mass": 0.003363
+  },
+  {
+    "body_id": 17,
+    "body_name": "Kalak B 3",
+    "type": "Planet",
+    "distance_from_arrival_ls": 133.625991,
+    "parents": [
+      {
+        "Star": 3
+      },
+      {
+        "Null": 1
+      }
+    ],
+    "mass": 0.00525
+  },
+  {
+    "body_id": 18,
+    "body_name": "Kalak ABC 1",
+    "type": "Planet",
+    "distance_from_arrival_ls": 1847.766162,
+    "parents": [
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 97.013855
+  },
+  {
+    "body_id": 19,
+    "body_name": "Kalak ABC 1 A Ring",
+    "type": "PlanetaryRing",
+    "distance_from_arrival_ls": 1847.766162,
+    "parents": [
+      {
+        "parent_id": 18
+      }
+    ]
+  },
+  {
+    "body_id": 20,
+    "body_name": "Kalak ABC 1 a",
+    "type": "Planet",
+    "distance_from_arrival_ls": 1847.115908,
+    "parents": [
+      {
+        "Planet": 18
+      }
+    ],
+    "mass": 0.000178
+  },
+  {
+    "body_id": 21,
+    "body_name": "Kalak ABC 1 b+c",
+    "type": "Barycenter",
+    "distance_from_arrival_ls": 0,
+    "parents": [
+      {
+        "Planet": 18
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 22,
+    "body_name": "Kalak ABC 1 b",
+    "type": "Planet",
+    "distance_from_arrival_ls": 1847.957833,
+    "parents": [
+      {
+        "Null": 21
+      },
+      {
+        "Planet": 18
+      }
+    ],
+    "mass": 0.000405
+  },
+  {
+    "body_id": 23,
+    "body_name": "Kalak ABC 1 c",
+    "type": "Planet",
+    "distance_from_arrival_ls": 1847.952744,
+    "parents": [
+      {
+        "Null": 21
+      },
+      {
+        "Planet": 18
+      }
+    ],
+    "mass": 0.000191
+  },
+  {
+    "body_id": 24,
+    "body_name": "Kalak ABC 1 d",
+    "type": "Planet",
+    "distance_from_arrival_ls": 1846.827823,
+    "parents": [
+      {
+        "Planet": 18
+      }
+    ],
+    "mass": 0.00022
+  },
+  {
+    "body_id": 25,
+    "body_name": "Kalak ABC 1 e+f",
+    "type": "Barycenter",
+    "distance_from_arrival_ls": 0,
+    "parents": [
+      {
+        "Planet": 18
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 26,
+    "body_name": "Kalak ABC 1 e",
+    "type": "Planet",
+    "distance_from_arrival_ls": 1847.401035,
+    "parents": [
+      {
+        "Null": 25
+      },
+      {
+        "Planet": 18
+      }
+    ],
+    "mass": 0.000986
+  },
+  {
+    "body_id": 27,
+    "body_name": "Kalak ABC 1 f",
+    "type": "Planet",
+    "distance_from_arrival_ls": 1847.379267,
+    "parents": [
+      {
+        "Null": 25
+      },
+      {
+        "Planet": 18
+      }
+    ],
+    "mass": 0.000213
+  },
+  {
+    "body_id": 28,
+    "body_name": "Kalak ABC 1 g",
+    "type": "Planet",
+    "distance_from_arrival_ls": 1843.845348,
+    "parents": [
+      {
+        "Planet": 18
+      }
+    ],
+    "mass": 0.001044
+  },
+  {
+    "body_id": 31,
+    "body_name": "Kalak ABC 1 h",
+    "type": "Planet",
+    "distance_from_arrival_ls": 1843.6228,
+    "parents": [
+      {
+        "Planet": 18
+      }
+    ],
+    "mass": 0.016259
+  },
+  {
+    "body_id": 47,
+    "body_name": "Kalak ABC 2",
+    "type": "Planet",
+    "distance_from_arrival_ls": 2645.842207,
+    "parents": [
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 11.303969
+  },
+  {
+    "body_id": 48,
+    "body_name": "Kalak ABC 2 A Ring",
+    "type": "PlanetaryRing",
+    "distance_from_arrival_ls": 2645.842207,
+    "parents": [
+      {
+        "parent_id": 47
+      }
+    ]
+  },
+  {
+    "body_id": 49,
+    "body_name": "Kalak ABC 2 B Ring",
+    "type": "PlanetaryRing",
+    "distance_from_arrival_ls": 2645.842207,
+    "parents": [
+      {
+        "parent_id": 47
+      }
+    ]
+  },
+  {
+    "body_id": 50,
+    "body_name": "Kalak ABC 2 a+b",
+    "type": "Barycenter",
+    "distance_from_arrival_ls": 0,
+    "parents": [
+      {
+        "Planet": 47
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 51,
+    "body_name": "Kalak ABC 2 a",
+    "type": "Planet",
+    "distance_from_arrival_ls": 2644.451518,
+    "parents": [
+      {
+        "Null": 50
+      },
+      {
+        "Planet": 47
+      }
+    ],
+    "mass": 0.000372
+  },
+  {
+    "body_id": 52,
+    "body_name": "Kalak ABC 2 b",
+    "type": "Planet",
+    "distance_from_arrival_ls": 2644.466551,
+    "parents": [
+      {
+        "Null": 50
+      },
+      {
+        "Planet": 47
+      }
+    ],
+    "mass": 0.000258
+  },
+  {
+    "body_id": 53,
+    "body_name": "Kalak ABC 2 c",
+    "type": "Planet",
+    "distance_from_arrival_ls": 2645.254641,
+    "parents": [
+      {
+        "Planet": 47
+      }
+    ],
+    "mass": 0.000313
+  },
+  {
+    "body_id": 54,
+    "body_name": "Kalak ABC 2 d",
+    "type": "Planet",
+    "distance_from_arrival_ls": 2642.730309,
+    "parents": [
+      {
+        "Planet": 47
+      }
+    ],
+    "mass": 0.000642
+  },
+  {
+    "body_id": 55,
+    "body_name": "Kalak ABC 2 e",
+    "type": "Planet",
+    "distance_from_arrival_ls": 2641.280693,
+    "parents": [
+      {
+        "Planet": 47
+      }
+    ],
+    "mass": 0.000207
+  },
+  {
+    "body_id": 56,
+    "body_name": "Kalak ABC 2 f",
+    "type": "Planet",
+    "distance_from_arrival_ls": 2640.249608,
+    "parents": [
+      {
+        "Planet": 47
+      }
+    ],
+    "mass": 0.000739
+  },
+  {
+    "body_id": 57,
+    "body_name": "Kalak ABC 2 g",
+    "type": "Planet",
+    "distance_from_arrival_ls": 2644.563529,
+    "parents": [
+      {
+        "Planet": 47
+      }
+    ],
+    "mass": 0.000404
+  }
+]
