@@ -15,9 +15,34 @@
        25% { transform: rotate(-12deg); }
        75% { transform: rotate(12deg); }
      }
+     @keyframes neighbors-table-refresh {
+       0% {
+         text-shadow: 0 0 0 rgba(18, 148, 214, 0);
+         filter: brightness(1);
+       }
+       30% {
+         text-shadow:
+           0 0 8px rgba(18, 148, 214, 0.95),
+           0 0 18px rgba(255, 255, 255, 0.75);
+         filter: brightness(1.7);
+       }
+       100% {
+         text-shadow: 0 0 0 rgba(18, 148, 214, 0);
+         filter: brightness(1);
+       }
+     }
      #neutronBtn.is-searching svg {
        animation: neutron-search-wobble 0.8s ease-in-out infinite;
        transform-origin: 50% 50%;
+     }
+     #resultTable.is-refreshing table,
+     #resultTable.is-refreshing td,
+     #resultTable.is-refreshing th,
+     #resultTable.is-refreshing button,
+     #resultTable.is-refreshing a,
+     #resultTable.is-refreshing p,
+     #resultTable.is-refreshing span {
+       animation: neighbors-table-refresh 0.8s ease-out;
      }
     </style>
   </head>
@@ -329,6 +354,7 @@
           </div>
         </div>
         <div id="resultTable" class="mt-3 text-sm text-gray-100 bg-transparent mono overflow-x-auto" style="display:none;"></div>
+        <div id="neighborsLoadMore" class="mt-4 flex w-full justify-end" style="display:none; width:100%; justify-content:flex-end;" hidden></div>
         <div id="docsContainer" class="text-xs mt-2" style="text-align: right;">
           <a id="apiDocsLink" target="_blank" class="text-[var(--accent-blue)] hover:underline">
             API docs <svg version="1.1" style="display:inline;margin-bottom: 1px;" width="16" height="16" viewBox="0 0 14.97 14.92" xmlns="http://www.w3.org/2000/svg">
@@ -630,6 +656,7 @@
      const systemCoordY = document.getElementById('systemCoordY');
      const systemCoordZ = document.getElementById('systemCoordZ');
      const systemNameCopyButton = document.getElementById('systemNameCopyButton');
+     const neighborsLoadMore = document.getElementById('neighborsLoadMore');
 
      const PERMALINK_PARAMS = {
        lookup: 'lookup',
@@ -706,19 +733,64 @@
          statusEl.removeAttribute('aria-label');
        }
      }
-     function showResult(url, json, kind = null) {
+
+     function hideNeighborsLoadMore() {
+       if (!neighborsLoadMore) {
+         return;
+       }
+       neighborsLoadMore.hidden = true;
+       neighborsLoadMore.style.display = 'none';
+       neighborsLoadMore.innerHTML = '';
+     }
+
+     function flashNeighborsTableRefresh() {
+       if (!resultTable) {
+         return;
+       }
+       resultTable.classList.remove('is-refreshing');
+       void resultTable.offsetWidth;
+       resultTable.classList.add('is-refreshing');
+       globalThis.setTimeout(() => {
+         resultTable.classList.remove('is-refreshing');
+       }, 500);
+     }
+
+     const NEIGHBORS_FRONTEND_PAGE_SIZE = 100;
+     let neighborsPagingState = {
+       baseParams: null,
+       items: [],
+       nextCursor: null,
+       hasMore: false,
+       isLoadingMore: false,
+     };
+
+     function resetNeighborsPagingState() {
+       neighborsPagingState = {
+         baseParams: null,
+         items: [],
+         nextCursor: null,
+         hasMore: false,
+         isLoadingMore: false,
+       };
+       hideNeighborsLoadMore();
+     }
+
+     function showResult(url, json, kind = null, options = {}) {
        if (quotePlaceholder) {
          quotePlaceholder.style.display = 'none';
        }
 
        // --- Update count and map link ---
        const countEl = document.getElementById('resultCount');
+       const countText = typeof options.countText === 'string' ? options.countText : null;
        let count = null;
        if (Array.isArray(json)) {
          count = json.length;
        }
 
-       if (count === null) {
+       if (countText !== null) {
+         countEl.textContent = countText;
+       } else if (count === null) {
          countEl.textContent = '';
        } else {
          countEl.textContent = `Found ${count} system${count !== 1 ? 's' : ''}.`;
@@ -738,6 +810,9 @@
        updateLookupActionButtons(json, kind);
        updateSystemLookupCard(json, kind);
        updateBodiesEmbed(json, kind, url);
+       if (kind !== 'neighbors' || !neighborsPagingState.baseParams) {
+         hideNeighborsLoadMore();
+       }
      }
 
      function detectResultKind(path){
@@ -766,6 +841,7 @@
      }
 
      async function callApi(path, kindHint = null){
+       resetNeighborsPagingState();
        setStatus('Querying API...');
        beginApiRequest();
        try{
@@ -819,6 +895,123 @@
      const galaxyMapBtn = document.getElementById('galaxyMapBtn');
      const systemMapBtn = document.getElementById('systemMapBtn');
      const neighborsActionBtn = document.getElementById('neighborsActionBtn');
+
+     function buildNeighborsPageUrl(params, cursor = null) {
+       const url = new URL('/neighbors', globalThis.location.origin);
+       url.searchParams.set('x', params.x);
+       url.searchParams.set('y', params.y);
+       url.searchParams.set('z', params.z);
+       url.searchParams.set('radius', params.radius);
+       url.searchParams.set('page_size', String(NEIGHBORS_FRONTEND_PAGE_SIZE));
+       if (cursor) {
+         url.searchParams.set('cursor', cursor);
+       }
+       return url;
+     }
+
+     function normalizeNeighborsPagePayload(payload, requestUrl) {
+       if (!payload || !Array.isArray(payload.items)) {
+         throw new Error('Unexpected neighbors response');
+       }
+       return {
+         items: payload.items,
+         nextCursor: typeof payload.next_cursor === 'string' && payload.next_cursor ? payload.next_cursor : null,
+         hasMore: Boolean(payload.has_more),
+         url: requestUrl,
+       };
+     }
+
+     async function fetchNeighborsPage(params, cursor = null) {
+       const url = buildNeighborsPageUrl(params, cursor);
+       setStatus('Querying API...');
+       beginApiRequest();
+       try {
+         const res = await fetch(url.toString());
+         const payload = await res.json();
+         if (!res.ok) {
+           const detail = payload && (payload.error || payload.detail);
+           throw new Error(detail || ('HTTP ' + res.status));
+         }
+         setStatus('OK — response received');
+         return normalizeNeighborsPagePayload(payload, url.toString());
+       } catch (err) {
+         showResult(url.toString(), { error: String(err.message) }, 'neighbors');
+         setStatus('Error');
+         hideNeighborsLoadMore();
+         throw err;
+       } finally {
+         endApiRequest();
+       }
+     }
+
+     function updateNeighborsLoadMore() {
+       if (!neighborsLoadMore || !neighborsPagingState.baseParams) {
+         hideNeighborsLoadMore();
+         return;
+       }
+       if (!neighborsPagingState.hasMore || !neighborsPagingState.nextCursor) {
+         hideNeighborsLoadMore();
+         return;
+       }
+       const buttonLabel = neighborsPagingState.isLoadingMore ? 'Loading...' : 'Load 100 more';
+        neighborsLoadMore.hidden = false;
+        neighborsLoadMore.style.display = 'flex';
+        neighborsLoadMore.innerHTML = `
+         <button id="neighborsLoadMoreButton" type="button" class="ml-auto inline-flex text-xs text-[var(--accent-blue)] hover:underline disabled:opacity-50 disabled:no-underline" style="margin-left:auto; text-align:right;" ${neighborsPagingState.isLoadingMore ? 'disabled' : ''}>
+           ${buttonLabel}
+         </button>
+       `;
+       document
+         .getElementById('neighborsLoadMoreButton')
+         ?.addEventListener('click', loadMoreNeighbors);
+     }
+
+     function renderNeighborsResults() {
+       if (!neighborsPagingState.baseParams) {
+         hideNeighborsLoadMore();
+         return;
+       }
+       const requestUrl = buildNeighborsPageUrl(neighborsPagingState.baseParams);
+       const countText = `Loaded ${neighborsPagingState.items.length} nearby systems.`;
+       showResult(requestUrl.toString(), neighborsPagingState.items, 'neighbors', { countText });
+       updateNeighborsLoadMore();
+       flashNeighborsTableRefresh();
+     }
+
+     async function startNeighborsSearch(params) {
+       resetNeighborsPagingState();
+       neighborsPagingState.baseParams = params;
+       try {
+         const firstPage = await fetchNeighborsPage(params);
+         neighborsPagingState.items = firstPage.items.slice();
+         neighborsPagingState.nextCursor = firstPage.nextCursor;
+         neighborsPagingState.hasMore = firstPage.hasMore;
+         renderNeighborsResults();
+       } catch {
+         resetNeighborsPagingState();
+       }
+     }
+
+     async function loadMoreNeighbors() {
+       const { baseParams, nextCursor, hasMore, isLoadingMore } = neighborsPagingState;
+       if (!baseParams || !hasMore || !nextCursor || isLoadingMore) {
+         return;
+       }
+       neighborsPagingState.isLoadingMore = true;
+       updateNeighborsLoadMore();
+       try {
+         const nextPage = await fetchNeighborsPage(baseParams, nextCursor);
+         neighborsPagingState.items = neighborsPagingState.items.concat(nextPage.items);
+         neighborsPagingState.nextCursor = nextPage.nextCursor;
+         neighborsPagingState.hasMore = nextPage.hasMore;
+         neighborsPagingState.isLoadingMore = false;
+         renderNeighborsResults();
+       } catch {
+         neighborsPagingState.isLoadingMore = false;
+         updateNeighborsLoadMore();
+         return;
+       }
+     }
 
      function updateNeutronButtonSearchingState() {
        if (!neutronBtn) return;
@@ -1236,7 +1429,7 @@
          return;
        }
        const radius = maybeRadius && maybeRadius !== '' ? maybeRadius : '20';
-       callApi(`/neighbors?x=${encodeURIComponent(x)}&y=${encodeURIComponent(y)}&z=${encodeURIComponent(z)}&radius=${encodeURIComponent(radius)}`, 'neighbors');
+       await startNeighborsSearch({ x, y, z, radius });
      }
 
      async function resolveNeighborsByName(nameInput) {
@@ -1258,7 +1451,7 @@
            throw new Error('System coordinates are incomplete');
          }
          const radius = payload.radius ?? '20';
-         callApi(`/neighbors?x=${encodeURIComponent(x)}&y=${encodeURIComponent(y)}&z=${encodeURIComponent(z)}&radius=${encodeURIComponent(radius)}`, 'neighbors');
+         await startNeighborsSearch({ x, y, z, radius });
        } catch (err) {
          setStatus(`Unable to search neighbors: ${err.message}`);
        }
@@ -1671,7 +1864,7 @@
        }
 
        const keys = pickKeysForTable(rows, kind);
-       const limited = limitRows(rows, 100);
+       const limited = kind === 'neighbors' ? rows : limitRows(rows, 100);
        const tableHtml = buildTableShell(keys, limited, kind, rows.length);
        activateTableInteractions(limited, keys, kind);
        return tableHtml;

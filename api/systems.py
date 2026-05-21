@@ -1,6 +1,8 @@
 import os
 import logging
 import time
+import base64
+import json
 from contextlib import contextmanager
 from queue import Empty, LifoQueue
 from threading import Lock
@@ -57,21 +59,44 @@ except Exception as exc:  # pragma: no cover - defensive import fallback
 load_dotenv()
 
 EXTERNAL_USER_AGENT = os.getenv("EDGIS_USER_AGENT", "EDGIS")
-NEIGHBORS_CONCURRENCY_LIMIT = 2
-_neighbors_semaphore: asyncio.Semaphore | None = None
-_neighbors_semaphore_loop: asyncio.AbstractEventLoop | None = None
+NEIGHBORS_BULK_CONCURRENCY_LIMIT = max(
+    1, int(os.getenv("NEIGHBORS_BULK_CONCURRENCY_LIMIT") or "1")
+)
+NEIGHBORS_PAGED_CONCURRENCY_LIMIT = max(
+    1, int(os.getenv("NEIGHBORS_PAGED_CONCURRENCY_LIMIT") or "4")
+)
+_neighbors_bulk_semaphore: asyncio.Semaphore | None = None
+_neighbors_bulk_semaphore_loop: asyncio.AbstractEventLoop | None = None
+_neighbors_paged_semaphore: asyncio.Semaphore | None = None
+_neighbors_paged_semaphore_loop: asyncio.AbstractEventLoop | None = None
 NEIGHBORS_MAX_RADIUS = max(
     0.0, float(os.getenv("NEIGHBORS_MAX_RADIUS") or "3000")
 )
 NEIGHBORS_DEFAULT_LIMIT = max(
-    1, int(os.getenv("NEIGHBORS_DEFAULT_LIMIT") or "1000")
+    1, int(os.getenv("NEIGHBORS_DEFAULT_LIMIT") or "100000")
 )
 NEIGHBORS_RESULT_LIMIT = max(
     NEIGHBORS_DEFAULT_LIMIT,
-    int(os.getenv("NEIGHBORS_RESULT_LIMIT") or "5000"),
+    int(os.getenv("NEIGHBORS_RESULT_LIMIT") or "100000"),
+)
+NEIGHBORS_PAGE_SIZE_DEFAULT = max(
+    1, int(os.getenv("NEIGHBORS_PAGE_SIZE_DEFAULT") or "100")
+)
+NEIGHBORS_PAGE_SIZE_MAX = max(
+    NEIGHBORS_PAGE_SIZE_DEFAULT,
+    int(os.getenv("NEIGHBORS_PAGE_SIZE_MAX") or "500"),
 )
 NEIGHBORS_STATEMENT_TIMEOUT_MS = max(
     0, int(os.getenv("NEIGHBORS_STATEMENT_TIMEOUT_MS") or "30000")
+)
+NEIGHBORS_SEEDED_RADII = tuple(
+    radius
+    for radius in (
+        20.0,
+        50.0,
+        100.0,
+    )
+    if radius > 0
 )
 app = FastAPI()
 SYSTEM_NOT_FOUND = "System not found"
@@ -115,14 +140,31 @@ def _truncate_header_value(value: str | None, max_length: int = 300) -> str:
     return f"{value[:max_length]}..."
 
 
-def _get_neighbors_semaphore() -> asyncio.Semaphore:
-    global _neighbors_semaphore, _neighbors_semaphore_loop
+def _get_neighbors_semaphore(paged: bool) -> asyncio.Semaphore:
+    global _neighbors_bulk_semaphore, _neighbors_bulk_semaphore_loop
+    global _neighbors_paged_semaphore, _neighbors_paged_semaphore_loop
 
     loop = asyncio.get_running_loop()
-    if _neighbors_semaphore is None or _neighbors_semaphore_loop is not loop:
-        _neighbors_semaphore = asyncio.Semaphore(NEIGHBORS_CONCURRENCY_LIMIT)
-        _neighbors_semaphore_loop = loop
-    return _neighbors_semaphore
+    if paged:
+        if (
+            _neighbors_paged_semaphore is None
+            or _neighbors_paged_semaphore_loop is not loop
+        ):
+            _neighbors_paged_semaphore = asyncio.Semaphore(
+                NEIGHBORS_PAGED_CONCURRENCY_LIMIT
+            )
+            _neighbors_paged_semaphore_loop = loop
+        return _neighbors_paged_semaphore
+
+    if (
+        _neighbors_bulk_semaphore is None
+        or _neighbors_bulk_semaphore_loop is not loop
+    ):
+        _neighbors_bulk_semaphore = asyncio.Semaphore(
+            NEIGHBORS_BULK_CONCURRENCY_LIMIT
+        )
+        _neighbors_bulk_semaphore_loop = loop
+    return _neighbors_bulk_semaphore
 
 
 @app.middleware("http")
@@ -623,6 +665,84 @@ def _fetch_total_systems_from_db_sync() -> int:
     return int(row[0])
 
 
+def _normalize_neighbor_row(row: Sequence[Any]) -> dict[str, Any]:
+    coords = str(row[3]).replace("POINT Z (", "").replace(")", "").split()
+    distance = row[4]
+    if isinstance(distance, (Decimal, int, float)):
+        normalized_distance: Any = float(distance)
+    else:
+        normalized_distance = distance
+    return {
+        "id64": row[0],
+        "name": row[1],
+        "mainstar": row[2],
+        "coords": {
+            "x": float(coords[0]),
+            "y": float(coords[1]),
+            "z": float(coords[2]),
+        },
+        "distance": normalized_distance,
+    }
+
+
+def _neighbors_seeded_radii_for_request(radius: float) -> list[float]:
+    radii: list[float] = [
+        seeded_radius
+        for seeded_radius in NEIGHBORS_SEEDED_RADII
+        if seeded_radius < radius
+    ]
+    radii.append(radius)
+    deduped: list[float] = []
+    for candidate in radii:
+        if deduped and deduped[-1] == candidate:
+            continue
+        deduped.append(candidate)
+    return deduped
+
+
+def _encode_neighbors_cursor(item: dict[str, Any]) -> str:
+    payload = {
+        "d": format(float(item["distance"]), ".17g"),
+        "n": str(item.get("name") or ""),
+        "i": int(item["id64"]),
+    }
+    raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _decode_neighbors_cursor(cursor: str) -> tuple[float, str, int]:
+    padded = cursor + "=" * (-len(cursor) % 4)
+    try:
+        payload = json.loads(
+            base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+        )
+        distance = float(payload["d"])
+        name = str(payload["n"])
+        id64 = int(payload["i"])
+    except (
+        ValueError,
+        TypeError,
+        KeyError,
+        json.JSONDecodeError,
+        UnicodeDecodeError,
+    ) as exc:
+        raise HTTPException(status_code=400, detail="Invalid cursor") from exc
+    return distance, name, id64
+
+
+def _neighbors_page_payload(
+    rows: Sequence[Sequence[Any]], page_size: int
+) -> dict[str, Any]:
+    items = [_normalize_neighbor_row(row) for row in rows[:page_size]]
+    has_more = len(rows) > page_size
+    next_cursor = _encode_neighbors_cursor(items[-1]) if has_more and items else None
+    return {
+        "items": items,
+        "has_more": has_more,
+        "next_cursor": next_cursor,
+    }
+
+
 @cached(
     cache=RedisCache,
     endpoint=REDIS_HOST,  # or your Redis host
@@ -656,7 +776,7 @@ def _fetch_neighbors_from_db_sync(
                 ), candidates AS (
                     SELECT
                         s.id64,
-                        s.name,
+                        COALESCE(s.name, '') AS name,
                         s.mainstar,
                         ST_AsText(s.coords) AS coordinates,
                         ST_3DDistance(s.coords, ref.geom) AS distance
@@ -665,7 +785,7 @@ def _fetch_neighbors_from_db_sync(
                 )
                 SELECT *
                 FROM candidates
-                ORDER BY distance
+                ORDER BY distance, name, id64
                 LIMIT %s;
             """
             cursor.execute(query, (x, y, z, radius, limit))
@@ -673,23 +793,144 @@ def _fetch_neighbors_from_db_sync(
         finally:
             cursor.close()
 
-    results = []
-    for row in rows:
-        coords = row[3].replace("POINT Z (", "").replace(")", "").split()
-        results.append(
-            {
-                "id64": row[0],
-                "name": row[1],
-                "mainstar": row[2],
-                "coords": {
-                    "x": float(coords[0]),
-                    "y": float(coords[1]),
-                    "z": float(coords[2]),
-                },
-                "distance": row[4],
-            }
+    return [_normalize_neighbor_row(row) for row in rows]
+
+
+@cached(
+    cache=RedisCache,
+    endpoint=REDIS_HOST,
+    port=REDIS_PORT,
+    ttl=ONE_DAY_SECONDS,
+    namespace="neighbors_paged_exact_v1",
+    serializer=PickleSerializer(),
+)
+async def fetch_neighbors_page_from_db(
+    x: float,
+    y: float,
+    z: float,
+    radius: float,
+    page_size: int,
+    cursor_distance: float | None,
+    cursor_name: str | None,
+    cursor_id64: int | None,
+):
+    return await _run_db_task(
+        _fetch_neighbors_page_from_db_sync,
+        x,
+        y,
+        z,
+        radius,
+        page_size,
+        cursor_distance,
+        cursor_name,
+        cursor_id64,
+    )
+
+
+def _fetch_neighbors_page_from_db_sync(
+    x: float,
+    y: float,
+    z: float,
+    radius: float,
+    page_size: int,
+    cursor_distance: float | None,
+    cursor_name: str | None,
+    cursor_id64: int | None,
+) -> dict[str, Any]:
+    with _db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            if NEIGHBORS_STATEMENT_TIMEOUT_MS > 0:
+                cursor.execute(
+                    f"SET LOCAL statement_timeout = {int(NEIGHBORS_STATEMENT_TIMEOUT_MS)};"
+                )
+
+            base_query = """
+                WITH ref AS (
+                    SELECT ST_SetSRID(ST_MakePoint(%s, %s, %s), 0) AS geom
+                ), candidates AS (
+                    SELECT
+                        s.id64,
+                        COALESCE(s.name, '') AS name,
+                        s.mainstar,
+                        ST_AsText(s.coords) AS coordinates,
+                        ST_3DDistance(s.coords, ref.geom) AS distance
+                    FROM systems_big s, ref
+                    WHERE ST_3DDWithin(s.coords, ref.geom, %s)
+                )
+            """
+
+            if cursor_distance is None:
+                query = (
+                    base_query
+                    + """
+                SELECT *
+                FROM candidates
+                ORDER BY distance, name, id64
+                LIMIT %s;
+                """
+                )
+                params = (x, y, z, radius, page_size + 1)
+            else:
+                query = (
+                    base_query
+                    + """
+                SELECT *
+                FROM candidates
+                WHERE (
+                    distance > %s
+                    OR (distance = %s AND name > %s)
+                    OR (distance = %s AND name = %s AND id64 > %s)
+                )
+                ORDER BY distance, name, id64
+                LIMIT %s;
+                """
+                )
+                params = (
+                    x,
+                    y,
+                    z,
+                    radius,
+                    cursor_distance,
+                    cursor_distance,
+                    cursor_name,
+                    cursor_distance,
+                    cursor_name,
+                    cursor_id64,
+                    page_size + 1,
+                )
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+        finally:
+            cursor.close()
+
+    return _neighbors_page_payload(rows, page_size)
+
+
+async def fetch_neighbors_seeded_page_from_db(
+    x: float, y: float, z: float, radius: float, page_size: int
+) -> dict[str, Any]:
+    fallback_page: dict[str, Any] | None = None
+    for candidate_radius in _neighbors_seeded_radii_for_request(radius):
+        page = await fetch_neighbors_page_from_db(
+            x,
+            y,
+            z,
+            candidate_radius,
+            page_size,
+            None,
+            None,
+            None,
         )
-    return results
+        fallback_page = page
+        if page["has_more"] or len(page["items"]) >= page_size:
+            return page
+    return fallback_page or {
+        "items": [],
+        "has_more": False,
+        "next_cursor": None,
+    }
 
 
 @app.get("/neighbors")
@@ -704,6 +945,16 @@ async def get_neighbors(
         le=NEIGHBORS_RESULT_LIMIT,
         description="Maximum number of nearby systems to return",
     ),
+    page_size: int | None = Query(
+        None,
+        ge=1,
+        le=NEIGHBORS_PAGE_SIZE_MAX,
+        description="Optional page size for paginated neighbors browsing",
+    ),
+    cursor: str | None = Query(
+        None,
+        description="Opaque cursor returned by the previous paginated neighbors page",
+    ),
 ):
     if radius <= 0:
         return JSONResponse(
@@ -717,10 +968,41 @@ async def get_neighbors(
             },
             status_code=400,
         )
-    async with _get_neighbors_semaphore():
+    if cursor and page_size is None:
+        return JSONResponse(
+            content={"error": "cursor requires page_size"}, status_code=400
+        )
+
+    paged = page_size is not None
+    async with _get_neighbors_semaphore(paged):
         try:
+            if paged:
+                if cursor:
+                    (
+                        cursor_distance,
+                        cursor_name,
+                        cursor_id64,
+                    ) = _decode_neighbors_cursor(cursor)
+                    results = await fetch_neighbors_page_from_db(
+                        x,
+                        y,
+                        z,
+                        radius,
+                        page_size,
+                        cursor_distance,
+                        cursor_name,
+                        cursor_id64,
+                    )
+                else:
+                    results = await fetch_neighbors_seeded_page_from_db(
+                        x, y, z, radius, page_size
+                    )
+                return JSONResponse(content=results)
+
             results = await fetch_neighbors_from_db(x, y, z, radius, limit)
             return JSONResponse(content=results)
+        except HTTPException:
+            raise
         except Exception as e:
             return JSONResponse(content={"error": str(e)}, status_code=500)
 
