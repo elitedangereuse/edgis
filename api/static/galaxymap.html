@@ -37,6 +37,44 @@
        z-index: 1000;
      }
 
+     @keyframes toolbar-home-refresh {
+       0% {
+         box-shadow: 0 0 0 rgba(250, 109, 0, 0);
+
+       }
+       50% {
+         box-shadow: 0 0 18px rgba(250, 109, 0, 0.45);
+
+       }
+       100% {
+         box-shadow: 0 0 0 rgba(250, 109, 0, 0)
+
+       }
+     }
+
+     @keyframes toolbar-home-logo-refresh {
+       0% {
+         transform: scale(1);
+         filter: brightness(1);
+       }
+       50% {
+         transform: scale(1.12);
+         filter: brightness(1.35) drop-shadow(0 0 8px rgba(250, 109, 0, 0.75));
+       }
+       100% {
+         transform: scale(1);
+         filter: brightness(1);
+       }
+     }
+
+     #openEdgisButton.is-loading {
+       animation: toolbar-home-refresh 0.9s ease-in-out infinite;
+     }
+
+     #openEdgisButton.is-loading svg {
+       animation: toolbar-home-logo-refresh 0.9s ease-in-out infinite;
+     }
+
      #edgisbanner {
        position: absolute;
        bottom: 0rem;
@@ -308,6 +346,17 @@
     </div>
     <!-- Toolbar -->
     <div class="toolbar">
+      <button title="Open in EDGIS" id="openEdgisButton" aria-label="Open in EDGIS">
+        <svg style="margin-left: 2px;padding-top: 6px" width="32" height="32" version="1.1" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <clipPath id="galaxymapClipPath1257">
+              <circle cx=".88424" cy=".81788" r=".19725" d="M 1.0814924,0.81788176 A 0.19724794,0.19724794 0 0 1 0.88424444,1.0151297 0.19724794,0.19724794 0 0 1 0.6869965,0.81788176 0.19724794,0.19724794 0 0 1 0.88424444,0.62063383 0.19724794,0.19724794 0 0 1 1.0814924,0.81788176 Z" display="none" style="paint-order:stroke markers fill"/>
+              <path class="powerclip" d="m-5.0925-4.878h12.068v11.895h-12.068zm6.174 5.6959a0.19725 0.19725 0 0 0-0.19725-0.19725 0.19725 0.19725 0 0 0-0.19725 0.19725 0.19725 0.19725 0 0 0 0.19725 0.19725 0.19725 0.19725 0 0 0 0.19725-0.19725z" style="paint-order:stroke markers fill"/>
+            </clipPath>
+          </defs>
+          <path transform="matrix(15.476 0 0 15.476 1.4315 -.40001)" d="m0.87444 2.0171 0.59711-1.2805-0.5873 0.081246 0.27355 0.10095zm-0.96694-1.8951 0.70644 1.2236 0.27031-0.52769-0.2396 0.16618zm2.0678 0.19796-1.4129 4e-8 0.32184 0.49794-0.024115-0.29059z" clip-path="url(#galaxymapClipPath1257)" fill="currentColor"/>
+        </svg>
+      </button>
       <button title="System Info">
         <svg width="26" height="26" version="1.1" viewBox="0 0 23.772 23.772" xmlns="http://www.w3.org/2000/svg" style="padding-top: 6px;padding-left: 1px;">
           <circle cx="11.886" cy="11.886" r="11.41" fill="none" stroke="currentColor" stroke-dashoffset="14.411" stroke-linecap="round" stroke-linejoin="round" stroke-width=".95167" style="paint-order:stroke markers fill"/>
@@ -327,6 +376,7 @@
     <div class="info-panel" id="InfoPanel" style="display:none">
     </div>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js" integrity="sha384-3ceskX3iaEnIogmQchP8opvBy3Mi7Ce34nWjpBIwVTHfGYWQS9jwHDVRnpKKHJg7" crossorigin="anonymous"></script>
+    <script>window.EDGIS_STATIC_VERSION = "20260521-1";</script>
     <script src="/static/ed3d/vendor/three-js/three.min.js"></script>
     <script src="/static/js/ed3dmap.js"></script>
     <script src="/static/js/galaxymap.js"></script>

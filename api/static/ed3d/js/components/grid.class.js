@@ -46,7 +46,7 @@ var Grid = {
 
     //-- Add global grid
 
-    var geometry = new THREE.Geometry();
+    var gridPoints = [];
     var material = new THREE.LineBasicMaterial( {
       color: 0x555555,
       transparent: true,
@@ -57,20 +57,21 @@ var Grid = {
 
     for ( var i = - size; i <= size; i += step ) {
 
-        geometry.vertices.push( new THREE.Vector3( - size, 0, i ) );
-        geometry.vertices.push( new THREE.Vector3(   size, 0, i ) );
+        gridPoints.push( new THREE.Vector3( - size, 0, i ) );
+        gridPoints.push( new THREE.Vector3(   size, 0, i ) );
 
-        geometry.vertices.push( new THREE.Vector3( i, 0, - size ) );
-        geometry.vertices.push( new THREE.Vector3( i, 0,   size ) );
+        gridPoints.push( new THREE.Vector3( i, 0, - size ) );
+        gridPoints.push( new THREE.Vector3( i, 0,   size ) );
 
     }
 
+    var geometry = new THREE.BufferGeometry().setFromPoints( gridPoints );
     this.obj = new THREE.LineSegments( geometry, material );
     this.obj.position.set(0,0,-20000);
 
     //-- Add quadrant
 
-    var quadrant = new THREE.Geometry();
+    var quadrantPoints = [];
     var material = new THREE.LineBasicMaterial( {
       color: 0x888888,
       transparent: true,
@@ -79,11 +80,12 @@ var Grid = {
       depthWrite: false
     } );
 
-    quadrant.vertices.push( new THREE.Vector3( - size, 0, 20000 ) );
-    quadrant.vertices.push( new THREE.Vector3(   size, 0, 20000 ) );
+    quadrantPoints.push( new THREE.Vector3( - size, 0, 20000 ) );
+    quadrantPoints.push( new THREE.Vector3(   size, 0, 20000 ) );
 
-    quadrant.vertices.push( new THREE.Vector3( 0, 0, - size ) );
-    quadrant.vertices.push( new THREE.Vector3( 0, 0,   size ) );
+    quadrantPoints.push( new THREE.Vector3( 0, 0, - size ) );
+    quadrantPoints.push( new THREE.Vector3( 0, 0,   size ) );
+    var quadrant = new THREE.BufferGeometry().setFromPoints( quadrantPoints );
     var quadrantL = new THREE.LineSegments( quadrant, material );
 
 

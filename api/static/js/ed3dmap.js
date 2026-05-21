@@ -111,12 +111,18 @@ var Ed3d = {
   },
 
   'starSprite' : 'textures/lensflare/star_grey2.png',
+  'assetVersion'        : (typeof window !== 'undefined' && window.EDGIS_STATIC_VERSION) ? window.EDGIS_STATIC_VERSION : '20260521-1',
 
   'colors'              : [],
   'textures'            : {},
 
   //-- Default color for system sprite
   'systemColor'         : '#eeeeee',
+
+  'versionedAssetPath' : function(path) {
+    var separator = (path.indexOf('?') === -1) ? '?' : '&';
+    return Ed3d.basePath + path + separator + 'v=' + encodeURIComponent(Ed3d.assetVersion);
+  },
 
   //-- HUD
   'withHudPanel'        : false,
@@ -187,25 +193,25 @@ var Ed3d = {
     if(typeof isMinified !== 'undefined') return Ed3d.launchMap();
 
     $.when(
-        $.getScript(Ed3d.basePath + "vendor/three-js/OrbitControls.js"),
-        $.getScript(Ed3d.basePath + "vendor/three-js/FontUtils.js"),
+        $.getScript(Ed3d.versionedAssetPath("vendor/three-js/OrbitControls.js")),
+        $.getScript(Ed3d.versionedAssetPath("vendor/three-js/FontUtils.js")),
         $.Deferred(function( deferred ){
             $( deferred.resolve );
         })
     ).done(function(){
       $.when(
-        $.getScript(Ed3d.basePath + "vendor/three-js/helvetiker_regular.typeface.js"),
+        $.getScript(Ed3d.versionedAssetPath("vendor/three-js/helvetiker_regular.typeface.js")),
 
-        $.getScript(Ed3d.basePath + "js/components/grid.class.js"),
-        $.getScript(Ed3d.basePath + "js/components/icon.class.js"),
-        $.getScript(Ed3d.basePath + "js/components/hud.class.js"),
-        $.getScript(Ed3d.basePath + "js/components/action.class.js"),
-        $.getScript(Ed3d.basePath + "js/components/route.class.js"),
-        $.getScript(Ed3d.basePath + "js/components/system.class.js"),
-        $.getScript(Ed3d.basePath + "js/components/galaxy.class.js"),
-        $.getScript(Ed3d.basePath + "js/components/heat.class.js"),
+        $.getScript(Ed3d.versionedAssetPath("js/components/grid.class.js")),
+        $.getScript(Ed3d.versionedAssetPath("js/components/icon.class.js")),
+        $.getScript(Ed3d.versionedAssetPath("js/components/hud.class.js")),
+        $.getScript(Ed3d.versionedAssetPath("js/components/action.class.js")),
+        $.getScript(Ed3d.versionedAssetPath("js/components/route.class.js")),
+        $.getScript(Ed3d.versionedAssetPath("js/components/system.class.js")),
+        $.getScript(Ed3d.versionedAssetPath("js/components/galaxy.class.js")),
+        $.getScript(Ed3d.versionedAssetPath("js/components/heat.class.js")),
 
-        $.getScript(Ed3d.basePath + "vendor/tween-js/Tween.js"),
+        $.getScript(Ed3d.versionedAssetPath("vendor/tween-js/Tween.js")),
 
         $.Deferred(function( deferred ){
             $( deferred.resolve );
@@ -610,16 +616,15 @@ var Ed3d = {
   'skyboxStars' : function() {
 
     var sizeStars = 10000;
-
-    var particles = new THREE.Geometry;
+    var positions = new Float32Array( 5 * 3 );
     for (var p = 0; p < 5; p++) {
-      var particle = new THREE.Vector3(
-        Math.random() * sizeStars - (sizeStars / 2),
-        Math.random() * sizeStars - (sizeStars / 2),
-        Math.random() * sizeStars - (sizeStars / 2)
-      );
-      particles.vertices.push(particle);
+      positions[ (p * 3) ] = Math.random() * sizeStars - (sizeStars / 2);
+      positions[ (p * 3) + 1 ] = Math.random() * sizeStars - (sizeStars / 2);
+      positions[ (p * 3) + 2 ] = Math.random() * sizeStars - (sizeStars / 2);
     }
+
+    var particles = new THREE.BufferGeometry();
+    particles.setAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
 
     var particleMaterial = new THREE.PointsMaterial({
       color: 0xeeeeee,
