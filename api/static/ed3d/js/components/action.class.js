@@ -15,8 +15,10 @@ var Action = {
   'raycaster' : null,
   'oldSel' : null,
   'objHover' : null,
+  'pendingSelectionIndex' : null,
   'mouseUpDownTimer' : null,
   'mouseDownPosition' : null,
+  'mouseDragExceeded' : false,
   'mouseHoverTimer' : null,
   'animPosition' : null,
 
@@ -40,14 +42,14 @@ var Action = {
     this.raycaster = new THREE.Raycaster();
 
     var obj = this;
+    var inputTarget = renderer && renderer.domElement ? renderer.domElement : container;
 
-    container.addEventListener('mousedown', function(e){obj.onMouseDown(e,obj);}, false);
-    container.addEventListener('mouseup', function(e){obj.onMouseUp(e,obj);}, false);
-    container.addEventListener('click', function(e){obj.onClick(e,obj);}, false);
-    container.addEventListener('mousemove', function(e){obj.onMouseHover(e,obj);}, false);
+    inputTarget.addEventListener('mousedown', function(e){obj.onMouseDown(e,obj);}, false);
+    document.addEventListener('mouseup', function(e){obj.onMouseUp(e,obj);}, false);
+    inputTarget.addEventListener('mousemove', function(e){obj.onMouseHover(e,obj);}, false);
 
-    container.addEventListener('mousewheel', this.stopWinScroll, false );
-    container.addEventListener('DOMMouseScroll', this.stopWinScroll, false ); // FF
+    inputTarget.addEventListener('mousewheel', this.stopWinScroll, false );
+    inputTarget.addEventListener('DOMMouseScroll', this.stopWinScroll, false ); // FF
 
 
     if(Ed3d.showNameNear) {
@@ -79,6 +81,29 @@ var Action = {
     );
   },
 
+  'getHoveredIndexFromEvent' : function (e, obj) {
+    obj.mouseVector = obj.getMouseVectorFromEvent(e);
+    obj.mouseVector.unproject(camera);
+    obj.raycaster = new THREE.Raycaster(camera.position, obj.mouseVector.sub(camera.position).normalize());
+    obj.raycaster.params.Points.threshold = obj.pointCastRadius;
+
+    var intersects = obj.raycaster.intersectObjects(scene.children);
+    if (intersects.length > 0) {
+      for ( var i = 0; i < intersects.length; i++ ) {
+        var intersection = intersects[ i ];
+        if(intersection.object.clickable) {
+          var indexPoint = intersection.index;
+          var selPoint = System.particleGeo.vertices[indexPoint];
+          if(selPoint && selPoint.visible) {
+            return indexPoint;
+          }
+        }
+      }
+    }
+
+    return null;
+  },
+
   /**
    * Update point click radius: increase radius with distance
    */
@@ -100,7 +125,8 @@ var Action = {
 
     var minScale = Ed3d.effectScaleSystem[0];
     var maxScale = Ed3d.effectScaleSystem[1];
-    var newScale = scale*20;
+    var densityFactor = Ed3d.systemSizeScaleFactor || 1;
+    var newScale = (48 * densityFactor) / Math.pow(scale, 0.35);
 
     if(this.prevScale == newScale) return;
     this.prevScale = newScale;
@@ -142,7 +168,7 @@ var Action = {
         if(intersection.object.clickable) {
 
           var indexPoint = intersection.index;
-          var selPoint = intersection.object.geometry.vertices[indexPoint];
+          var selPoint = System.particleGeo.vertices[indexPoint];
 
           if(selPoint.visible) {
             var textAdd = selPoint.name;
@@ -186,6 +212,15 @@ var Action = {
   'onMouseHover' : function (e, obj) {
 
     e.preventDefault();
+
+    if (obj.mouseDownPosition !== null) {
+      var moveDx = e.clientX - obj.mouseDownPosition.x;
+      var moveDy = e.clientY - obj.mouseDownPosition.y;
+      if (Math.sqrt(moveDx * moveDx + moveDy * moveDy) > 6) {
+        obj.mouseDragExceeded = true;
+      }
+    }
+
     obj.mouseVector = obj.getMouseVectorFromEvent(e);
 
     obj.mouseVector.unproject(camera);
@@ -201,7 +236,7 @@ var Action = {
         if(intersection.object.clickable) {
 
           var indexPoint = intersection.index;
-          var selPoint = intersection.object.geometry.vertices[indexPoint];
+          var selPoint = System.particleGeo.vertices[indexPoint];
 
           if(selPoint.visible) {
             Action.hoverOnObj(indexPoint);
@@ -244,11 +279,26 @@ var Action = {
 
   'onMouseDown' : function (e, obj) {
 
+    if (e.button !== 0) return;
+
     obj.mouseUpDownTimer = Date.now();
     obj.mouseDownPosition = {
       x: e.clientX,
       y: e.clientY
     };
+    obj.mouseDragExceeded = false;
+    obj.pendingSelectionIndex = obj.objHover;
+    if (obj.pendingSelectionIndex === null) {
+      obj.pendingSelectionIndex = obj.getHoveredIndexFromEvent(e, obj);
+    }
+
+    console.debug('[EDGIS select] down', {
+      hoverIndex: obj.objHover,
+      pendingIndex: obj.pendingSelectionIndex,
+      pendingName: (obj.pendingSelectionIndex !== null && System.particleGeo && System.particleGeo.vertices[obj.pendingSelectionIndex])
+        ? System.particleGeo.vertices[obj.pendingSelectionIndex].name
+        : null
+    });
 
   },
 
@@ -258,11 +308,67 @@ var Action = {
    */
 
   'onMouseUp' : function (e, obj) {
+    if (e.button !== 0) return;
+
+    var heldSeconds = 0;
+    if (obj.mouseUpDownTimer !== null) {
+      heldSeconds = (Date.now() - obj.mouseUpDownTimer) / 1000;
+    }
+    var pointerMoved = 0;
+    if (obj.mouseDownPosition !== null) {
+      var releaseDx = e.clientX - obj.mouseDownPosition.x;
+      var releaseDy = e.clientY - obj.mouseDownPosition.y;
+      pointerMoved = Math.sqrt(releaseDx * releaseDx + releaseDy * releaseDy);
+    }
+    var canSelect = pointerMoved <= 12 && heldSeconds <= 1.5;
+
+    console.debug('[EDGIS select] up', {
+      pointerMoved: Number(pointerMoved.toFixed(2)),
+      heldSeconds: Number(heldSeconds.toFixed(3)),
+      canSelect: canSelect,
+      pendingIndex: obj.pendingSelectionIndex
+    });
+
     obj.mouseUpDownTimer = null;
     obj.mouseDownPosition = null;
+    obj.mouseDragExceeded = false;
+    if (!canSelect) {
+      console.debug('[EDGIS select] rejected');
+      obj.pendingSelectionIndex = null;
+      return;
+    }
+
+    if (obj.pendingSelectionIndex !== null
+      && System.particleGeo
+      && System.particleGeo.vertices[obj.pendingSelectionIndex] != undefined
+    ) {
+      var pendingIndex = obj.pendingSelectionIndex;
+      var pendingPoint = System.particleGeo.vertices[pendingIndex];
+      obj.pendingSelectionIndex = null;
+      if (pendingPoint.visible) {
+        console.debug('[EDGIS select] selecting pending', {
+          index: pendingIndex,
+          name: pendingPoint.name
+        });
+        obj.selectPoint(pendingIndex, pendingPoint, obj);
+        return;
+      }
+    }
+
+    obj.pendingSelectionIndex = null;
+    console.debug('[EDGIS select] fallback raycast');
+    obj.attemptSelection(e, obj);
   },
 
   'selectPoint' : function (indexPoint, selPoint, obj) {
+    obj.outOnObj();
+    console.debug('[EDGIS select] selectPoint', {
+      index: indexPoint,
+      name: selPoint ? selPoint.name : null,
+      visible: !!(selPoint && selPoint.visible),
+      hasInfos: !!(selPoint && selPoint.infos)
+    });
+
     $('#hud #infos').html(
       "<h2>"+selPoint.name+"</h2>"
     );
@@ -276,14 +382,15 @@ var Action = {
     return isMove;
   },
 
-  'onClick' : function (e, obj) {
-
-    e.preventDefault();
-
+  'attemptSelection' : function (e, obj) {
     //-- Prefer the currently hovered system. Hover targeting already matches what the user sees.
     if (obj.objHover !== null && System.particleGeo && System.particleGeo.vertices[obj.objHover] != undefined) {
       var hoveredPoint = System.particleGeo.vertices[obj.objHover];
       if(hoveredPoint.visible) {
+        console.debug('[EDGIS select] using hover fallback', {
+          index: obj.objHover,
+          name: hoveredPoint.name
+        });
         if(obj.selectPoint(obj.objHover, hoveredPoint, obj)) return;
       }
     }
@@ -295,6 +402,7 @@ var Action = {
     obj.raycaster.params.Points.threshold = obj.pointCastRadius;
 
     var intersects = obj.raycaster.intersectObjects(scene.children);
+    console.debug('[EDGIS select] raycast intersects', intersects.length);
     if (intersects.length > 0) {
 
       for( var i = 0; i < intersects.length; i++ ) {
@@ -302,9 +410,13 @@ var Action = {
         if(intersection.object.clickable) {
 
           var indexPoint = intersection.index;
-          var selPoint = intersection.object.geometry.vertices[indexPoint];
+          var selPoint = System.particleGeo.vertices[indexPoint];
 
           if(selPoint.visible) {
+            console.debug('[EDGIS select] raycast hit', {
+              index: indexPoint,
+              name: selPoint.name
+            });
             if(obj.selectPoint(indexPoint, selPoint, obj)) return;
           }
 
@@ -369,6 +481,9 @@ var Action = {
    * Move to inital position without animation
    */
   'moveInitalPositionNoAnim' : function (timer) {
+    if (typeof window !== 'undefined' && typeof window.EDGIS_SUPPRESS_CAMERA_REFRESH === 'function') {
+      window.EDGIS_SUPPRESS_CAMERA_REFRESH(1500);
+    }
 
     var cam = [Ed3d.playerPos[0], Ed3d.playerPos[1]+500, -Ed3d.playerPos[2]+500];
     if(Ed3d.cameraPos != null) {
@@ -390,6 +505,9 @@ var Action = {
   'moveInitalPosition' : function (timer) {
 
     if(timer == undefined) timer = 800;
+    if (typeof window !== 'undefined' && typeof window.EDGIS_SUPPRESS_CAMERA_REFRESH === 'function') {
+      window.EDGIS_SUPPRESS_CAMERA_REFRESH(timer + 1200);
+    }
 
     this.disableSelection();
 
@@ -441,52 +559,12 @@ var Action = {
    */
 
   'moveToObj' : function (index, obj) {
-
-    var selectionKey = [index, obj.name, obj.x, obj.y, obj.z].join('|');
-    if (this.oldSel !== null && this.oldSel === selectionKey)  return false;
-
-    controls.enabled = false;
-
     HUD.setInfoPanel(index, obj);
 
-//    if(obj.infos != undefined) HUD.openHudDetails();
-
-
-    this.oldSel = selectionKey;
+    this.oldSel = [index, obj.name, obj.x, obj.y, obj.z].join('|');
     var goX = obj.x;
     var goY = obj.y;
     var goZ = obj.z;
-
-    //-- If in far view reset to classic view
-    disableFarView(25, false);
-
-    //-- Move grid to object
-    this.moveGridTo(goX, goY, goZ);
-
-    //-- Move camera to target (Smooth move using Tween)
-
-    var moveFrom = {
-      x: camera.position.x, y: camera.position.y , z: camera.position.z,
-      mx: controls.target.x, my: controls.target.y , mz: controls.target.z
-    };
-    var moveCoords = {
-      x: goX, y: goY + 15, z: goZ + 15,
-      mx: goX, my: goY , mz: goZ
-    };
-
-    Ed3d.tween = new TWEEN.Tween(moveFrom, {override:true}).to(moveCoords, 800)
-      .start()
-      .onUpdate(function () {
-        camera.position.set(moveFrom.x, moveFrom.y, moveFrom.z);
-        controls.target.set(moveFrom.mx, moveFrom.my, moveFrom.mz);
-      })
-      .onComplete(function () {
-        controls.update();
-      });
-
-    //-- 3D Cursor on selected object
-
-    obj.material = Ed3d.material.selected;
 
     this.addCursorOnSelect(goX, goY, goZ);
 
@@ -496,8 +574,6 @@ var Action = {
 
     HUD.addText('system',  textAdd, 8, 20, 0, 6, this.cursor.selection);
     HUD.addText('coords',  textAddC, 8, 15, 0, 3, this.cursor.selection);
-
-    controls.enabled = true;
 
     return true;
 
@@ -546,7 +622,11 @@ var Action = {
 
     this.cursor.selection.visible = true;
     this.cursor.selection.position.set(x, y, z);
-    this.cursor.hover.scale.set(this.cursorScale, this.cursorScale, this.cursorScale);
+    this.cursor.selection.scale.set(this.cursorScale, this.cursorScale, this.cursorScale);
+    if(this.cursor.hover != null) {
+      this.cursor.hover.visible = false;
+      this.cursor.hover.scale.set(this.cursorScale, this.cursorScale, this.cursorScale);
+    }
 
   },
 

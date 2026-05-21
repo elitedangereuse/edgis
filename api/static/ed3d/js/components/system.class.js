@@ -7,6 +7,7 @@ var System = {
     'particleInfos' : [],
     'count' : 0,
     'scaleSize' : 64,
+    'opacity' : 0.76,
 
     /**
      * Add a system in galaxy
@@ -40,7 +41,7 @@ var System = {
 
             //-- If system with info already registered, concat datas
             var idSys = x+'_'+y+'_'+z;
-            if(val.infos != undefined && this.particleInfos[idSys]) {
+            if(val.infos != undefined && this.particleInfos[idSys] !== undefined) {
                 var indexParticle = this.particleInfos[idSys];
                 this.particleGeo.vertices[indexParticle].infos += val.infos;
                 if(val.cat != undefined) Ed3d.addObjToCategories(indexParticle,val.cat);
@@ -165,7 +166,27 @@ var System = {
      */
 
     'initParticleSystem' : function () {
-        this.particleGeo = new THREE.Geometry;
+        this.particleGeo = {
+            vertices: [],
+            colors: [],
+            colorsNeedUpdate: false
+        };
+    },
+
+    'syncParticleColors' : function () {
+
+        if(this.particle == null || this.particle.geometry == null || this.particleGeo == null) return;
+
+        var colorAttr = this.particle.geometry.getAttribute('color');
+        if(colorAttr == null) return;
+
+        for (var i = 0; i < this.particleGeo.colors.length; i++) {
+            var color = this.particleGeo.colors[i] || new THREE.Color(Ed3d.systemColor);
+            colorAttr.setXYZ(i, color.r, color.g, color.b);
+        }
+
+        colorAttr.needsUpdate = true;
+        this.particleGeo.colorsNeedUpdate = false;
     },
 
     /**
@@ -178,18 +199,41 @@ var System = {
 
         this.particleGeo.colors = this.particleColor;
 
+        var particleCount = this.particleGeo.vertices.length;
+        var positions = new Float32Array( particleCount * 3 );
+        var colors = new Float32Array( particleCount * 3 );
+
+        for (var i = 0; i < particleCount; i++) {
+            var particle = this.particleGeo.vertices[i];
+            var color = this.particleGeo.colors[i] || new THREE.Color(Ed3d.systemColor);
+
+            positions[ (i * 3) ] = particle.x;
+            positions[ (i * 3) + 1 ] = particle.y;
+            positions[ (i * 3) + 2 ] = particle.z;
+
+            colors[ (i * 3) ] = color.r;
+            colors[ (i * 3) + 1 ] = color.g;
+            colors[ (i * 3) + 2 ] = color.b;
+        }
+
+        var particleGeometry = new THREE.BufferGeometry();
+        particleGeometry.setAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
+        particleGeometry.setAttribute( 'color', new THREE.BufferAttribute( colors, 3 ) );
+
         var particleMaterial = new THREE.PointsMaterial({
-            map: Ed3d.textures.flare_yellow,
+            alphaMap: Ed3d.textures.flare_yellow,
             vertexColors: THREE.VertexColors,
+            color: 0xffffff,
             size: this.scaleSize,
             fog: false,
             blending: THREE.AdditiveBlending,
             transparent: true,
+            opacity: this.opacity,
             depthTest: true,
             depthWrite: false
         });
 
-        this.particle = new THREE.Points(this.particleGeo, particleMaterial);
+        this.particle = new THREE.Points(particleGeometry, particleMaterial);
 
         this.particle.sortParticles = true;
         this.particle.clickable = true;
@@ -206,8 +250,12 @@ var System = {
 
         this.particleColor = [];
         this.particleGeo = null;
+        this.particleInfos = [];
         this.count = 0;
+        if(this.particle && this.particle.geometry) this.particle.geometry.dispose();
+        if(this.particle && this.particle.material) this.particle.material.dispose();
         scene.remove(this.particle);
+        this.particle = null;
 
     },
 

@@ -61,7 +61,7 @@ var Route = {
 
   'createRoute' : function(idRoute, route) {
 
-    var geometryL = new THREE.Geometry();
+    var routePoints = [];
     var nameR = '';
     var first = null;
     var last = null;
@@ -93,7 +93,7 @@ var Route = {
         last = [c[0], c[1], c[2]];
 
         //-- Add line point
-        geometryL.vertices.push(
+        routePoints.push(
           new THREE.Vector3(c[0], c[1], c[2])
         );
         //Route.addPoint(c[0], c[1], c[2]);
@@ -107,6 +107,7 @@ var Route = {
     });
 
     //-- Add lines to scene
+    var geometryL = new THREE.BufferGeometry().setFromPoints(routePoints);
     routes[idRoute] = new THREE.Line(geometryL, colorLine);
 
     //-- Add object for start & end
