@@ -1,6 +1,9 @@
 import os
 import logging
 import time
+from contextlib import contextmanager
+from queue import Empty, LifoQueue
+from threading import Lock
 import httpx
 from decimal import Decimal
 from fastapi import HTTPException
@@ -10,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import psycopg
 from pydantic import BaseModel
-from typing import Iterable, Optional, Any, Sequence
+from typing import Callable, Iterable, Optional, Any, Sequence
 from urllib.parse import quote
 
 try:
@@ -55,12 +58,17 @@ load_dotenv()
 
 EXTERNAL_USER_AGENT = os.getenv("EDGIS_USER_AGENT", "EDGIS")
 NEIGHBORS_CONCURRENCY_LIMIT = 2
-neighbors_semaphore = asyncio.Semaphore(NEIGHBORS_CONCURRENCY_LIMIT)
+_neighbors_semaphore: asyncio.Semaphore | None = None
+_neighbors_semaphore_loop: asyncio.AbstractEventLoop | None = None
 NEIGHBORS_MAX_RADIUS = max(
     0.0, float(os.getenv("NEIGHBORS_MAX_RADIUS") or "3000")
 )
+NEIGHBORS_DEFAULT_LIMIT = max(
+    1, int(os.getenv("NEIGHBORS_DEFAULT_LIMIT") or "1000")
+)
 NEIGHBORS_RESULT_LIMIT = max(
-    1, int(os.getenv("NEIGHBORS_RESULT_LIMIT") or "100000")
+    NEIGHBORS_DEFAULT_LIMIT,
+    int(os.getenv("NEIGHBORS_RESULT_LIMIT") or "5000"),
 )
 NEIGHBORS_STATEMENT_TIMEOUT_MS = max(
     0, int(os.getenv("NEIGHBORS_STATEMENT_TIMEOUT_MS") or "30000")
@@ -107,6 +115,16 @@ def _truncate_header_value(value: str | None, max_length: int = 300) -> str:
     return f"{value[:max_length]}..."
 
 
+def _get_neighbors_semaphore() -> asyncio.Semaphore:
+    global _neighbors_semaphore, _neighbors_semaphore_loop
+
+    loop = asyncio.get_running_loop()
+    if _neighbors_semaphore is None or _neighbors_semaphore_loop is not loop:
+        _neighbors_semaphore = asyncio.Semaphore(NEIGHBORS_CONCURRENCY_LIMIT)
+        _neighbors_semaphore_loop = loop
+    return _neighbors_semaphore
+
+
 @app.middleware("http")
 async def log_get_requests(request: Request, call_next):
     start = time.perf_counter()
@@ -140,12 +158,17 @@ UVICORN_PORT = int(os.getenv("UVICORN_PORT") or "8383")
 INDEX_HTML_FILENAME = os.path.basename(
     os.getenv("INDEX_HTML_FILENAME") or "index.html"
 )
-INDEX_HTML_PATH = os.path.join("static", INDEX_HTML_FILENAME)
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+INDEX_HTML_PATH = os.path.join(STATIC_DIR, INDEX_HTML_FILENAME)
 
 REDIS_HOST = os.getenv("REDIS_HOST") or "localhost"
 REDIS_PORT = int(os.getenv("REDIS_PORT") or "6379")
 ONE_DAY_SECONDS = 60 * 60 * 24
 AUTOCOMPLETE_LIMIT = 15
+DB_POOL_MAX_SIZE = max(1, int(os.getenv("DB_POOL_MAX_SIZE") or "12"))
+DB_POOL_WAIT_TIMEOUT_SECONDS = max(
+    0.1, float(os.getenv("DB_POOL_WAIT_TIMEOUT_SECONDS") or "30")
+)
 AUTOCOMPLETE_STATEMENT_TIMEOUT_MS = int(
     os.getenv("AUTOCOMPLETE_STATEMENT_TIMEOUT_MS") or "500"
 )
@@ -157,6 +180,113 @@ from bisect import bisect_left
 from aiocache import cached
 from aiocache.serializers import PickleSerializer
 from aiocache.backends.redis import RedisCache
+
+
+def _create_db_connection():
+    return psycopg.connect(
+        dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST
+    )
+
+
+class _SyncConnectionPool:
+    """Small thread-safe pool for sync psycopg connections."""
+
+    def __init__(
+        self,
+        *,
+        factory: Callable[[], Any],
+        max_size: int,
+        wait_timeout_seconds: float,
+    ) -> None:
+        self._factory = factory
+        self._max_size = max_size
+        self._wait_timeout_seconds = wait_timeout_seconds
+        self._available: LifoQueue[Any] = LifoQueue(maxsize=max_size)
+        self._lock = Lock()
+        self._open_count = 0
+
+    def acquire(self):
+        try:
+            return self._available.get_nowait()
+        except Empty:
+            pass
+
+        with self._lock:
+            if self._open_count < self._max_size:
+                conn = self._factory()
+                self._open_count += 1
+                return conn
+
+        try:
+            return self._available.get(timeout=self._wait_timeout_seconds)
+        except Empty as exc:
+            raise RuntimeError("Database connection pool exhausted") from exc
+
+    def release(self, conn) -> None:
+        if conn is None:
+            return
+
+        if getattr(conn, "closed", False) or getattr(conn, "broken", False):
+            self._discard(conn)
+            return
+
+        try:
+            # Reset the transaction before the next borrower sees this connection.
+            conn.rollback()
+        except Exception:
+            self._discard(conn)
+            return
+
+        if getattr(conn, "closed", False) or getattr(conn, "broken", False):
+            self._discard(conn)
+            return
+
+        self._available.put_nowait(conn)
+
+    def _discard(self, conn) -> None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        with self._lock:
+            self._open_count = max(0, self._open_count - 1)
+
+    def closeall(self) -> None:
+        while True:
+            try:
+                conn = self._available.get_nowait()
+            except Empty:
+                break
+            try:
+                conn.close()
+            except Exception:
+                pass
+        with self._lock:
+            self._open_count = 0
+
+
+_db_pool = _SyncConnectionPool(
+    factory=_create_db_connection,
+    max_size=DB_POOL_MAX_SIZE,
+    wait_timeout_seconds=DB_POOL_WAIT_TIMEOUT_SECONDS,
+)
+
+
+@contextmanager
+def _db_connection():
+    conn = _db_pool.acquire()
+    try:
+        yield conn
+    finally:
+        _db_pool.release(conn)
+
+
+async def _run_db_task(func: Callable[..., Any], *args: Any) -> Any:
+    return await asyncio.to_thread(func, *args)
+
+
+def _reset_db_pool_for_testing() -> None:
+    _db_pool.closeall()
 
 
 @cached(
@@ -171,20 +301,22 @@ async def fetch_coords_for_systems(id64_list: list[int]):
     if not id64_list:
         return {}
 
-    conn = psycopg.connect(
-        dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST
-    )
-    cursor = conn.cursor()
+    return await _run_db_task(_fetch_coords_for_systems_sync, id64_list)
 
-    query = f"""
-        SELECT id64, ST_AsText(coords) AS coordinates
-        FROM systems_big
-        WHERE id64 = ANY(%s)
-    """
-    cursor.execute(query, (id64_list,))
-    rows = cursor.fetchall()
-    cursor.close()
-    conn.close()
+
+def _fetch_coords_for_systems_sync(id64_list: list[int]) -> dict[int, dict[str, float]]:
+    with _db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            query = """
+                SELECT id64, ST_AsText(coords) AS coordinates
+                FROM systems_big
+                WHERE id64 = ANY(%s)
+            """
+            cursor.execute(query, (id64_list,))
+            rows = cursor.fetchall()
+        finally:
+            cursor.close()
 
     coords_map = {}
     for row in rows:
@@ -266,10 +398,7 @@ def _fetch_system_names_from_db(term: str, limit: int) -> list[str]:
     if len(prefix) < 2:
         return []
 
-    conn = psycopg.connect(
-        dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST
-    )
-    try:
+    with _db_connection() as conn:
         cursor = conn.cursor()
         try:
             like_pattern = f"{prefix}%"
@@ -326,8 +455,6 @@ def _fetch_system_names_from_db(term: str, limit: int) -> list[str]:
             raise
         finally:
             cursor.close()
-    finally:
-        conn.close()
 
     return [row[0] for row in rows if row and row[0]]
 
@@ -349,7 +476,7 @@ async def fetch_system_name_suggestions(term: str) -> list[str]:
     if edsm_results:
         return edsm_results
 
-    return _local_system_name_suggestions(term)
+    return await _run_db_task(_local_system_name_suggestions, term)
 
 
 def _local_system_name_suggestions(term: str) -> list[str]:
@@ -479,14 +606,17 @@ TOTAL_SYSTEMS_QUERY = """
     serializer=PickleSerializer(),
 )
 async def fetch_total_systems_from_db() -> int:
-    conn = psycopg.connect(
-        dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST
-    )
-    cursor = conn.cursor()
-    cursor.execute(TOTAL_SYSTEMS_QUERY)
-    row = cursor.fetchone()
-    cursor.close()
-    conn.close()
+    return await _run_db_task(_fetch_total_systems_from_db_sync)
+
+
+def _fetch_total_systems_from_db_sync() -> int:
+    with _db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(TOTAL_SYSTEMS_QUERY)
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
 
     if not row or row[0] is None:
         raise RuntimeError("Total systems count unavailable")
@@ -501,39 +631,47 @@ async def fetch_total_systems_from_db() -> int:
     namespace="neighbors",
     serializer=PickleSerializer(),  # Or JsonSerializer if you prefer
 )
-async def fetch_neighbors_from_db(x: float, y: float, z: float, radius: float):
-    conn = psycopg.connect(
-        dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST
+async def fetch_neighbors_from_db(
+    x: float, y: float, z: float, radius: float, limit: int
+):
+    return await _run_db_task(
+        _fetch_neighbors_from_db_sync, x, y, z, radius, limit
     )
-    cursor = conn.cursor()
 
-    if NEIGHBORS_STATEMENT_TIMEOUT_MS > 0:
-        cursor.execute(
-            f"SET LOCAL statement_timeout = {int(NEIGHBORS_STATEMENT_TIMEOUT_MS)};"
-        )
 
-    query = """
-        WITH ref AS (
-            SELECT ST_SetSRID(ST_MakePoint(%s, %s, %s), 0) AS geom
-        ), candidates AS (
-            SELECT
-                s.id64,
-                s.name,
-                s.mainstar,
-                ST_AsText(s.coords) AS coordinates,
-                ST_3DDistance(s.coords, ref.geom) AS distance
-            FROM systems_big s, ref
-            WHERE ST_3DDWithin(s.coords, ref.geom, %s)
-        )
-        SELECT *
-        FROM candidates
-        ORDER BY distance
-        LIMIT %s;
-    """
-    cursor.execute(query, (x, y, z, radius, NEIGHBORS_RESULT_LIMIT))
-    rows = cursor.fetchall()
-    cursor.close()
-    conn.close()
+def _fetch_neighbors_from_db_sync(
+    x: float, y: float, z: float, radius: float, limit: int
+) -> list[dict[str, Any]]:
+    with _db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            if NEIGHBORS_STATEMENT_TIMEOUT_MS > 0:
+                cursor.execute(
+                    f"SET LOCAL statement_timeout = {int(NEIGHBORS_STATEMENT_TIMEOUT_MS)};"
+                )
+
+            query = """
+                WITH ref AS (
+                    SELECT ST_SetSRID(ST_MakePoint(%s, %s, %s), 0) AS geom
+                ), candidates AS (
+                    SELECT
+                        s.id64,
+                        s.name,
+                        s.mainstar,
+                        ST_AsText(s.coords) AS coordinates,
+                        ST_3DDistance(s.coords, ref.geom) AS distance
+                    FROM systems_big s, ref
+                    WHERE ST_3DDWithin(s.coords, ref.geom, %s)
+                )
+                SELECT *
+                FROM candidates
+                ORDER BY distance
+                LIMIT %s;
+            """
+            cursor.execute(query, (x, y, z, radius, limit))
+            rows = cursor.fetchall()
+        finally:
+            cursor.close()
 
     results = []
     for row in rows:
@@ -560,6 +698,12 @@ async def get_neighbors(
     y: float = Query(...),
     z: float = Query(...),
     radius: float = Query(10.0),
+    limit: int = Query(
+        NEIGHBORS_DEFAULT_LIMIT,
+        ge=1,
+        le=NEIGHBORS_RESULT_LIMIT,
+        description="Maximum number of nearby systems to return",
+    ),
 ):
     if radius <= 0:
         return JSONResponse(
@@ -573,9 +717,9 @@ async def get_neighbors(
             },
             status_code=400,
         )
-    async with neighbors_semaphore:
+    async with _get_neighbors_semaphore():
         try:
-            results = await fetch_neighbors_from_db(x, y, z, radius)
+            results = await fetch_neighbors_from_db(x, y, z, radius, limit)
             return JSONResponse(content=results)
         except Exception as e:
             return JSONResponse(content={"error": str(e)}, status_code=500)
@@ -590,35 +734,35 @@ async def get_neighbors(
     serializer=PickleSerializer(),
 )
 async def fetch_system_from_db(name_or_id: str):
-    import psycopg
+    return await _run_db_task(_fetch_system_from_db_sync, name_or_id)
 
-    conn = psycopg.connect(
-        dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST
-    )
-    cursor = conn.cursor()
 
-    if name_or_id.isdigit() or (
-        name_or_id.startswith("-") and name_or_id[1:].isdigit()
-    ):
-        query = """
-            SELECT id64, name, mainstar, ST_AsText(coords) AS coordinates
-            FROM systems_big
-            WHERE id64 = %s
-            LIMIT 1;
-        """
-        cursor.execute(query, (name_or_id,))
-    else:
-        query = """
-            SELECT id64, name, mainstar, ST_AsText(coords) AS coordinates
-            FROM systems_big
-            WHERE LOWER(name) = LOWER(%s)
-            LIMIT 1;
-        """
-        cursor.execute(query, (name_or_id,))
+def _fetch_system_from_db_sync(name_or_id: str):
+    with _db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            if name_or_id.isdigit() or (
+                name_or_id.startswith("-") and name_or_id[1:].isdigit()
+            ):
+                query = """
+                    SELECT id64, name, mainstar, ST_AsText(coords) AS coordinates
+                    FROM systems_big
+                    WHERE id64 = %s
+                    LIMIT 1;
+                """
+                cursor.execute(query, (name_or_id,))
+            else:
+                query = """
+                    SELECT id64, name, mainstar, ST_AsText(coords) AS coordinates
+                    FROM systems_big
+                    WHERE LOWER(name) = LOWER(%s)
+                    LIMIT 1;
+                """
+                cursor.execute(query, (name_or_id,))
 
-    row = cursor.fetchone()
-    cursor.close()
-    conn.close()
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
 
     if row is None:
         return None
@@ -727,32 +871,28 @@ def _format_neutron_results(rows: Optional[Sequence[Sequence[Any]]]):
     serializer=PickleSerializer(),
 )
 async def fetch_nearest_neutron_star(system_name: str):
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(
-        None, _fetch_nearest_neutron_star_sync, system_name
-    )
+    return await _run_db_task(_fetch_nearest_neutron_star_sync, system_name)
 
 
 def _fetch_nearest_neutron_star_sync(system_name: str):
-    conn = psycopg.connect(
-        dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST
-    )
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT
-            neutron_id64,
-            neutron_name,
-            type,
-            ST_AsText(coordinates) AS coordinates_wkt,
-            distance_ly
-        FROM nearest_neutron_star_ten_results(%s);
-        """,
-        (system_name,),
-    )
-    rows = cursor.fetchall()
-    cursor.close()
-    conn.close()
+    with _db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT
+                    neutron_id64,
+                    neutron_name,
+                    type,
+                    ST_AsText(coordinates) AS coordinates_wkt,
+                    distance_ly
+                FROM nearest_neutron_star_ten_results(%s);
+                """,
+                (system_name,),
+            )
+            rows = cursor.fetchall()
+        finally:
+            cursor.close()
     return _format_neutron_results(rows)
 
 
@@ -765,32 +905,30 @@ def _fetch_nearest_neutron_star_sync(system_name: str):
     serializer=PickleSerializer(),
 )
 async def fetch_nearest_neutron_star_at_coords(x: float, y: float, z: float):
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(
-        None, _fetch_nearest_neutron_star_at_coords_sync, x, y, z
+    return await _run_db_task(
+        _fetch_nearest_neutron_star_at_coords_sync, x, y, z
     )
 
 
 def _fetch_nearest_neutron_star_at_coords_sync(x: float, y: float, z: float):
-    conn = psycopg.connect(
-        dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST
-    )
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT
-            neutron_id64,
-            neutron_name,
-            type,
-            ST_AsText(coordinates) AS coordinates_wkt,
-            distance_ly
-        FROM nearest_neutron_star_at_coords_ten_results(%s, %s, %s);
-        """,
-        (x, y, z),
-    )
-    rows = cursor.fetchall()
-    cursor.close()
-    conn.close()
+    with _db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT
+                    neutron_id64,
+                    neutron_name,
+                    type,
+                    ST_AsText(coordinates) AS coordinates_wkt,
+                    distance_ly
+                FROM nearest_neutron_star_at_coords_ten_results(%s, %s, %s);
+                """,
+                (x, y, z),
+            )
+            rows = cursor.fetchall()
+        finally:
+            cursor.close()
     return _format_neutron_results(rows)
 
 
@@ -858,147 +996,138 @@ def _scale_fields(
 def fetch_bodies_from_db(
     name_or_id: str, mode: Optional[str] = None, body_id: Optional[int] = None
 ):
-    import psycopg
-
-    conn = psycopg.connect(
-        dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST
-    )
-    cursor = conn.cursor()
-    identifier = name_or_id.strip()
-    system_id64: Optional[int] = None
-    is_numeric = identifier.isdigit() or (
-        identifier.startswith("-") and identifier[1:].isdigit()
-    )
-
-    if is_numeric:
-        system_id64 = int(identifier)
-    else:
-        cursor.execute(
-            """
-            SELECT id64
-            FROM systems_big
-            WHERE LOWER(name) = LOWER(%s)
-            LIMIT 1
-            """,
-            (identifier,),
+    with _db_connection() as conn:
+        cursor = conn.cursor()
+        identifier = name_or_id.strip()
+        system_id64: Optional[int] = None
+        is_numeric = identifier.isdigit() or (
+            identifier.startswith("-") and identifier[1:].isdigit()
         )
-        row = cursor.fetchone()
-        if row is not None:
-            system_id64 = int(row[0])
 
-    if system_id64 is None:
-        cursor.close()
-        conn.close()
-        return None
+        try:
+            if is_numeric:
+                system_id64 = int(identifier)
+            else:
+                cursor.execute(
+                    """
+                    SELECT id64
+                    FROM systems_big
+                    WHERE LOWER(name) = LOWER(%s)
+                    LIMIT 1
+                    """,
+                    (identifier,),
+                )
+                row = cursor.fetchone()
+                if row is not None:
+                    system_id64 = int(row[0])
 
-    # Always query bodies by their resolved id64 to avoid ambiguous name lookups
-    body_filter = ""
-    params: list[Any] = [system_id64]
-    if body_id is not None:
-        body_filter = " AND b.body_id = %s"
-        params.append(body_id)
+            if system_id64 is None:
+                return None
 
-    query = f"""
-            SELECT
-            b.system_id64,
-            b.body_id,
-            b.body_name,
-            bt.name AS type,
-            pc.name AS planet_class,
-            ts.name AS terraform_state,
-            at.name AS atmosphere_type,
-            a.name AS atmosphere,
-            v.name AS volcanism,
-            rc.name AS ring_class,
-            b.ring_inner_rad,
-            b.ring_outer_rad,
-            b.ring_mass_mt,
-            b.radius,
-            b.mass_em,
-            b.surface_gravity,
-            b.surface_temperature,
-            b.surface_pressure,
-            b.axial_tilt,
-            b.semi_major_axis,
-            b.eccentricity,
-            b.orbital_inclination,
-            b.periapsis,
-            b.mean_anomaly,
-            b.orbital_period,
-            b.rotation_period,
-            b.ascending_node,
-            b.distance_from_arrival_ls,
-            b.age_my,
-            b.absolute_magnitude,
-            l.name AS luminosity,
-            st.name AS star_type,
-            b.subclass,
-            b.stellar_mass,
-            b.composition_ice,
-            b.composition_metal,
-            b.composition_rock,
-            -- Normalized atmosphere_composition
-            COALESCE(
-                jsonb_agg(
-                    jsonb_build_object(
-                        'Name', g.name,
-                        'Percent', ba.percent
-                    ) ORDER BY ba.percent DESC
-                ) FILTER (WHERE ba.gas_id IS NOT NULL),
-                '[]'::jsonb
-            ) AS atmosphere_composition,
-            -- New: aggregate materials from body_materials + material_names
-            COALESCE(
-                jsonb_agg(
-                    jsonb_build_object(
-                        'Name', mn.name,
-                        'Percent', bm.percent
-                    ) ORDER BY bm.percent DESC
-                ) FILTER (WHERE bm.material_id IS NOT NULL),
-                '[]'::jsonb
-            ) AS materials,
+            # Always query bodies by their resolved id64 to avoid ambiguous name lookups
+            body_filter = ""
+            params: list[Any] = [system_id64]
+            if body_id is not None:
+                body_filter = " AND b.body_id = %s"
+                params.append(body_id)
 
-            b.parents,
-            b.tidally_locked,
-            b.landable,
-            b.updatetime
+            query = f"""
+                    SELECT
+                    b.system_id64,
+                    b.body_id,
+                    b.body_name,
+                    bt.name AS type,
+                    pc.name AS planet_class,
+                    ts.name AS terraform_state,
+                    at.name AS atmosphere_type,
+                    a.name AS atmosphere,
+                    v.name AS volcanism,
+                    rc.name AS ring_class,
+                    b.ring_inner_rad,
+                    b.ring_outer_rad,
+                    b.ring_mass_mt,
+                    b.radius,
+                    b.mass_em,
+                    b.surface_gravity,
+                    b.surface_temperature,
+                    b.surface_pressure,
+                    b.axial_tilt,
+                    b.semi_major_axis,
+                    b.eccentricity,
+                    b.orbital_inclination,
+                    b.periapsis,
+                    b.mean_anomaly,
+                    b.orbital_period,
+                    b.rotation_period,
+                    b.ascending_node,
+                    b.distance_from_arrival_ls,
+                    b.age_my,
+                    b.absolute_magnitude,
+                    l.name AS luminosity,
+                    st.name AS star_type,
+                    b.subclass,
+                    b.stellar_mass,
+                    b.composition_ice,
+                    b.composition_metal,
+                    b.composition_rock,
+                    -- Normalized atmosphere_composition
+                    COALESCE(
+                        jsonb_agg(
+                            jsonb_build_object(
+                                'Name', g.name,
+                                'Percent', ba.percent
+                            ) ORDER BY ba.percent DESC
+                        ) FILTER (WHERE ba.gas_id IS NOT NULL),
+                        '[]'::jsonb
+                    ) AS atmosphere_composition,
+                    -- New: aggregate materials from body_materials + material_names
+                    COALESCE(
+                        jsonb_agg(
+                            jsonb_build_object(
+                                'Name', mn.name,
+                                'Percent', bm.percent
+                            ) ORDER BY bm.percent DESC
+                        ) FILTER (WHERE bm.material_id IS NOT NULL),
+                        '[]'::jsonb
+                    ) AS materials,
 
-        FROM bodies b
-        INNER JOIN systems_big s ON s.id64 = b.system_id64
-        LEFT JOIN body_types bt         ON b.body_type_id = bt.id
-        LEFT JOIN planet_classes pc     ON b.planet_class_id = pc.id
-        LEFT JOIN terraform_states ts   ON b.terraform_state_id = ts.id
-        LEFT JOIN atmosphere_types at   ON b.atmosphere_type_id = at.id
-        LEFT JOIN atmospheres a         ON b.atmosphere_id = a.id
-        LEFT JOIN volcanisms v          ON b.volcanism_id = v.id
-        LEFT JOIN ring_classes rc       ON b.ring_class_id = rc.id
-        LEFT JOIN luminosities l        ON b.luminosity_id = l.id
-        LEFT JOIN star_types st         ON b.star_type_id = st.id
-        LEFT JOIN body_materials bm     ON b.system_id64 = bm.system_id64 AND b.body_id = bm.body_id
-        LEFT JOIN material_names mn     ON bm.material_id = mn.id
-        LEFT JOIN body_atmospheres ba ON b.system_id64 = ba.system_id64 AND b.body_id = ba.body_id
-        LEFT JOIN atmosphere_gases g ON ba.gas_id = g.id
-        WHERE b.system_id64 = %s{body_filter}
-    GROUP BY
-            b.system_id64, b.body_id, b.body_name,
-            bt.name, pc.name, ts.name, at.name, a.name,
-            v.name, rc.name, l.name, st.name
-        ORDER BY b.body_id;
-    """
+                    b.parents,
+                    b.tidally_locked,
+                    b.landable,
+                    b.updatetime
 
-    cursor.execute(query, tuple(params))
+                FROM bodies b
+                INNER JOIN systems_big s ON s.id64 = b.system_id64
+                LEFT JOIN body_types bt         ON b.body_type_id = bt.id
+                LEFT JOIN planet_classes pc     ON b.planet_class_id = pc.id
+                LEFT JOIN terraform_states ts   ON b.terraform_state_id = ts.id
+                LEFT JOIN atmosphere_types at   ON b.atmosphere_type_id = at.id
+                LEFT JOIN atmospheres a         ON b.atmosphere_id = a.id
+                LEFT JOIN volcanisms v          ON b.volcanism_id = v.id
+                LEFT JOIN ring_classes rc       ON b.ring_class_id = rc.id
+                LEFT JOIN luminosities l        ON b.luminosity_id = l.id
+                LEFT JOIN star_types st         ON b.star_type_id = st.id
+                LEFT JOIN body_materials bm     ON b.system_id64 = bm.system_id64 AND b.body_id = bm.body_id
+                LEFT JOIN material_names mn     ON bm.material_id = mn.id
+                LEFT JOIN body_atmospheres ba ON b.system_id64 = ba.system_id64 AND b.body_id = ba.body_id
+                LEFT JOIN atmosphere_gases g ON ba.gas_id = g.id
+                WHERE b.system_id64 = %s{body_filter}
+            GROUP BY
+                    b.system_id64, b.body_id, b.body_name,
+                    bt.name, pc.name, ts.name, at.name, a.name,
+                    v.name, rc.name, l.name, st.name
+                ORDER BY b.body_id;
+            """
 
-    rows = cursor.fetchall()
-    if not rows:
-        cursor.close()
-        conn.close()
-        return None
+            cursor.execute(query, tuple(params))
+            rows = cursor.fetchall()
+            if not rows:
+                return None
 
-    # get column names from cursor.description
-    col_names = [desc[0] for desc in cursor.description]
-
-    cursor.close()
-    conn.close()
+            # get column names from cursor.description
+            col_names = [desc[0] for desc in cursor.description]
+        finally:
+            cursor.close()
 
     # build array of dicts, filtering out None values
     results = [
@@ -1404,20 +1533,25 @@ async def get_total_systems():
 
 from fastapi.staticfiles import StaticFiles
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 from fastapi.responses import FileResponse
 
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
-    return FileResponse("static/favicon.png")
+    return FileResponse(os.path.join(STATIC_DIR, "favicon.png"))
 
 
 # Route to serve index.html
 @app.get("/", include_in_schema=False)
 def read_index():
     return FileResponse(INDEX_HTML_PATH)
+
+
+@app.on_event("shutdown")
+def close_db_pool() -> None:
+    _db_pool.closeall()
 
 
 if __name__ == "__main__":

@@ -46,9 +46,13 @@ class _ConnStub:
     def __init__(self, cursor):
         self.cursor_instance = cursor
         self.closed = False
+        self.rollback_calls = 0
 
     def cursor(self):
         return self.cursor_instance
+
+    def rollback(self):
+        self.rollback_calls += 1
 
     def close(self):
         self.closed = True
@@ -65,6 +69,13 @@ def _patch_db(monkeypatch, *, rows=None, first=None, description=None):
 def anyio_backend():
     """Force AnyIO-based tests to run under asyncio backend only."""
     return "asyncio"
+
+
+@pytest.fixture(autouse=True)
+def reset_db_pool():
+    systems._reset_db_pool_for_testing()
+    yield
+    systems._reset_db_pool_for_testing()
 
 
 def test_get_neighbors_negative_radius():
@@ -103,7 +114,7 @@ def test_get_neighbors_radius_too_large():
     ],
 )
 def test_get_neighbors_success(monkeypatch, expected):
-    async def fake_fetch_neighbors_from_db(x, y, z, radius):
+    async def fake_fetch_neighbors_from_db(x, y, z, radius, limit):
         return [expected]
 
     monkeypatch.setattr(
@@ -525,8 +536,8 @@ def test_fetch_system_names_from_db_retry_succeeds(monkeypatch):
     assert suggestions == ["Stu", "Stux"]
     assert cursor.select_attempts == 2
     assert cursor.closed
-    assert conn.closed
-    assert conn.rollback_calls == 1
+    assert conn.closed is False
+    assert conn.rollback_calls == 2
 
 
 def test_fetch_system_names_from_db_handles_timeout(monkeypatch):
@@ -573,9 +584,9 @@ def test_fetch_system_names_from_db_handles_timeout(monkeypatch):
 
     assert suggestions == []
     assert cursor.closed
-    assert conn.closed
+    assert conn.closed is False
     assert cursor.select_attempts == 2
-    assert conn.rollback_calls == 2
+    assert conn.rollback_calls == 3
 
 
 @pytest.mark.anyio
@@ -953,7 +964,9 @@ async def test_fetch_neighbors_from_db_parses_rows(monkeypatch):
         rows=[(99, "Sol", "G", "POINT Z (1 2 3)", 4.2)],
     )
 
-    rows = await systems.fetch_neighbors_from_db.__wrapped__(0, 0, 0, 10)  # type: ignore[attr-defined]
+    rows = await systems.fetch_neighbors_from_db.__wrapped__(
+        0, 0, 0, 10, 25
+    )  # type: ignore[attr-defined]
     assert rows == [
         {
             "id64": 99,
@@ -971,7 +984,7 @@ async def test_fetch_neighbors_from_db_parses_rows(monkeypatch):
     else:
         select_call = executed[0]
     assert select_call[0].strip().startswith("WITH ref AS")
-    assert select_call[1][-1] == systems.NEIGHBORS_RESULT_LIMIT
+    assert select_call[1][-1] == 25
 
 
 @pytest.mark.anyio("asyncio")
