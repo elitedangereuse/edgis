@@ -1,9 +1,20 @@
      const urlParams = new URLSearchParams(window.location.search);
      const sameHostBaseUrl =
        window.location?.origin || `${window.location?.protocol}//${window.location?.host || ''}`;
+     const CAMERA_REFRESH_DEBOUNCE_MS = 700;
+     const CAMERA_REFRESH_RADIUS_MAX = 30;
+     const CAMERA_REFRESH_MIN_DISTANCE_LY = 5;
      let manualSystemsLookup = new Map();
      let systemData = null;
      let lastClickedSystemName = null;
+     let cameraRefreshTimer = null;
+     let lastAutoLoadCenter = null;
+     let lastCameraTarget = null;
+     let controlsEndListenerAttached = false;
+     let autoRefreshRequestId = 0;
+     let autoRefreshInFlight = false;
+     let currentSolidSystemNames = [];
+     let activeNeighborhoodRadius = 20;
 
      function parseSolutionJsonParam(rawValue) {
        if (!rawValue) return null;
@@ -28,7 +39,7 @@
        return null;
      }
 
-     const solutionJsonParam = urlParams.get('solutionjson');
+    const solutionJsonParam = urlParams.get('solutionjson');
      let externalSolutionJson = null;
      if (solutionJsonParam) {
        externalSolutionJson = parseSolutionJsonParam(solutionJsonParam);
@@ -36,6 +47,24 @@
          console.warn('Failed to parse solutionjson parameter.');
        }
      }
+
+    function parsePositiveNumber(value, fallbackValue) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackValue;
+    }
+
+    function getRequestedNeighborhoodRadius() {
+      const rawRadius = urlParams.get('radius') ?? urlParams.get('r');
+      return parsePositiveNumber(rawRadius, activeNeighborhoodRadius);
+    }
+
+    function getAutoRefreshRadius() {
+      return Math.min(getRequestedNeighborhoodRadius(), CAMERA_REFRESH_RADIUS_MAX);
+    }
+
+    function getCameraRefreshThreshold() {
+      return Math.max(CAMERA_REFRESH_MIN_DISTANCE_LY, getAutoRefreshRadius() / 2);
+    }
 
      function initSolutionJson(x, y, z, mode = "simple") {
        if (mode === "expert") {
@@ -184,7 +213,7 @@
      }
 
 
-     function populateResult(spherejson, res, radius, mode = "simple") {
+     function populateResult(spherejson, res, radius, mode = "simple", focusTarget = true) {
        const starNameMap = {
          "TTS": "T Tauri Star",
          "M": "M (Red dwarf) Star",
@@ -289,7 +318,7 @@
        res.systems.push(
          ...spherejson.map((s, i) => {
            let mainStar = s.mainstar;
-           if (i === 0) {
+           if (focusTarget && i === 0) {
              return {
                name: `${s.name} (${s.distance.toFixed(2)} LY)`,
                coords: { ...s.coords, radius: radius },
@@ -320,6 +349,234 @@
        );
      }
 
+    function getCurrentMapCenter() {
+      if (typeof controls === 'undefined' || !controls?.target) {
+        return null;
+      }
+      return {
+        x: Number(controls.target.x),
+        y: Number(controls.target.y),
+        z: Number(-controls.target.z)
+      };
+    }
+
+    function getCurrentWorldCamera() {
+      if (typeof camera === 'undefined' || !camera) {
+        return null;
+      }
+      return {
+        x: Number(camera.position.x),
+        y: Number(camera.position.y),
+        z: Number(camera.position.z)
+      };
+    }
+
+    function getCurrentInternalTarget() {
+      if (typeof controls === 'undefined' || !controls?.target) {
+        return null;
+      }
+      return {
+        x: Number(controls.target.x),
+        y: Number(controls.target.y),
+        z: Number(controls.target.z)
+      };
+    }
+
+    function distanceBetweenCenters(a, b) {
+      if (!a || !b) {
+        return Number.POSITIVE_INFINITY;
+      }
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
+      const dz = a.z - b.z;
+      return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    function refreshHudFilterCounts() {
+      if (!window.$) {
+        return;
+      }
+      $('.map_filter').each(function () {
+        const idCat = $(this).data('filter');
+        const label = $(this).data('label') || $(this).text().replace(/\s*\(\d+\)\s*$/, '').trim();
+        const count = Array.isArray(Ed3d.catObjs[idCat]) ? Ed3d.catObjs[idCat].length : 0;
+        const checkHtml = $(this).find('.check').prop('outerHTML') || '';
+        const countHtml = count > 1 ? ` (${count})` : '';
+        $(this).html(`${checkHtml}${label}${countHtml}`);
+      });
+    }
+
+    function collectInactiveFilterIds() {
+      if (!window.$) {
+        return [];
+      }
+      const inactive = [];
+      $('.map_filter').each(function () {
+        if (Number($(this).data('active')) !== 1) {
+          inactive.push(String($(this).data('filter')));
+        }
+      });
+      return inactive;
+    }
+
+    function restoreInactiveFilterIds(filterIds) {
+      if (!window.$ || !Array.isArray(filterIds)) {
+        return;
+      }
+      filterIds.forEach((filterId) => {
+        const filterEl = $(`.map_filter[data-filter="${filterId}"]`);
+        if (filterEl.length && Number(filterEl.data('active')) === 1) {
+          filterEl.trigger('click');
+        }
+      });
+    }
+
+    function isCategoryVisible(categoryId) {
+      if (!window.$ || !categoryId) {
+        return true;
+      }
+      const filterEl = $(`.map_filter[data-filter="${categoryId}"]`);
+      if (!filterEl.length) {
+        return true;
+      }
+      return Number(filterEl.data('active')) === 1;
+    }
+
+    async function fetchNeighborsDataset(x, y, z, radius) {
+      const sphereurl = `${sameHostBaseUrl}/neighbors?x=${x}&y=${y}&z=${z}&radius=${radius}`;
+      return await getSystemCoordinates(sphereurl);
+    }
+
+    function updateTrackedSolidSystemNames(solutionjson) {
+      currentSolidSystemNames = Array.isArray(solutionjson?.systems)
+        ? solutionjson.systems
+            .filter((systemObj) => Number(systemObj?.coords?.radius) !== 0)
+            .map((systemObj) => systemObj.name)
+        : [];
+    }
+
+    function removeTrackedSolidSystems() {
+      currentSolidSystemNames.forEach((name) => {
+        const obj = scene?.getObjectByName?.(name);
+        if (obj) {
+          scene.remove(obj);
+        }
+      });
+      currentSolidSystemNames = [];
+    }
+
+    function resetDynamicMapState() {
+      if (typeof Action !== 'undefined') {
+        Action.disableSelection();
+      }
+      removeTrackedSolidSystems();
+      System.remove();
+      System.particleInfos = [];
+      HUD.removeFilters();
+      Route.remove();
+      Route.systems = [];
+      Route.active = false;
+      routes = [];
+      Ed3d.catObjs = [];
+      Ed3d.catObjsRoutes = [];
+      Ed3d.systems = [];
+    }
+
+    function restoreView(viewState) {
+      if (!viewState?.camera || !viewState?.target || typeof controls === 'undefined' || !controls || typeof camera === 'undefined' || !camera) {
+        return;
+      }
+      camera.position.set(viewState.camera.x, viewState.camera.y, viewState.camera.z);
+      controls.target.set(viewState.target.x, viewState.target.y, viewState.target.z);
+      controls.update();
+    }
+
+    function reloadDynamicNeighborhood(solutionjson, viewState, inactiveFilterIds) {
+      resetDynamicMapState();
+      Ed3d.loadDatas(solutionjson);
+      System.endParticleSystem();
+      HUD.init();
+      updateTrackedSolidSystemNames(solutionjson);
+      restoreInactiveFilterIds(inactiveFilterIds);
+      refreshHudFilterCounts();
+      restoreView(viewState);
+    }
+
+    async function reloadSystemsAroundCurrentCamera(center) {
+      if (!center || externalSolutionJson) {
+        return;
+      }
+      if (autoRefreshInFlight) {
+        scheduleCameraNeighborhoodRefresh();
+        return;
+      }
+      autoRefreshInFlight = true;
+      const requestId = ++autoRefreshRequestId;
+      try {
+        const autoRefreshRadius = getAutoRefreshRadius();
+        const spherejson = await fetchNeighborsDataset(center.x, center.y, center.z, autoRefreshRadius);
+        if (requestId !== autoRefreshRequestId || !Array.isArray(spherejson) || !spherejson.length) {
+          return;
+        }
+        const viewState = {
+          camera: getCurrentWorldCamera(),
+          target: getCurrentInternalTarget()
+        };
+        const inactiveFilterIds = collectInactiveFilterIds();
+        const nextResult = initSolutionJson(center.x, center.y, center.z, "simple");
+        populateResult(spherejson, nextResult, autoRefreshRadius, "simple", true);
+        reloadDynamicNeighborhood(nextResult, viewState, inactiveFilterIds);
+        lastAutoLoadCenter = center;
+        activeNeighborhoodRadius = autoRefreshRadius;
+      } catch (error) {
+        console.error('Failed to reload nearby systems', error);
+      } finally {
+        autoRefreshInFlight = false;
+      }
+    }
+
+    function scheduleCameraNeighborhoodRefresh() {
+      if (externalSolutionJson) {
+        return;
+      }
+      const center = getCurrentMapCenter();
+      if (!center) {
+        return;
+      }
+      if (lastAutoLoadCenter && distanceBetweenCenters(center, lastAutoLoadCenter) < getCameraRefreshThreshold()) {
+        return;
+      }
+      if (cameraRefreshTimer) {
+        clearTimeout(cameraRefreshTimer);
+      }
+      cameraRefreshTimer = setTimeout(() => {
+        reloadSystemsAroundCurrentCamera(center);
+      }, CAMERA_REFRESH_DEBOUNCE_MS);
+    }
+
+    function attachCameraNeighborhoodRefresh() {
+      if (controlsEndListenerAttached || typeof controls === 'undefined' || !controls?.addEventListener) {
+        return;
+      }
+      controlsEndListenerAttached = true;
+      const initialCenter = getCurrentMapCenter();
+      if (initialCenter) {
+        lastAutoLoadCenter = initialCenter;
+        lastCameraTarget = initialCenter;
+      }
+      controls.addEventListener('end', () => {
+        const center = getCurrentMapCenter();
+        if (!center) {
+          return;
+        }
+        if (lastCameraTarget && distanceBetweenCenters(center, lastCameraTarget) < 0.5) {
+          return;
+        }
+        lastCameraTarget = center;
+        scheduleCameraNeighborhoodRefresh();
+      });
+    }
+
     function computeEffectScales(systemCount) {
       const count = Math.max(systemCount || 0, 1);
       let effectScaleMax = 10000 / count;
@@ -346,7 +603,11 @@
         showNameNear: false,
         playerPos: playerPos,
         cameraPos: cameraPos,
-        effectScaleSystem : [effectScaleMin, effectScaleMax]
+        effectScaleSystem : [effectScaleMin, effectScaleMax],
+        finished: function () {
+          attachCameraNeighborhoodRefresh();
+          refreshHudFilterCounts();
+        }
       });
     }
 
@@ -538,17 +799,22 @@
       const { playerPos, cameraPos } = calculatePositionsFromSystems(systems);
       const [effectScaleMin, effectScaleMax] = computeEffectScales(systems.length);
       startEd3dMap(manualSolutionJson, playerPos, cameraPos, effectScaleMin, effectScaleMax);
+      updateTrackedSolidSystemNames(manualSolutionJson);
       autoSelectZeroDistanceSystem(manualSolutionJson);
     }
 
     async function drawSystems(x, y, z, radius, mode) {
       try {
+        activeNeighborhoodRadius = radius;
         const solutionjson = initSolutionJson(x, y, z, mode);
         await drawSolution(x, y, z, radius, solutionjson, mode);
+        lastAutoLoadCenter = { x, y, z };
+        lastCameraTarget = { x, y, z };
         const [effectScaleMin, effectScaleMax] = computeEffectScales(solutionjson['systems'].length);
         const playerPos = [x, y, z];
         const cameraPos = [x, y + (1.5 * radius), z - (1.5 * radius)];
         startEd3dMap(solutionjson, playerPos, cameraPos, effectScaleMin, effectScaleMax);
+        updateTrackedSolidSystemNames(solutionjson);
         autoSelectZeroDistanceSystem(solutionjson);
       } catch (error) {
         console.error(error);

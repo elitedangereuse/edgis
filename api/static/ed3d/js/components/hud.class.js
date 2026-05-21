@@ -2,6 +2,7 @@
 var HUD = {
 
     'container' : null,
+    'persistentBindingsInitialized' : false,
 
     /**
      *
@@ -106,7 +107,7 @@ var HUD = {
      */
     'initControls' : function() {
 
-        $('#controls a').click(function(e) {
+        $('#controls a').off('click.hudcontrols').on('click.hudcontrols', function(e) {
 
             if($(this).hasClass('view')) {
                 $('#controls a.view').removeClass('selected')
@@ -178,22 +179,21 @@ var HUD = {
     'initHudAction' : function() {
 
         //-- Disable 3D controls when mouse hover the Hud
-        $( "canvas" ).hover(
-            function() {
+        if(!this.persistentBindingsInitialized) {
+            $( "canvas" ).off('.hudhover').on('mouseenter.hudhover', function() {
                 controls.enabled = true;
-            }, function() {
+            }).on('mouseleave.hudhover', function() {
                 controls.enabled = false;
-            }
-        );
+            });
 
-        //-- Disable 3D controls when mouse hover the Hud
-        $( "#hud" ).hover(
-            function() {
+            $( "#hud" ).off('.hudhover').on('mouseenter.hudhover', function() {
                 controls.enabled = false;
-            }, function() {
+            }).on('mouseleave.hudhover', function() {
                 controls.enabled = true;
-            }
-        );
+            });
+
+            this.persistentBindingsInitialized = true;
+        }
         $( "#systemDetails" ).hide();
 
         //-- Add Count filters
@@ -204,7 +204,7 @@ var HUD = {
         });
 
         //-- Add map filters
-        $('.map_filter').click(function(e) {
+        $('.map_filter').off('click.hudfilter').on('click.hudfilter', function(e) {
             e.preventDefault();
             var idCat = $(this).data('filter');
             var active = $(this).data('active');
@@ -336,14 +336,14 @@ var HUD = {
 
 
         //-- Add map link
-        $('.map_link').click(function(e) {
+        $('.map_link').off('click.hudlink').on('click.hudlink', function(e) {
 
             e.preventDefault();
             var elId = $(this).data('route');
             Action.moveToObj(routes[elId]);
         });
 
-        $('.map_link span').click(function(e) {
+        $('.map_link span').off('click.hudlinkspan').on('click.hudlinkspan', function(e) {
 
             e.preventDefault();
 
@@ -461,7 +461,7 @@ var HUD = {
 
         //-- Add html link
         $('#'+groupId).append(
-            '<a class="map_filter'+addClass+'" data-active="1" data-filter="' + idCat + '">'+
+            '<a class="map_filter'+addClass+'" data-active="1" data-filter="' + idCat + '" data-label="' + val.name + '">'+
                 '<span class="check" style="background:'+back+'"> </span>' + val.name +
                 '</a>'
         );

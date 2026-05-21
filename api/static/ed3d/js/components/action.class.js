@@ -24,12 +24,16 @@ var Action = {
   'pointCastRadius' : 2,
 
   'pointsHighlight' : [],
+  'initialized' : false,
 
   /**
    * Init Raycaster for events on Systems
    */
 
   'init' : function() {
+
+    if(this.initialized) return;
+    this.initialized = true;
 
     this.mouseVector = new THREE.Vector3();
     this.raycaster = new THREE.Raycaster();
