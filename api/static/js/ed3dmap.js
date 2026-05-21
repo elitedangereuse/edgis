@@ -188,8 +188,6 @@ var Ed3d = {
 
     $.when(
         $.getScript(Ed3d.basePath + "vendor/three-js/OrbitControls.js"),
-        $.getScript(Ed3d.basePath + "vendor/three-js/CSS3DRenderer.js"),
-        $.getScript(Ed3d.basePath + "vendor/three-js/Projector.js"),
         $.getScript(Ed3d.basePath + "vendor/three-js/FontUtils.js"),
         $.Deferred(function( deferred ){
             $( deferred.resolve );
@@ -354,6 +352,7 @@ var Ed3d = {
     this.textures.flare_center = texloader.load(Ed3d.basePath + "textures/lensflare/flare3.png");
     this.textures.spiral = texloader.load(Ed3d.basePath + "textures/lensflare/spiral_joe.png");
     this.textures.permit_zone = texloader.load(Ed3d.basePath + "textures/hydra_invert.jpg");
+    this.textures.white = texloader.load(Ed3d.basePath + "textures/lensflare/flare.png");
 
     //-- Load sprites
     Ed3d.material.glow_1 = new THREE.SpriteMaterial({
@@ -433,7 +432,7 @@ var Ed3d = {
     container.appendChild(renderer.domElement);
 
     //controls
-    controls = new THREE.OrbitControls(camera, container);
+    controls = new THREE.OrbitControls(camera, renderer.domElement);
     controls.rotateSpeed = 0.6;
     controls.zoomSpeed = 2.0;
     controls.panSpeed = 0.8;

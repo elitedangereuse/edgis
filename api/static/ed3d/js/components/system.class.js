@@ -24,11 +24,13 @@ var System = {
         var x = parseInt(val.coords.x);
         var y = parseInt(val.coords.y);
         var z = -parseInt(val.coords.z); //-- Revert Z coord
-        var radius = parseInt(val.coords.radius); // sphere radius
+        var radius = Number(val.coords.radius); // sphere radius
         var sphereColor = val.coords?.sphereColor ?? 0x0E7F88; // sphere color
         var sphereOpacity = val.coords?.sphereOpacity ?? 0.5; // sphere opacity
-        var sphereGeometryWidth = val.coords?.sphereGeometryWidth ?? 64;
-        var sphereGeometryHeight = val.coords?.sphereGeometryHeight ?? 32;
+        var sphereGeometryWidth = parseInt(val.coords?.sphereGeometryWidth ?? 64, 10);
+        var sphereGeometryHeight = parseInt(val.coords?.sphereGeometryHeight ?? 32, 10);
+        if(!Number.isFinite(sphereGeometryWidth) || sphereGeometryWidth < 3) sphereGeometryWidth = 64;
+        if(!Number.isFinite(sphereGeometryHeight) || sphereGeometryHeight < 2) sphereGeometryHeight = 32;
 
         //--------------------------------------------------------------------------
         //-- Particle for near and far view
@@ -93,6 +95,18 @@ var System = {
 
         //--------------------------------------------------------------------------
         //-- Build a sphere if needed
+        if(withSolid && (!Number.isFinite(radius) || radius === 0)) {
+            if(val.forceSolidAnchor) {
+                var anchor = new THREE.Object3D();
+                anchor.name = val.name;
+                anchor.position.set(x, y, z);
+                anchor.clickable = false;
+                scene.add(anchor);
+                return anchor;
+            }
+            return;
+        }
+
         if(withSolid && radius != 0) {
 
             //-- Add glow sprite from first cat color if defined, else take white glow

@@ -23,8 +23,7 @@ var Grid = {
 
     this.size = size;
 
-    this.obj = new THREE.GridHelper(1000000, size);
-    this.obj.setColors(color, color);
+    this.obj = new THREE.GridHelper(1000000, size, color, color);
     this.obj.minDistView = minDistView;
 
     scene.add(this.obj);
@@ -133,6 +132,7 @@ var Grid = {
 
       this.textShapes = THREE.FontUtils.generateShapes( this.coordTxt, options );
       this.textGeo.dispose();
+      if(!this.textShapes || this.textShapes.length === 0) return;
       this.textGeo = new THREE.ShapeGeometry(this.textShapes);
 
       var center = this.textGeo.center();
@@ -145,6 +145,7 @@ var Grid = {
     } else {
 
       this.textShapes = THREE.FontUtils.generateShapes(textShow, options);
+      if(!this.textShapes || this.textShapes.length === 0) return;
       this.textGeo = new THREE.ShapeGeometry(this.textShapes);
       this.coordGrid = new THREE.Mesh(this.textGeo, Ed3d.material.darkblue);
       this.coordGrid.position.set(this.obj.position.x, this.obj.position.y, this.obj.position.z);
@@ -189,4 +190,3 @@ var Grid = {
   }
 
 }
-

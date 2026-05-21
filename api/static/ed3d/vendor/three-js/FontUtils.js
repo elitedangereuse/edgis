@@ -18,6 +18,7 @@
 THREE.FontUtils = {
 
 	faces: {},
+	fontCache: {},
 
 	// Just for now. face[weight][style]
 
@@ -44,8 +45,7 @@ THREE.FontUtils = {
 	loadFace: function ( data ) {
 
 		var family = data.familyName.toLowerCase();
-
-		var ThreeFont = this;
+		var ThreeFont = THREE.FontUtils;
 
 		ThreeFont.faces[ family ] = ThreeFont.faces[ family ] || {};
 
@@ -53,8 +53,22 @@ THREE.FontUtils = {
 		ThreeFont.faces[ family ][ data.cssFontWeight ][ data.cssFontStyle ] = data;
 
 		ThreeFont.faces[ family ][ data.cssFontWeight ][ data.cssFontStyle ] = data;
+		ThreeFont.fontCache[ family + ':' + data.cssFontWeight + ':' + data.cssFontStyle ] = null;
 
 		return data;
+
+	},
+
+	getFontObject: function () {
+
+		var face = this.getFace();
+		var cacheKey = this.face.toLowerCase() + ':' + this.weight + ':' + this.style;
+
+		if ( this.fontCache[ cacheKey ] === undefined || this.fontCache[ cacheKey ] === null ) {
+			this.fontCache[ cacheKey ] = new THREE.Font( face );
+		}
+
+		return this.fontCache[ cacheKey ];
 
 	},
 
@@ -253,10 +267,13 @@ THREE.FontUtils.generateShapes = function ( text, parameters ) {
 	THREE.FontUtils.weight = weight;
 	THREE.FontUtils.style = style;
 
-	// Get a Font data json object
+	if ( typeof THREE.Font === 'function' ) {
+
+		return THREE.FontUtils.getFontObject().generateShapes( text, size );
+
+	}
 
 	var data = THREE.FontUtils.drawText( text );
-
 	var paths = data.paths;
 	var shapes = [];
 
