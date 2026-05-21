@@ -38,11 +38,19 @@ TMP_CHANGED_FILE_LIST=$(mktemp)
 {
     echo systems.py
     echo static/index.html
+    echo static/galaxymap.html
     echo static/sysmap.html
     echo static/tailwind.css
     echo static/milkyway.css
     echo static/js/panzoom.js
+    echo static/js/ed3dmap.js
+    echo static/js/galaxymap.js
     echo static/js/sysmap.js
+    echo static/ed3d/main.css
+    echo static/ed3d/styles.css
+    find static/ed3d/vendor -type f | sed 's#^#./#' | sed 's#^./##'
+    find static/ed3d/js -type f | sed 's#^#./#' | sed 's#^./##'
+    find static/ed3d/textures -type f | sed 's#^#./#' | sed 's#^./##'
     for file in "${EXTRA_FILES[@]}"; do
         if [[ -n "$file" ]]; then
             echo "$file"

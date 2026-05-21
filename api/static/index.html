@@ -563,7 +563,7 @@
 
      function convertEdUrl(u) {
        const src = new URL(u);
-       const dst = new URL("https://elitedangereuse.fr/outils/galaxymap.php");
+       const dst = new URL("/static/galaxymap.html", sameHostBaseUrl);
        dst.search = src.search;
        return dst.toString();
      }
@@ -1794,7 +1794,7 @@
      globalThis.openSystemMap = openSystemMap;
 
      function openCoordsMap(x, y, z){
-       const url = convertEdUrl(`https://elitedangereuse.fr/outils/galaxymap.php?x=${x}&y=${y}&z=${z}&radius=20`);
+       const url = convertEdUrl(`${sameHostBaseUrl}/static/galaxymap.html?x=${x}&y=${y}&z=${z}&radius=20`);
       globalThis.open?.(url, "_blank");
      }
      globalThis.openCoordsMap = openCoordsMap;
