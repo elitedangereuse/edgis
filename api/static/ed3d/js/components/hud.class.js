@@ -316,6 +316,10 @@ var HUD = {
             //-- If current selection is no more visible, disable active selection
             if(Action.oldSel != null && !Action.oldSel.visible) Action.disableSelection();
 
+            if(Ed3d.recenterOnFilterToggle === false) {
+                return;
+            }
+
             //-- Calc max distance from center of selection
             var distance = pointFar.distanceTo( center )+200;
 

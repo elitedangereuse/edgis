@@ -337,6 +337,7 @@
         json : solutionjson,
         basePath: "/static/ed3d/",
         withHudPanel : hudpanel,
+        recenterOnFilterToggle : false,
         startAnim : false,
         hudMultipleSelect : true,
         withOptionsPanel: false,

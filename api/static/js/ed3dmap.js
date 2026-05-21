@@ -122,6 +122,7 @@ var Ed3d = {
   'withHudPanel'        : false,
   'withOptionsPanel'    : true,
   'hudMultipleSelect'   : true,
+  'recenterOnFilterToggle' : true,
 
   //-- Systems
   'systems'             : [],
