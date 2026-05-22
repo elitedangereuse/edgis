@@ -17,12 +17,18 @@ var Action = {
   'objHover' : null,
   'mouseUpDownTimer' : null,
   'mouseDownPosition' : null,
+  'isPointerDown' : false,
+  'pointerMovedPx' : 0,
+  'suppressNextClick' : false,
   'mouseHoverTimer' : null,
   'animPosition' : null,
 
   'prevScale' : null,
 
   'pointCastRadius' : 2,
+  'clickDragThresholdPx' : 6,
+  'controlsDragActive' : false,
+  'controlsDragMoved' : false,
 
   'pointsHighlight' : [],
   'initialized' : false,
@@ -49,6 +55,24 @@ var Action = {
 
     inputTarget.addEventListener('mousewheel', this.stopWinScroll, false );
     inputTarget.addEventListener('DOMMouseScroll', this.stopWinScroll, false ); // FF
+
+    if(controls && typeof controls.addEventListener === 'function') {
+      controls.addEventListener('start', function() {
+        obj.controlsDragActive = true;
+        obj.controlsDragMoved = false;
+      });
+      controls.addEventListener('change', function() {
+        if(obj.controlsDragActive) {
+          obj.controlsDragMoved = true;
+        }
+      });
+      controls.addEventListener('end', function() {
+        if(obj.controlsDragMoved) {
+          obj.suppressNextClick = true;
+        }
+        obj.controlsDragActive = false;
+      });
+    }
 
 
     if(Ed3d.showNameNear) {
@@ -211,6 +235,14 @@ var Action = {
   'onMouseHover' : function (e, obj) {
 
     e.preventDefault();
+    if(obj.isPointerDown && obj.mouseDownPosition) {
+      var mdx = e.clientX - obj.mouseDownPosition.x;
+      var mdy = e.clientY - obj.mouseDownPosition.y;
+      var moveDist = Math.sqrt((mdx * mdx) + (mdy * mdy));
+      if(moveDist > obj.pointerMovedPx) {
+        obj.pointerMovedPx = moveDist;
+      }
+    }
     obj.mouseVector = obj.getMouseVectorFromEvent(e);
 
     obj.mouseVector.unproject(camera);
@@ -270,6 +302,9 @@ var Action = {
   'onMouseDown' : function (e, obj) {
 
     obj.mouseUpDownTimer = Date.now();
+    obj.isPointerDown = true;
+    obj.pointerMovedPx = 0;
+    obj.suppressNextClick = false;
     obj.mouseDownPosition = {
       x: e.clientX,
       y: e.clientY
@@ -283,6 +318,16 @@ var Action = {
    */
 
   'onMouseUp' : function (e, obj) {
+    if(obj.mouseDownPosition) {
+      var dx = e.clientX - obj.mouseDownPosition.x;
+      var dy = e.clientY - obj.mouseDownPosition.y;
+      var upDist = Math.sqrt((dx * dx) + (dy * dy));
+      if(upDist > obj.pointerMovedPx) obj.pointerMovedPx = upDist;
+    }
+
+    obj.suppressNextClick = obj.pointerMovedPx > obj.clickDragThresholdPx;
+    obj.isPointerDown = false;
+    obj.pointerMovedPx = 0;
     obj.mouseUpDownTimer = null;
     obj.mouseDownPosition = null;
   },
@@ -306,6 +351,10 @@ var Action = {
   'onClick' : function (e, obj) {
 
     e.preventDefault();
+    if(obj.suppressNextClick) {
+      obj.suppressNextClick = false;
+      return;
+    }
 
     //-- Prefer the currently hovered system. Hover targeting already matches what the user sees.
     if (obj.objHover !== null && System.particleGeo && System.particleGeo.vertices[obj.objHover] != undefined) {
