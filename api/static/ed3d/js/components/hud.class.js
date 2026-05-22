@@ -586,9 +586,7 @@ var HUD = {
 
     'rotateText' : function(id) {
 
-        //y = -Math.abs(y);
-
-        if(Ed3d.textSel[id] != undefined)
+        if(Ed3d.textSel[id] != undefined) {
             if(Ed3d.isTopView) {
                 Ed3d.textSel[id].rotation.set(-Math.PI/2,0,0);
             } else {
@@ -596,6 +594,7 @@ var HUD = {
                 Ed3d.textSel[id].rotation.y = camera.rotation.y;
                 Ed3d.textSel[id].rotation.z = 0;
             }
+        }
 
     }
 }
