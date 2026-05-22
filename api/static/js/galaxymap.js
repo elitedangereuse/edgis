@@ -7,6 +7,7 @@
      const LIVE_REFRESH_DISTANCE_RATIO = 0.25;
      const NEIGHBORHOOD_CACHE_TTL_MS = 120000;
      const NEIGHBORHOOD_CACHE_MAX_ENTRIES = 16;
+     const STAR_SETTINGS_STORAGE_KEY = 'edgis_galaxymap_star_settings_v1';
      let manualSystemsLookup = new Map();
      let systemData = null;
      let lastClickedSystemName = null;
@@ -23,6 +24,41 @@
      let activeNeighborhoodRadius = 20;
      let neighborhoodPrefetchCache = new Map();
      let neighborhoodFetchPromises = new Map();
+     let userStarSizeScale = 1;
+     let userStarBrightnessScale = 1;
+     let userStarOpacityScale = 1;
+     let baseParticleOpacity = 0.76;
+     let baseParticleScaleFactor = 1;
+     let baseEffectScaleMin = 1;
+     let baseEffectScaleMax = 24;
+
+     function loadStoredStarSettings() {
+       try {
+         const raw = window.localStorage?.getItem(STAR_SETTINGS_STORAGE_KEY);
+         if (!raw) {
+           return;
+         }
+         const parsed = JSON.parse(raw);
+         userStarSizeScale = clamp(Number(parsed?.size), 0.01, 10) || 1;
+         userStarBrightnessScale = clamp(Number(parsed?.brightness), 0.01, 1) || 1;
+         userStarOpacityScale = clamp(Number(parsed?.opacity), 0.01, 1) || 1;
+       } catch (error) {
+         console.warn('Failed to load stored star settings', error);
+       }
+     }
+
+     function saveStoredStarSettings() {
+       try {
+         const payload = {
+           size: userStarSizeScale,
+           brightness: userStarBrightnessScale,
+           opacity: userStarOpacityScale
+         };
+         window.localStorage?.setItem(STAR_SETTINGS_STORAGE_KEY, JSON.stringify(payload));
+       } catch (error) {
+         console.warn('Failed to save star settings', error);
+       }
+     }
 
      function parseSolutionJsonParam(rawValue) {
        if (!rawValue) return null;
@@ -55,6 +91,7 @@
          console.warn('Failed to parse solutionjson parameter.');
        }
      }
+     loadStoredStarSettings();
 
     function parsePositiveNumber(value, fallbackValue) {
       const parsed = Number(value);
@@ -624,6 +661,14 @@
 
     function showInfoPanel() {
       const infoPanel = document.getElementById("InfoPanel");
+      const controlsPanel = document.getElementById('controlsPanel');
+      const settingsPanel = document.getElementById('settingsPanel');
+      if (controlsPanel) {
+        controlsPanel.style.display = 'none';
+      }
+      if (settingsPanel) {
+        settingsPanel.style.display = 'none';
+      }
       if (infoPanel) {
         infoPanel.style.display = "block";
       }
@@ -770,7 +815,7 @@
         setEdgisHomeLoadingState(false);
         return;
       }
-      if (isCameraRefreshSuppressed()) {
+      if (!options.force && isCameraRefreshSuppressed()) {
         setEdgisHomeLoadingState(false);
         return;
       }
@@ -838,12 +883,17 @@
         return;
       }
       controlsEndListenerAttached = true;
+      let controlsMovedDuringInteraction = false;
       const initialCenter = getCurrentMapCenter();
       if (initialCenter) {
         lastAutoLoadCenter = initialCenter;
         lastCameraTarget = initialCenter;
       }
+      controls.addEventListener('start', () => {
+        controlsMovedDuringInteraction = false;
+      });
       controls.addEventListener('change', () => {
+        controlsMovedDuringInteraction = true;
         const center = getCurrentMapCenter();
         if (!center || isCameraRefreshSuppressed()) {
           return;
@@ -866,6 +916,9 @@
         if (!center) {
           return;
         }
+        if (controlsMovedDuringInteraction) {
+          suppressSelectionNeighborhoodJump(500);
+        }
         updateBrowserUrlFromCurrentCenter(center);
         if (isCameraRefreshSuppressed()) {
           lastCameraTarget = center;
@@ -883,6 +936,35 @@
 
     function clamp(value, minValue, maxValue) {
       return Math.min(Math.max(value, minValue), maxValue);
+    }
+
+    function applyUserStarVisualSettings() {
+      const effectiveOpacity = clamp(baseParticleOpacity * userStarBrightnessScale * userStarOpacityScale, 0.01, 1);
+      const effectiveScaleFactor = clamp(baseParticleScaleFactor * userStarSizeScale, 0.02, 10);
+      const effectiveScaleMin = clamp(baseEffectScaleMin * userStarSizeScale, 0.02, 30);
+      const effectiveScaleMax = clamp(baseEffectScaleMax * userStarSizeScale, effectiveScaleMin + 0.1, 300);
+
+      if (window.System) {
+        window.System.opacity = effectiveOpacity;
+        if (window.System.particle?.material) {
+          window.System.particle.material.opacity = effectiveOpacity;
+          window.System.particle.material.needsUpdate = true;
+        }
+      }
+
+      Ed3d.systemSizeScaleFactor = effectiveScaleFactor;
+      Ed3d.effectScaleSystem = [effectiveScaleMin, effectiveScaleMax];
+
+      if (
+        window.Action
+        && typeof window.Action.sizeOnScroll === 'function'
+        && typeof window.distanceFromTarget === 'function'
+        && typeof camera !== 'undefined'
+        && camera
+      ) {
+        const scale = distanceFromTarget(camera) / 200;
+        window.Action.sizeOnScroll(scale);
+      }
     }
 
     function computeDensityProfile(systemCount, radius) {
@@ -922,10 +1004,13 @@
 
     function startEd3dMap(solutionjson, playerPos, cameraPos, densityProfile) {
       const hudpanel = true;
-      if (window.System && densityProfile?.particleOpacity) {
-        window.System.opacity = densityProfile.particleOpacity;
-      }
-      Ed3d.systemSizeScaleFactor = densityProfile?.particleScaleFactor || 1;
+      baseParticleOpacity = densityProfile?.particleOpacity || 0.76;
+      baseParticleScaleFactor = densityProfile?.particleScaleFactor || 1;
+      baseEffectScaleMin = densityProfile?.effectScaleMin || 1;
+      baseEffectScaleMax = densityProfile?.effectScaleMax || 24;
+      const initialEffectScaleMin = clamp(baseEffectScaleMin * userStarSizeScale, 0.02, 30);
+      const initialEffectScaleMax = clamp(baseEffectScaleMax * userStarSizeScale, initialEffectScaleMin + 0.1, 300);
+      applyUserStarVisualSettings();
       Ed3d.init({
         container   : 'edmap',
         json : solutionjson,
@@ -940,36 +1025,63 @@
         showNameNear: false,
         playerPos: playerPos,
         cameraPos: cameraPos,
-        effectScaleSystem : [densityProfile.effectScaleMin, densityProfile.effectScaleMax],
+        effectScaleSystem : [initialEffectScaleMin, initialEffectScaleMax],
         finished: function () {
           attachCameraNeighborhoodRefresh();
           refreshHudFilterCounts();
+          applyUserStarVisualSettings();
         }
       });
     }
 
     let autoSelectRequestId = 0;
+    let suppressSelectionNeighborhoodJumpUntil = 0;
+
+    function suppressSelectionNeighborhoodJump(durationMs = 1200) {
+      suppressSelectionNeighborhoodJumpUntil = Math.max(suppressSelectionNeighborhoodJumpUntil, Date.now() + durationMs);
+    }
+
+    function shouldSuppressSelectionNeighborhoodJump() {
+      return Date.now() < suppressSelectionNeighborhoodJumpUntil;
+    }
+
+    function normalizeSystemNameForSelection(value) {
+      if (value == null) {
+        return '';
+      }
+      return String(value).replace(/\s+\(\d+(?:\.\d+)?\s+LY\)\s*$/i, '').trim().toLowerCase();
+    }
 
     function queueAutoSelectByName(systemName, fallbackInfos, attemptsLeft = 25) {
       if (!systemName) {
-        return;
+        return Promise.resolve(false);
       }
 
       const requestId = ++autoSelectRequestId;
+      const normalizedTargetName = normalizeSystemNameForSelection(systemName);
 
-      const trySelect = (remaining) => {
-        if (requestId !== autoSelectRequestId || remaining <= 0) {
-          return;
-        }
+      return new Promise((resolve) => {
+        const trySelect = (remaining) => {
+          if (requestId !== autoSelectRequestId || remaining <= 0) {
+            resolve(false);
+            return;
+          }
 
-        const vertices = window.System?.particleGeo?.vertices;
-        const actionReady = window.Action && typeof window.Action.moveToObj === 'function';
-        const canSelect = vertices && actionReady;
+          const vertices = window.System?.particleGeo?.vertices;
+          const actionReady = window.Action && typeof window.Action.moveToObj === 'function';
+          const canSelect = vertices && actionReady;
 
-        if (canSelect) {
-          for (let index = 0; index < vertices.length; index++) {
-            const vertex = vertices[index];
-            if (vertex && vertex.name === systemName) {
+          if (canSelect) {
+            for (let index = 0; index < vertices.length; index++) {
+              const vertex = vertices[index];
+              const vertexDisplayName = vertex?.name ?? '';
+              const vertexCanonicalName = vertex?.infos?.name ?? '';
+              const normalizedDisplayName = normalizeSystemNameForSelection(vertexDisplayName);
+              const normalizedCanonicalName = normalizeSystemNameForSelection(vertexCanonicalName);
+              const matchesName = normalizedDisplayName === normalizedTargetName || normalizedCanonicalName === normalizedTargetName;
+              if (!vertex || !matchesName) {
+                continue;
+              }
               try {
                 if (
                   window.Action
@@ -987,20 +1099,21 @@
                 window.Action.moveToObj(index, vertex);
                 const payload = vertex.infos ?? fallbackInfos ?? null;
                 if (window.$) {
-                  $(document).trigger('systemClick', [vertex.name, payload, vertex.url ?? null]);
+                  $(document).trigger('systemClick', [vertex.name, payload, vertex.url ?? null, { auto: true }]);
                 }
               } catch (error) {
                 console.warn('Failed to auto-select system:', error);
               }
+              resolve(true);
               return;
             }
           }
-        }
 
-        setTimeout(() => trySelect(remaining - 1), 300);
-      };
+          setTimeout(() => trySelect(remaining - 1), 300);
+        };
 
-      setTimeout(() => trySelect(attemptsLeft), 0);
+        setTimeout(() => trySelect(attemptsLeft), 0);
+      });
     }
 
     function autoSelectNearestVisibleSystem(solutionjson) {
@@ -1018,6 +1131,7 @@
         if (Array.isArray(system?.cat) && system.cat.indexOf('Target') !== -1) {
           return false;
         }
+
         return true;
       });
       if (systemsWithDistance.length === 0) {
@@ -1151,6 +1265,68 @@
       autoSelectNearestVisibleSystem(manualSolutionJson);
     }
 
+    async function focusOnSelectedSystemNeighborhood(selectedInfo, radius = 20) {
+      if (!selectedInfo?.coords) {
+        return;
+      }
+
+      const x = Number(selectedInfo.coords.x);
+      const y = Number(selectedInfo.coords.y);
+      const z = Number(selectedInfo.coords.z);
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+        return;
+      }
+
+      const nextRadius = Number(radius);
+      const viewCamera = getCurrentWorldCamera();
+      const viewTarget = getCurrentInternalTarget();
+      const currentOffset = (viewCamera && viewTarget)
+        ? {
+            x: viewCamera.x - viewTarget.x,
+            y: viewCamera.y - viewTarget.y,
+            z: viewCamera.z - viewTarget.z
+          }
+        : { x: 0, y: nextRadius * 1.5, z: -nextRadius * 1.5 };
+
+      setEdgisHomeLoadingState(true);
+      try {
+        const spherejson = await fetchNeighborsDataset(x, y, z, nextRadius, 'selection');
+        if (!Array.isArray(spherejson) || !spherejson.length) {
+          return;
+        }
+        const nextResult = initSolutionJson(x, y, z, "simple");
+        populateResult(spherejson, nextResult, nextRadius, "simple", false, { x, y, z });
+        const inactiveFilterIds = collectInactiveFilterIds();
+        const viewState = {
+          camera: {
+            x: x + currentOffset.x,
+            y: y + currentOffset.y,
+            z: (-z) + currentOffset.z
+          },
+          target: {
+            x,
+            y,
+            z: -z
+          }
+        };
+        reloadDynamicNeighborhood(nextResult, viewState, inactiveFilterIds);
+        cacheNeighborhoodDataset({ x, y, z }, nextRadius, spherejson, 'selection');
+        lastAutoLoadCenter = { x, y, z };
+        lastCameraTarget = { x, y, z };
+        activeNeighborhoodRadius = nextRadius;
+        updateBrowserUrlFromCurrentCenter({ x, y, z });
+        suppressSelectionNeighborhoodJump();
+        const didSelectTarget = await queueAutoSelectByName(selectedInfo.name, selectedInfo);
+        if (!didSelectTarget) {
+          autoSelectNearestVisibleSystem(nextResult);
+        }
+      } catch (error) {
+        console.error('Failed to focus selected system neighborhood', error);
+      } finally {
+        setEdgisHomeLoadingState(false);
+      }
+    }
+
     async function drawSystems(x, y, z, radius, mode) {
       setEdgisHomeLoadingState(true);
       try {
@@ -1229,7 +1405,7 @@
        window.addEventListener('popstate', () => location.reload());
      })();
 
-     $( document ).on( "systemClick", async function( event, name, infos, url ) {
+     $( document ).on( "systemClick", async function( event, name, infos, url, meta ) {
        const requestId = ++systemInfoRequestId;
        let s = infos;
        const infoPanel = document.getElementById("InfoPanel");
@@ -1245,6 +1421,10 @@
 
        lastSelectedSystemInfo = s;
        lastClickedSystemName = s.name ?? name ?? null;
+       const currentSystemInput = document.getElementById('system');
+       if (currentSystemInput && s.name) {
+         currentSystemInput.value = s.name;
+       }
        showInfoPanel();
        if (infoPanel) {
          renderInfoPanelLoading(s);
@@ -1358,7 +1538,25 @@
       const systemInfoButton = document.querySelector('button[title="System Info"]');
       const systemMapButton = document.querySelector('button[title="System Map"]');
       const openEdgisButton = document.getElementById('openEdgisButton');
+      const searchSystemButton = document.getElementById('searchSystemButton');
+      const settingsButton = document.getElementById('settingsButton');
+      const radiusDownButton = document.getElementById('radiusDownButton');
+      const radiusUpButton = document.getElementById('radiusUpButton');
+      const controlsPanel = document.getElementById('controlsPanel');
+      const settingsPanel = document.getElementById('settingsPanel');
+      const systemInput = document.getElementById('system');
+      const systemSuggestions = document.getElementById('systemSuggestions');
+      const loadButton = document.getElementById('load');
+      const starSizeRange = document.getElementById('starSizeRange');
+      const starBrightnessRange = document.getElementById('starBrightnessRange');
+      const starOpacityRange = document.getElementById('starOpacityRange');
+      const starSizeValue = document.getElementById('starSizeValue');
+      const starBrightnessValue = document.getElementById('starBrightnessValue');
+      const starOpacityValue = document.getElementById('starOpacityValue');
+      const resetStarSettingsButton = document.getElementById('resetStarSettingsButton');
       const infoPanel = document.getElementById("InfoPanel");
+      const SYSTEM_AUTOCOMPLETE_DELAY_MS = 200;
+      let systemAutocompleteTimer = null;
 
       systemInfoButton.addEventListener('click', () => {
       if (infoPanel.style.display === "none" || infoPanel.style.display === "") {
@@ -1387,3 +1585,279 @@
           window.location.href = targetUrl;
         });
       }
+
+      const isSearchPanelVisible = () => controlsPanel && controlsPanel.style.display !== 'none';
+      const isSettingsPanelVisible = () => settingsPanel && settingsPanel.style.display !== 'none';
+      const hideInfoPanel = () => {
+        if (infoPanel) {
+          infoPanel.style.display = 'none';
+        }
+      };
+      const showSearchPanel = () => {
+        if (!controlsPanel) {
+          return;
+        }
+        hideSettingsPanel();
+        hideInfoPanel();
+        controlsPanel.style.display = 'block';
+        if (systemInput) {
+          setTimeout(() => {
+            systemInput.focus();
+            systemInput.select();
+          }, 0);
+        }
+      };
+      const hideSearchPanel = () => {
+        if (!controlsPanel) {
+          return;
+        }
+        controlsPanel.style.display = 'none';
+      };
+
+      const showSettingsPanel = () => {
+        if (!settingsPanel) {
+          return;
+        }
+        hideSearchPanel();
+        hideInfoPanel();
+        settingsPanel.style.display = 'block';
+      };
+
+      const hideSettingsPanel = () => {
+        if (!settingsPanel) {
+          return;
+        }
+        settingsPanel.style.display = 'none';
+      };
+
+      const updateStarSettingsLabels = () => {
+        if (starSizeValue) {
+          starSizeValue.textContent = `${Math.round(userStarSizeScale * 100)}%`;
+        }
+        if (starBrightnessValue) {
+          starBrightnessValue.textContent = `${Math.round(userStarBrightnessScale * 100)}%`;
+        }
+        if (starOpacityValue) {
+          starOpacityValue.textContent = `${Math.round(userStarOpacityScale * 100)}%`;
+        }
+      };
+
+      const syncStarSettingsControls = () => {
+        if (starSizeRange) {
+          starSizeRange.value = String(Math.round(userStarSizeScale * 100));
+        }
+        if (starBrightnessRange) {
+          starBrightnessRange.value = String(Math.round(userStarBrightnessScale * 100));
+        }
+        if (starOpacityRange) {
+          starOpacityRange.value = String(Math.round(userStarOpacityScale * 100));
+        }
+        updateStarSettingsLabels();
+      };
+
+      const resetStarSettings = () => {
+        userStarSizeScale = 1;
+        userStarBrightnessScale = 1;
+        userStarOpacityScale = 1;
+        saveStoredStarSettings();
+        syncStarSettingsControls();
+        applyUserStarVisualSettings();
+      };
+
+      const adjustRadiusByFactor = async (factor) => {
+        const center = getCurrentMapCenter();
+        if (!center) {
+          return;
+        }
+        const currentRadius = getAutoRefreshRadius();
+        const nextRadius = clamp(currentRadius * factor, 1, 10000);
+        activeNeighborhoodRadius = nextRadius;
+        updateBrowserUrlFromCurrentCenter(center);
+        await reloadSystemsAroundCurrentCamera(center, { force: true });
+      };
+
+      const renderSystemSuggestions = (names) => {
+        if (!systemSuggestions) {
+          return;
+        }
+        systemSuggestions.innerHTML = '';
+        names.forEach((name) => {
+          const option = document.createElement('option');
+          option.value = name;
+          systemSuggestions.appendChild(option);
+        });
+      };
+
+      const fetchSystemSuggestions = async (prefix) => {
+        const trimmed = (prefix || '').trim();
+        if (trimmed.length < 2) {
+          renderSystemSuggestions([]);
+          return;
+        }
+        try {
+          const res = await fetch(`${sameHostBaseUrl}/systems/autocomplete?q=${encodeURIComponent(trimmed)}`);
+          if (!res.ok) {
+            return;
+          }
+          const data = await res.json();
+          const suggestions = Array.isArray(data?.suggestions) ? data.suggestions : [];
+          renderSystemSuggestions(suggestions);
+        } catch (error) {
+          console.error('Failed to fetch system suggestions', error);
+        }
+      };
+
+      const runSystemSearch = async () => {
+        const trimmedQuery = (systemInput?.value ?? '').toString().trim();
+        if (!trimmedQuery) {
+          return;
+        }
+        try {
+          const response = await fetch(`${sameHostBaseUrl}/coords?q=${encodeURIComponent(trimmedQuery)}`);
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          const payload = await response.json();
+          const resolvedCoords = payload?.coords ?? payload;
+          const x = Number(resolvedCoords?.x);
+          const y = Number(resolvedCoords?.y);
+          const z = Number(resolvedCoords?.z);
+          if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+            return;
+          }
+          await focusOnSelectedSystemNeighborhood({
+            name: payload.name ?? trimmedQuery,
+            coords: {
+              x,
+              y,
+              z
+            }
+          }, 20);
+          if (systemInput) {
+            systemInput.value = payload.name ?? trimmedQuery;
+          }
+          hideSearchPanel();
+        } catch (error) {
+          console.error('Failed to search system', error);
+        }
+      };
+
+      if (loadButton) {
+        loadButton.addEventListener('click', () => {
+          runSystemSearch();
+        });
+      }
+
+      if (systemInput) {
+        systemInput.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            runSystemSearch();
+          }
+        });
+        systemInput.addEventListener('input', () => {
+          if (systemAutocompleteTimer) {
+            clearTimeout(systemAutocompleteTimer);
+          }
+          systemAutocompleteTimer = setTimeout(() => {
+            fetchSystemSuggestions(systemInput.value);
+          }, SYSTEM_AUTOCOMPLETE_DELAY_MS);
+        });
+        systemInput.addEventListener('focus', () => {
+          fetchSystemSuggestions(systemInput.value);
+        });
+      }
+
+      if (searchSystemButton) {
+        searchSystemButton.addEventListener('click', () => {
+          if (isSearchPanelVisible()) {
+            hideSearchPanel();
+          } else {
+            showSearchPanel();
+          }
+        });
+      }
+
+      if (settingsButton) {
+        settingsButton.addEventListener('click', () => {
+          if (isSettingsPanelVisible()) {
+            hideSettingsPanel();
+          } else {
+            showSettingsPanel();
+          }
+        });
+      }
+
+      if (starSizeRange) {
+        starSizeRange.addEventListener('input', () => {
+          userStarSizeScale = clamp(Number(starSizeRange.value) / 100, 0.01, 10);
+          updateStarSettingsLabels();
+          saveStoredStarSettings();
+          applyUserStarVisualSettings();
+        });
+      }
+
+      if (starBrightnessRange) {
+        starBrightnessRange.addEventListener('input', () => {
+          userStarBrightnessScale = clamp(Number(starBrightnessRange.value) / 100, 0.01, 1);
+          updateStarSettingsLabels();
+          saveStoredStarSettings();
+          applyUserStarVisualSettings();
+        });
+      }
+
+      if (starOpacityRange) {
+        starOpacityRange.addEventListener('input', () => {
+          userStarOpacityScale = clamp(Number(starOpacityRange.value) / 100, 0.01, 1);
+          updateStarSettingsLabels();
+          saveStoredStarSettings();
+          applyUserStarVisualSettings();
+        });
+      }
+
+      if (resetStarSettingsButton) {
+        resetStarSettingsButton.addEventListener('click', () => {
+          resetStarSettings();
+        });
+      }
+
+      if (radiusDownButton) {
+        radiusDownButton.addEventListener('click', () => {
+          adjustRadiusByFactor(0.9);
+        });
+      }
+
+      if (radiusUpButton) {
+        radiusUpButton.addEventListener('click', () => {
+          adjustRadiusByFactor(1.1);
+        });
+      }
+
+      syncStarSettingsControls();
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          hideSearchPanel();
+          hideSettingsPanel();
+          if (systemInput && document.activeElement === systemInput) {
+            systemInput.blur();
+          }
+          return;
+        }
+        if (event.key !== 'Enter') {
+          return;
+        }
+        if (systemInput && document.activeElement === systemInput) {
+          return;
+        }
+        if (isSearchPanelVisible()) {
+          return;
+        }
+        if (isSettingsPanelVisible()) {
+          return;
+        }
+        if (event.target && typeof event.target.closest === 'function' && event.target.closest('.map_filter, .toolbar button, .info-panel')) {
+          return;
+        }
+        showSearchPanel();
+      });

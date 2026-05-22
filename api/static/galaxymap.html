@@ -115,6 +115,141 @@
        fill: currentColor;
      }
 
+     .controls-panel {
+       position: fixed;
+       top: 16px;
+       right: 72px;
+       background: rgba(0, 0, 0, 0.82);
+       border: 1px solid rgba(255,255,255,0.12);
+       border-radius: 14px;
+       padding: 10px 14px;
+       box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+       backdrop-filter: blur(8px);
+       z-index: 1100;
+     }
+
+     .controls-panel label {
+       font-size: 0.9rem;
+       text-transform: uppercase;
+       letter-spacing: 0.08em;
+       color: #9aa3c7;
+     }
+
+     .form-grid {
+       display: grid;
+       grid-template-columns: max-content minmax(160px, 280px) max-content;
+       gap: 0.5rem;
+       align-items: center;
+     }
+
+     .form-grid input,
+     .form-grid button {
+       padding: 0.5rem 0.75rem;
+       font-size: 1rem;
+       line-height: 1.2;
+       box-sizing: border-box;
+     }
+
+     .form-grid input {
+       background: #161616;
+       color: #e6e9ff;
+       border: 1px solid rgba(255,255,255,0.18);
+     }
+
+     .form-grid button {
+       border: 1px solid rgba(255,255,255,0.18);
+       background: #3a2109;
+       color: #fa6d00;
+       cursor: pointer;
+       white-space: nowrap;
+     }
+
+     .form-grid button:hover {
+       background: #fa6d00;
+       color: #3a2109;
+     }
+
+     .settings-panel {
+       position: fixed;
+       top: 84px;
+       right: 72px;
+       width: 280px;
+       background: rgba(0, 0, 0, 0.82);
+       border: 1px solid rgba(255,255,255,0.12);
+       border-radius: 14px;
+       padding: 12px 14px;
+       box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+       backdrop-filter: blur(8px);
+       z-index: 1100;
+       color: #e6e9ff;
+     }
+
+     .settings-panel h3 {
+       margin: 0 0 10px 0;
+       color: #fa6d00;
+       font-size: 1rem;
+       letter-spacing: 0.08em;
+       text-transform: uppercase;
+     }
+
+     .settings-row {
+       display: grid;
+       grid-template-columns: 1fr auto;
+       align-items: center;
+       gap: 8px;
+       margin-bottom: 8px;
+     }
+
+     .settings-row label {
+       font-size: 0.82rem;
+       text-transform: uppercase;
+       letter-spacing: 0.08em;
+       color: #9aa3c7;
+     }
+
+     .settings-row output {
+       font-size: 0.82rem;
+       color: #fa6d00;
+       min-width: 52px;
+       text-align: right;
+     }
+
+     .settings-panel input[type="range"] {
+       width: 100%;
+       margin: 2px 0 10px 0;
+       accent-color: #fa6d00;
+     }
+
+     .settings-note {
+       margin: 2px 0 0 0;
+       color: #9aa3c7;
+       font-size: 0.74rem;
+       line-height: 1.35;
+       letter-spacing: 0.03em;
+     }
+
+     .settings-actions {
+       display: flex;
+       justify-content: flex-end;
+       margin-top: 10px;
+     }
+
+     .settings-actions button {
+       border: 1px solid rgba(255,255,255,0.18);
+       background: #3a2109;
+       color: #fa6d00;
+       padding: 0.42rem 0.72rem;
+       cursor: pointer;
+       font-size: 0.8rem;
+       text-transform: uppercase;
+       letter-spacing: 0.08em;
+     }
+
+     .settings-actions button:hover {
+       background: #fa6d00;
+       color: #3a2109;
+     }
+
      .info-panel {
        position: fixed;
        top: 20px;
@@ -227,6 +362,30 @@
 
      /* Mobile: Half-height & scrollable info panel */
      @media (max-width: 768px) {
+       .controls-panel {
+         right: 72px;
+         left: auto;
+         width: calc(100% - 150px);
+         min-width: 180px;
+         max-width: 360px;
+       }
+
+       .settings-panel {
+         right: 72px;
+         left: auto;
+         width: calc(100% - 150px);
+         min-width: 180px;
+         max-width: 360px;
+       }
+
+       .form-grid {
+         grid-template-columns: 1fr;
+       }
+
+       .form-grid button {
+         width: 100%;
+       }
+
        .info-panel {
          /* Set height to ~half the screen */
          height: 25vh;
@@ -329,6 +488,40 @@
     </style>
   </head>
   <body>
+    <div class="controls-panel" id="controlsPanel" style="display:none">
+      <div class="form-grid">
+        <label for="system">System</label>
+        <input id="system" value="" list="systemSuggestions">
+        <datalist id="systemSuggestions"></datalist>
+        <button id="load" aria-label="Render">
+          <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M5 5v14l7-5.5V19h3V5h-3v5.5z" fill="currentColor"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div class="settings-panel" id="settingsPanel" style="display:none">
+      <h3>Star Settings</h3>
+      <div class="settings-row">
+        <label for="starSizeRange">Size</label>
+        <output id="starSizeValue" for="starSizeRange">100%</output>
+      </div>
+      <input id="starSizeRange" type="range" min="1" max="1000" step="1" value="100">
+      <div class="settings-row">
+        <label for="starBrightnessRange">Brightness</label>
+        <output id="starBrightnessValue" for="starBrightnessRange">100%</output>
+      </div>
+      <input id="starBrightnessRange" type="range" min="1" max="100" step="1" value="100">
+      <div class="settings-row">
+        <label for="starOpacityRange">Opacity</label>
+        <output id="starOpacityValue" for="starOpacityRange">100%</output>
+      </div>
+      <input id="starOpacityRange" type="range" min="1" max="100" step="1" value="100">
+      <p class="settings-note">Adaptive baseline comes from local star density and radius. Sliders are saved as multipliers.</p>
+      <div class="settings-actions">
+        <button id="resetStarSettingsButton" type="button">Reset</button>
+      </div>
+    </div>
     <div id="edgisbanner">
       <a target="_blank"
          href="/"
@@ -355,6 +548,29 @@
             </clipPath>
           </defs>
           <path transform="matrix(15.476 0 0 15.476 1.4315 -.40001)" d="m0.87444 2.0171 0.59711-1.2805-0.5873 0.081246 0.27355 0.10095zm-0.96694-1.8951 0.70644 1.2236 0.27031-0.52769-0.2396 0.16618zm2.0678 0.19796-1.4129 4e-8 0.32184 0.49794-0.024115-0.29059z" clip-path="url(#galaxymapClipPath1257)" fill="currentColor"/>
+        </svg>
+      </button>
+      <button title="Search System" id="searchSystemButton" aria-label="Search System">
+        <svg width="26" height="26" version="1.1" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="padding-top: 6px;padding-left: 1px;">
+          <circle cx="10.5" cy="10.5" r="5.5" fill="none" stroke="currentColor" stroke-width="2"/>
+          <path d="m15 15 5 5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"/>
+        </svg>
+      </button>
+      <button title="Display Settings" id="settingsButton" aria-label="Display Settings">
+        <svg xmlns="http://www.w3.org/2000/svg" width="23" height="23" fill="currentColor" class="bi bi-sliders2" viewBox="0 0 16 16" style="padding-top: 5px;padding-left: 1px;">
+          <path fill-rule="evenodd" d="M10.5 1a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-1 0V4H1.5a.5.5 0 0 1 0-1H10V1.5a.5.5 0 0 1 .5-.5M12 3.5a.5.5 0 0 1 .5-.5h2a.5.5 0 0 1 0 1h-2a.5.5 0 0 1-.5-.5m-6.5 2A.5.5 0 0 1 6 6v1.5h8.5a.5.5 0 0 1 0 1H6V10a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5M1 8a.5.5 0 0 1 .5-.5h2a.5.5 0 0 1 0 1h-2A.5.5 0 0 1 1 8m9.5 2a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-1 0V13H1.5a.5.5 0 0 1 0-1H10v-1.5a.5.5 0 0 1 .5-.5m1.5 2.5a.5.5 0 0 1 .5-.5h2a.5.5 0 0 1 0 1h-2a.5.5 0 0 1-.5-.5"/>
+        </svg>
+      </button>
+      <button title="Decrease Radius 10%" id="radiusDownButton" aria-label="Decrease Radius 10%">
+        <svg xmlns="http://www.w3.org/2000/svg" width="23" height="23" fill="currentColor" class="bi bi-dash-circle" viewBox="0 0 16 16" style="padding-top: 5px;padding-left: 1px;">
+          <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14m0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16"/>
+          <path d="M4 8a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7A.5.5 0 0 1 4 8"/>
+        </svg>
+      </button>
+      <button title="Increase Radius 10%" id="radiusUpButton" aria-label="Increase Radius 10%">
+        <svg xmlns="http://www.w3.org/2000/svg" width="23" height="23" fill="currentColor" class="bi bi-plus-circle" viewBox="0 0 16 16" style="padding-top: 5px;padding-left: 1px;">
+          <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14m0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16"/>
+          <path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4"/>
         </svg>
       </button>
       <button title="System Info">
