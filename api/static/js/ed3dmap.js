@@ -124,6 +124,46 @@ var Ed3d = {
     return Ed3d.basePath + path + separator + 'v=' + encodeURIComponent(Ed3d.assetVersion);
   },
 
+  'generateTextShapes' : function(text, parameters) {
+    var options = parameters || {};
+    var fontUtils = (typeof THREE !== 'undefined') ? THREE.FontUtils : null;
+    var size = options.size !== undefined ? options.size : 100;
+
+    if (!fontUtils) return [];
+
+    // Route text generation through one helper so future font-loader changes
+    // are isolated here instead of spread across the renderer components.
+    if (typeof fontUtils.getFontObject === 'function') {
+      var previousFace = fontUtils.face;
+      var previousWeight = fontUtils.weight;
+      var previousStyle = fontUtils.style;
+
+      fontUtils.face = options.font !== undefined ? options.font : fontUtils.face;
+      fontUtils.weight = options.weight !== undefined ? options.weight : fontUtils.weight;
+      fontUtils.style = options.style !== undefined ? options.style : fontUtils.style;
+
+      try {
+        return fontUtils.getFontObject().generateShapes(String(text), size) || [];
+      } catch (error) {
+        console.warn('Unable to generate text shapes', error);
+      } finally {
+        fontUtils.face = previousFace;
+        fontUtils.weight = previousWeight;
+        fontUtils.style = previousStyle;
+      }
+    }
+
+    if (typeof fontUtils.generateShapes === 'function') {
+      try {
+        return fontUtils.generateShapes(String(text), options) || [];
+      } catch (error) {
+        console.warn('Unable to generate text shapes', error);
+      }
+    }
+
+    return [];
+  },
+
   //-- HUD
   'withHudPanel'        : false,
   'withOptionsPanel'    : true,

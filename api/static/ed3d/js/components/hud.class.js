@@ -545,7 +545,7 @@ var HUD = {
         if(addToObj == undefined) addToObj = scene;
         if(isPoint == undefined) isPoint = false;
 
-        var textShapes = THREE.FontUtils.generateShapes(textShow, {
+        var textShapes = Ed3d.generateTextShapes(textShow, {
             'font': 'helvetiker',
             'weight': 'normal',
             'style': 'normal',

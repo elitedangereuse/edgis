@@ -222,7 +222,7 @@ var System = {
 
         var particleMaterial = new THREE.PointsMaterial({
             alphaMap: Ed3d.textures.flare_yellow,
-            vertexColors: THREE.VertexColors,
+            vertexColors: true,
             color: 0xffffff,
             size: this.scaleSize,
             fog: false,
@@ -234,8 +234,6 @@ var System = {
         });
 
         this.particle = new THREE.Points(particleGeometry, particleMaterial);
-
-        this.particle.sortParticles = true;
         this.particle.clickable = true;
 
         scene.add(this.particle);
