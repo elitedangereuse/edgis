@@ -767,15 +767,18 @@
         : clamp(1 - ((Math.log10(count) - Math.log10(2500)) * 0.32), 0.45, 1);
       const largeRadiusBlend = clamp((effectiveRadius - 80) / 120, 0, 1);
       const largeRadiusBoost = 1 + (1.9 * largeRadiusBlend * largeRadiusBlend);
+      const compactRegionBlend = clamp((25 - effectiveRadius) / 10, 0, 1);
+      const ultraDenseBlend = clamp((4.5 - meanSpacing) / 3, 0, 1);
+      const compactDenseGlowBoost = 1 + (12 * compactRegionBlend * ultraDenseBlend);
 
       return {
         effectScaleMin: clamp(0.45 * particleScaleFactor * largeRadiusBoost, 0.3, 2.4),
         effectScaleMax: clamp(((7 * particleScaleFactor) + 1.4) * largeRadiusBoost, 2.2, 24),
         particleScaleFactor,
         particleOpacity: clamp(
-          (((0.08 + (densityScale * 0.035) + (radiusScaleFactor * 0.02)) / Math.pow(crowdingPenalty, 0.22)) * glowVisibilityFactor) * pointCountGlowPenalty,
-          0.04,
-          0.16
+          (((((0.16 + (densityScale * 0.08) + (radiusScaleFactor * 0.05)) / Math.pow(crowdingPenalty, 0.18)) * glowVisibilityFactor) * pointCountGlowPenalty) * compactDenseGlowBoost) * 4,
+          0.18,
+          1
         )
       };
     }

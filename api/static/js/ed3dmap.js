@@ -118,47 +118,82 @@ var Ed3d = {
 
   //-- Default color for system sprite
   'systemColor'         : '#eeeeee',
+  'fontFaces'           : {},
+  'fontObjects'         : {},
 
   'versionedAssetPath' : function(path) {
     var separator = (path.indexOf('?') === -1) ? '?' : '&';
     return Ed3d.basePath + path + separator + 'v=' + encodeURIComponent(Ed3d.assetVersion);
   },
 
-  'generateTextShapes' : function(text, parameters) {
-    var options = parameters || {};
-    var fontUtils = (typeof THREE !== 'undefined') ? THREE.FontUtils : null;
-    var size = options.size !== undefined ? options.size : 100;
+  'registerFontFace' : function(data) {
+    if (!data || !data.familyName) return null;
 
-    if (!fontUtils) return [];
+    var family = String(data.familyName).toLowerCase();
+    var weight = data.cssFontWeight || 'normal';
+    var style = data.cssFontStyle || 'normal';
+    var cacheKey = family + ':' + weight + ':' + style;
 
-    // Route text generation through one helper so future font-loader changes
-    // are isolated here instead of spread across the renderer components.
-    if (typeof fontUtils.getFontObject === 'function') {
-      var previousFace = fontUtils.face;
-      var previousWeight = fontUtils.weight;
-      var previousStyle = fontUtils.style;
-
-      fontUtils.face = options.font !== undefined ? options.font : fontUtils.face;
-      fontUtils.weight = options.weight !== undefined ? options.weight : fontUtils.weight;
-      fontUtils.style = options.style !== undefined ? options.style : fontUtils.style;
-
-      try {
-        return fontUtils.getFontObject().generateShapes(String(text), size) || [];
-      } catch (error) {
-        console.warn('Unable to generate text shapes', error);
-      } finally {
-        fontUtils.face = previousFace;
-        fontUtils.weight = previousWeight;
-        fontUtils.style = previousStyle;
-      }
+    if (!Ed3d.fontFaces[family]) {
+      Ed3d.fontFaces[family] = {};
+    }
+    if (!Ed3d.fontFaces[family][weight]) {
+      Ed3d.fontFaces[family][weight] = {};
     }
 
-    if (typeof fontUtils.generateShapes === 'function') {
-      try {
-        return fontUtils.generateShapes(String(text), options) || [];
-      } catch (error) {
-        console.warn('Unable to generate text shapes', error);
+    Ed3d.fontFaces[family][weight][style] = data;
+    Ed3d.fontObjects[cacheKey] = null;
+
+    return data;
+  },
+
+  'getFontObject' : function(parameters) {
+    var options = parameters || {};
+    var family = String(options.font !== undefined ? options.font : 'helvetiker').toLowerCase();
+    var weight = options.weight !== undefined ? options.weight : 'normal';
+    var style = options.style !== undefined ? options.style : 'normal';
+    var face = Ed3d.fontFaces[family] && Ed3d.fontFaces[family][weight] && Ed3d.fontFaces[family][weight][style];
+    var cacheKey = family + ':' + weight + ':' + style;
+
+    if (!face) {
+      throw new Error('Missing font face: ' + cacheKey);
+    }
+
+    if (Ed3d.fontObjects[cacheKey] == null) {
+      Ed3d.fontObjects[cacheKey] = new THREE.Font(face);
+    }
+
+    return Ed3d.fontObjects[cacheKey];
+  },
+
+  'installTypefaceShim' : function() {
+    var shim = {
+      faces: Ed3d.fontFaces,
+      loadFace: function(data) {
+        return Ed3d.registerFontFace(data);
       }
+    };
+
+    if (typeof THREE !== 'undefined') {
+      THREE.typeface_js = shim;
+    }
+    if (typeof self !== 'undefined') {
+      self._typeface_js = shim;
+    } else if (typeof window !== 'undefined') {
+      window._typeface_js = shim;
+    }
+  },
+
+  'generateTextShapes' : function(text, parameters) {
+    var options = parameters || {};
+    var size = options.size !== undefined ? options.size : 100;
+
+    if (typeof THREE === 'undefined' || typeof THREE.Font !== 'function') return [];
+
+    try {
+      return Ed3d.getFontObject(options).generateShapes(String(text), size) || [];
+    } catch (error) {
+      console.warn('Unable to generate text shapes', error);
     }
 
     return [];
@@ -222,6 +257,7 @@ var Ed3d = {
 
     // Merge options with defaults Ed3d
     var options = $.extend(Ed3d, options);
+    Ed3d.installTypefaceShim();
 
     //-- Init 3D map container
     $('#'+Ed3d.container).append('<div id="ed3dmap"></div>');
@@ -229,41 +265,27 @@ var Ed3d = {
 
     //-- Load dependencies
     Loader.update('Load core files');
+    var missingDependencies = [];
 
-    if(typeof isMinified !== 'undefined') return Ed3d.launchMap();
+    if (typeof THREE === 'undefined') missingDependencies.push('THREE');
+    if (typeof THREE !== 'undefined' && typeof THREE.OrbitControls !== 'function') missingDependencies.push('THREE.OrbitControls');
+    if (typeof TWEEN === 'undefined') missingDependencies.push('TWEEN');
+    if (typeof Grid === 'undefined') missingDependencies.push('Grid');
+    if (typeof Ico === 'undefined') missingDependencies.push('Ico');
+    if (typeof HUD === 'undefined') missingDependencies.push('HUD');
+    if (typeof Action === 'undefined') missingDependencies.push('Action');
+    if (typeof Route === 'undefined') missingDependencies.push('Route');
+    if (typeof System === 'undefined') missingDependencies.push('System');
+    if (typeof Galaxy === 'undefined') missingDependencies.push('Galaxy');
 
-    $.when(
-        $.getScript(Ed3d.versionedAssetPath("vendor/three-js/OrbitControls.js")),
-        $.getScript(Ed3d.versionedAssetPath("vendor/three-js/FontUtils.js")),
-        $.Deferred(function( deferred ){
-            $( deferred.resolve );
-        })
-    ).done(function(){
-      $.when(
-        $.getScript(Ed3d.versionedAssetPath("vendor/three-js/helvetiker_regular.typeface.js")),
+    if (missingDependencies.length > 0) {
+      console.error('ED3D runtime is missing required dependencies:', missingDependencies.join(', '));
+      return;
+    }
 
-        $.getScript(Ed3d.versionedAssetPath("js/components/grid.class.js")),
-        $.getScript(Ed3d.versionedAssetPath("js/components/icon.class.js")),
-        $.getScript(Ed3d.versionedAssetPath("js/components/hud.class.js")),
-        $.getScript(Ed3d.versionedAssetPath("js/components/action.class.js")),
-        $.getScript(Ed3d.versionedAssetPath("js/components/route.class.js")),
-        $.getScript(Ed3d.versionedAssetPath("js/components/system.class.js")),
-        $.getScript(Ed3d.versionedAssetPath("js/components/galaxy.class.js")),
-        $.getScript(Ed3d.versionedAssetPath("js/components/heat.class.js")),
-
-        $.getScript(Ed3d.versionedAssetPath("vendor/tween-js/Tween.js")),
-
-        $.Deferred(function( deferred ){
-            $( deferred.resolve );
-        })
-      ).done(function() {
-        Loader.update('Done !');
-        Ed3d.launchMap();
-        if(typeof options.finished === "function") options.finished();
-      }).fail(function(jqXHR, textStatus, errorThrown){
-        console.log(errorThrown)
-      });
-    })
+    Loader.update('Done !');
+    Ed3d.launchMap();
+    if(typeof options.finished === "function") options.finished();
   },
 
   /**
