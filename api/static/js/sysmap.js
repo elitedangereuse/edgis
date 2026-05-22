@@ -781,8 +781,12 @@
     const numericIdRegex = /^-?\d+$/;
 
     async function fetchSystemNameById64(id64){
+        const normalizedId64 = (id64 ?? '').toString().trim();
+        if(!numericIdRegex.test(normalizedId64)){
+            return null;
+        }
         try {
-            const res = await fetch(`${sameHostBaseUrl}/coords?q=${encodeURIComponent(id64)}`);
+            const res = await fetch(`${sameHostBaseUrl}/coords?q=${encodeURIComponent(normalizedId64)}`);
             if(!res.ok){
                 return null;
             }
@@ -795,12 +799,13 @@
     }
 
     async function renderSystem(systemName, { bodyId = null } = {}){
-        if (!systemName) {
+        const normalizedSystemName = (systemName ?? '').toString().trim();
+        if (!normalizedSystemName) {
             return false;
         }
         let data;
         try {
-            const res = await fetch(`${sameHostBaseUrl}/bodies?name_or_id=${encodeURIComponent(systemName)}&mode=edsm`);
+            const res = await fetch(`${sameHostBaseUrl}/bodies?name_or_id=${encodeURIComponent(normalizedSystemName)}&mode=edsm`);
             data = await res.json();
         } catch(err){
             console.error(err);
@@ -812,7 +817,7 @@
             const bodyIdNumber = Number(bodyId);
             requestedBodyId = Number.isFinite(bodyIdNumber) ? bodyIdNumber : null;
         }
-        const trimmedInputName = (systemName || '').toString().trim();
+        const trimmedInputName = normalizedSystemName;
         let resolvedSystemName = trimmedInputName || systemName;
         if(trimmedInputName && numericIdRegex.test(trimmedInputName)){
             const fetchedName = await fetchSystemNameById64(trimmedInputName);
