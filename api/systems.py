@@ -191,6 +191,7 @@ async def log_get_requests(request: Request, call_next):
 
     return response
 
+
 # Database connection parameters
 DB_HOST = os.getenv("DB_HOST")
 DB_NAME = os.getenv("DB_NAME")
@@ -346,7 +347,9 @@ async def fetch_coords_for_systems(id64_list: list[int]):
     return await _run_db_task(_fetch_coords_for_systems_sync, id64_list)
 
 
-def _fetch_coords_for_systems_sync(id64_list: list[int]) -> dict[int, dict[str, float]]:
+def _fetch_coords_for_systems_sync(
+    id64_list: list[int],
+) -> dict[int, dict[str, float]]:
     with _db_connection() as conn:
         cursor = conn.cursor()
         try:
@@ -735,7 +738,9 @@ def _neighbors_page_payload(
 ) -> dict[str, Any]:
     items = [_normalize_neighbor_row(row) for row in rows[:page_size]]
     has_more = len(rows) > page_size
-    next_cursor = _encode_neighbors_cursor(items[-1]) if has_more and items else None
+    next_cursor = (
+        _encode_neighbors_cursor(items[-1]) if has_more and items else None
+    )
     return {
         "items": items,
         "has_more": has_more,
@@ -945,13 +950,15 @@ async def get_neighbors(
         le=NEIGHBORS_RESULT_LIMIT,
         description="Maximum number of nearby systems to return",
     ),
-    page_size: int | None = Query(
+    page_size: int
+    | None = Query(
         None,
         ge=1,
         le=NEIGHBORS_PAGE_SIZE_MAX,
         description="Optional page size for paginated neighbors browsing",
     ),
-    cursor: str | None = Query(
+    cursor: str
+    | None = Query(
         None,
         description="Opaque cursor returned by the previous paginated neighbors page",
     ),
@@ -1839,4 +1846,4 @@ def close_db_pool() -> None:
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=UVICORN_PORT)
+    uvicorn.run(app, host="127.0.0.1", port=UVICORN_PORT)

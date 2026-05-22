@@ -48,7 +48,10 @@ TMP_CHANGED_FILE_LIST=$(mktemp)
     echo static/js/sysmap.js
     echo static/ed3d/main.css
     echo static/ed3d/styles.css
-    find static/ed3d/vendor -type f | sed 's#^#./#' | sed 's#^./##'
+    echo static/ed3d/vendor/three-js/three.min.js
+    echo static/ed3d/vendor/three-js/OrbitControls.js
+    echo static/ed3d/vendor/three-js/helvetiker_regular.typeface.js
+    echo static/ed3d/vendor/tween-js/Tween.js
     find static/ed3d/js -type f | sed 's#^#./#' | sed 's#^./##'
     find static/ed3d/textures -type f | sed 's#^#./#' | sed 's#^./##'
     for file in "${EXTRA_FILES[@]}"; do
