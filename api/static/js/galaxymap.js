@@ -4,7 +4,7 @@
      const CAMERA_REFRESH_DEBOUNCE_MS = 700;
      const CAMERA_DRAG_REFRESH_INTERVAL_MS = 220;
      const CAMERA_CENTER_CHANGE_EPSILON = 0.05;
-     const LIVE_REFRESH_DISTANCE_RATIO = 0.1;
+     const LIVE_REFRESH_DISTANCE_RATIO = 0.25;
      const NEIGHBORHOOD_CACHE_TTL_MS = 120000;
      const NEIGHBORHOOD_CACHE_MAX_ENTRIES = 16;
      let manualSystemsLookup = new Map();
@@ -312,15 +312,15 @@
        return data;
      }
 
-    async function drawSolution(x, y, z, radius, res, mode) {
+     async function drawSolution(x, y, z, radius, res, mode, focusTarget = true, targetCenter = null) {
       const spherejson = await fetchNeighborsDataset(x, y, z, radius, "initial");
       if (spherejson && spherejson.length > 0) {
-        populateResult(spherejson, res, radius, mode);
+        populateResult(spherejson, res, radius, mode, focusTarget, targetCenter);
       }
-    }
+     }
 
 
-     function populateResult(spherejson, res, radius, mode = "simple", focusTarget = true) {
+     function populateResult(spherejson, res, radius, mode = "simple", focusTarget = true, targetCenter = null) {
        const starNameMap = {
          "TTS": "T Tauri Star",
          "M": "M (Red dwarf) Star",
@@ -422,6 +422,26 @@
 
        const starCategories = res.categories.EDGIS;
 
+       if (!focusTarget && targetCenter) {
+         res.systems.push({
+           name: `Target (${formatCoord(targetCenter.x)}, ${formatCoord(targetCenter.y)}, ${formatCoord(targetCenter.z)})`,
+           coords: {
+             x: Number(targetCenter.x),
+             y: Number(targetCenter.y),
+             z: Number(targetCenter.z),
+             radius: radius
+           },
+           hidePoint: true,
+           cat: ["Target"],
+           infos: {
+             name: 'Target',
+             distance: 0,
+             mainStar: 'Target',
+             radius
+           }
+         });
+       }
+
        res.systems.push(
          ...spherejson.map((s, i) => {
            let mainStar = s.mainstar;
@@ -429,6 +449,7 @@
              return {
                name: `${s.name} (${s.distance.toFixed(2)} LY)`,
                coords: { ...s.coords, radius: radius },
+               hidePoint: true,
                cat: ["Target"],
                infos: { ...s, mainStar, radius }
              };
@@ -772,7 +793,7 @@
         };
         const inactiveFilterIds = collectInactiveFilterIds();
         const nextResult = initSolutionJson(center.x, center.y, center.z, "simple");
-        populateResult(spherejson, nextResult, autoRefreshRadius, "simple", true);
+        populateResult(spherejson, nextResult, autoRefreshRadius, "simple", false, center);
         reloadDynamicNeighborhood(nextResult, viewState, inactiveFilterIds);
         cacheNeighborhoodDataset(center, autoRefreshRadius, spherejson, 'reload');
         lastAutoLoadCenter = center;
@@ -982,12 +1003,23 @@
       setTimeout(() => trySelect(attemptsLeft), 0);
     }
 
-    function autoSelectZeroDistanceSystem(solutionjson) {
+    function autoSelectNearestVisibleSystem(solutionjson) {
       if (!solutionjson || !Array.isArray(solutionjson.systems)) {
         return;
       }
 
-      const systemsWithDistance = solutionjson.systems.filter((system) => typeof system?.infos?.distance === 'number');
+      const systemsWithDistance = solutionjson.systems.filter((system) => {
+        if (typeof system?.infos?.distance !== 'number') {
+          return false;
+        }
+        if (system?.hidePoint === true) {
+          return false;
+        }
+        if (Array.isArray(system?.cat) && system.cat.indexOf('Target') !== -1) {
+          return false;
+        }
+        return true;
+      });
       if (systemsWithDistance.length === 0) {
         return;
       }
@@ -1116,7 +1148,7 @@
       const densityProfile = computeDensityProfile(systems.length, activeNeighborhoodRadius);
       startEd3dMap(manualSolutionJson, playerPos, cameraPos, densityProfile);
       updateTrackedSolidSystemNames(manualSolutionJson);
-      autoSelectZeroDistanceSystem(manualSolutionJson);
+      autoSelectNearestVisibleSystem(manualSolutionJson);
     }
 
     async function drawSystems(x, y, z, radius, mode) {
@@ -1124,7 +1156,7 @@
       try {
        activeNeighborhoodRadius = radius;
        const solutionjson = initSolutionJson(x, y, z, mode);
-       await drawSolution(x, y, z, radius, solutionjson, mode);
+       await drawSolution(x, y, z, radius, solutionjson, mode, false, { x, y, z });
        lastAutoLoadCenter = { x, y, z };
        lastCameraTarget = { x, y, z };
        updateEdgisLinks({ x, y, z });
@@ -1133,7 +1165,7 @@
        const cameraPos = [x, y + (1.5 * radius), z - (1.5 * radius)];
        startEd3dMap(solutionjson, playerPos, cameraPos, densityProfile);
         updateTrackedSolidSystemNames(solutionjson);
-        autoSelectZeroDistanceSystem(solutionjson);
+        autoSelectNearestVisibleSystem(solutionjson);
       } catch (error) {
         console.error(error);
       } finally {
