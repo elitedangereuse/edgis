@@ -2,7 +2,11 @@
      const sameHostBaseUrl =
        window.location?.origin || `${window.location?.protocol}//${window.location?.host || ''}`;
      const CAMERA_REFRESH_DEBOUNCE_MS = 700;
+     const CAMERA_DRAG_REFRESH_INTERVAL_MS = 220;
      const CAMERA_CENTER_CHANGE_EPSILON = 0.05;
+     const LIVE_REFRESH_DISTANCE_RATIO = 0.1;
+     const NEIGHBORHOOD_CACHE_TTL_MS = 120000;
+     const NEIGHBORHOOD_CACHE_MAX_ENTRIES = 16;
      let manualSystemsLookup = new Map();
      let systemData = null;
      let lastClickedSystemName = null;
@@ -17,6 +21,8 @@
      let suppressCameraRefreshUntil = 0;
      let currentSolidSystemNames = [];
      let activeNeighborhoodRadius = 20;
+     let neighborhoodPrefetchCache = new Map();
+     let neighborhoodFetchPromises = new Map();
 
      function parseSolutionJsonParam(rawValue) {
        if (!rawValue) return null;
@@ -306,15 +312,12 @@
        return data;
      }
 
-     async function drawSolution(x, y, z, radius, res, mode) {
-       const sphereurl = sameHostBaseUrl + "/neighbors?x=" +
-                         x + "&y=" + y + "&z=" + z +
-                         "&radius=" + radius;
-       const spherejson = await getSystemCoordinates(sphereurl);
-       if (spherejson && spherejson.length > 0) {
-         populateResult(spherejson, res, radius, mode);
-       }
-     }
+    async function drawSolution(x, y, z, radius, res, mode) {
+      const spherejson = await fetchNeighborsDataset(x, y, z, radius, "initial");
+      if (spherejson && spherejson.length > 0) {
+        populateResult(spherejson, res, radius, mode);
+      }
+    }
 
 
      function populateResult(spherejson, res, radius, mode = "simple", focusTarget = true) {
@@ -496,6 +499,94 @@
       return Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 
+    function hasMovedFarEnoughForLiveRefresh(center, radius) {
+      if (!center) {
+        return false;
+      }
+      if (!lastAutoLoadCenter) {
+        return true;
+      }
+      const effectiveRadius = parsePositiveNumber(radius, getAutoRefreshRadius());
+      const threshold = Math.max(CAMERA_CENTER_CHANGE_EPSILON, effectiveRadius * LIVE_REFRESH_DISTANCE_RATIO);
+      return distanceBetweenCenters(center, lastAutoLoadCenter) >= threshold;
+    }
+
+    function roundCacheCoord(value) {
+      return Number(value).toFixed(2);
+    }
+
+    function buildNeighborhoodCacheKey(center, radius) {
+      return [
+        roundCacheCoord(center.x),
+        roundCacheCoord(center.y),
+        roundCacheCoord(center.z),
+        formatRadiusValue(radius)
+      ].join(':');
+    }
+
+    function pruneNeighborhoodPrefetchCache() {
+      const now = Date.now();
+      for (const [key, entry] of neighborhoodPrefetchCache.entries()) {
+        if (!entry || (now - entry.timestamp) > NEIGHBORHOOD_CACHE_TTL_MS) {
+          neighborhoodPrefetchCache.delete(key);
+        }
+      }
+
+      while (neighborhoodPrefetchCache.size > NEIGHBORHOOD_CACHE_MAX_ENTRIES) {
+        const oldestKey = neighborhoodPrefetchCache.keys().next().value;
+        if (!oldestKey) {
+          break;
+        }
+        neighborhoodPrefetchCache.delete(oldestKey);
+      }
+    }
+
+    function cacheNeighborhoodDataset(center, radius, dataset, source = 'fetch') {
+      if (!center || !Array.isArray(dataset) || !dataset.length) {
+        return;
+      }
+
+      const key = buildNeighborhoodCacheKey(center, radius);
+      neighborhoodPrefetchCache.delete(key);
+      neighborhoodPrefetchCache.set(key, {
+        center: { x: Number(center.x), y: Number(center.y), z: Number(center.z) },
+        radius: Number(radius),
+        dataset,
+        source,
+        timestamp: Date.now()
+      });
+      pruneNeighborhoodPrefetchCache();
+    }
+
+    async function fetchAndCacheNeighborhood(center, radius, source = 'fetch') {
+      const key = buildNeighborhoodCacheKey(center, radius);
+      const exactCached = neighborhoodPrefetchCache.get(key);
+      if (exactCached && Array.isArray(exactCached.dataset) && exactCached.dataset.length) {
+        exactCached.timestamp = Date.now();
+        return exactCached.dataset;
+      }
+
+      const existingPromise = neighborhoodFetchPromises.get(key);
+      if (existingPromise) {
+        return await existingPromise;
+      }
+
+      const fetchPromise = (async () => {
+        const sphereurl = `${sameHostBaseUrl}/neighbors?x=${center.x}&y=${center.y}&z=${center.z}&radius=${radius}`;
+        const dataset = await getSystemCoordinates(sphereurl);
+        cacheNeighborhoodDataset(center, radius, dataset, source);
+        return dataset;
+      })();
+
+      neighborhoodFetchPromises.set(key, fetchPromise);
+
+      try {
+        return await fetchPromise;
+      } finally {
+        neighborhoodFetchPromises.delete(key);
+      }
+    }
+
     function refreshHudFilterCounts() {
       if (!window.$) {
         return;
@@ -594,9 +685,8 @@
       return Number(filterEl.data('active')) === 1;
     }
 
-    async function fetchNeighborsDataset(x, y, z, radius) {
-      const sphereurl = `${sameHostBaseUrl}/neighbors?x=${x}&y=${y}&z=${z}&radius=${radius}`;
-      return await getSystemCoordinates(sphereurl);
+    async function fetchNeighborsDataset(x, y, z, radius, source = 'fetch') {
+      return await fetchAndCacheNeighborhood({ x, y, z }, radius, source);
     }
 
     function updateTrackedSolidSystemNames(solutionjson) {
@@ -654,7 +744,7 @@
       restoreView(viewState);
     }
 
-    async function reloadSystemsAroundCurrentCamera(center) {
+    async function reloadSystemsAroundCurrentCamera(center, options = {}) {
       if (!center || externalSolutionJson) {
         setEdgisHomeLoadingState(false);
         return;
@@ -664,7 +754,7 @@
         return;
       }
       if (autoRefreshInFlight) {
-        scheduleCameraNeighborhoodRefresh();
+        scheduleCameraNeighborhoodRefresh(options);
         return;
       }
       autoRefreshInFlight = true;
@@ -672,7 +762,7 @@
       const requestId = ++autoRefreshRequestId;
       try {
         const autoRefreshRadius = getAutoRefreshRadius();
-        const spherejson = await fetchNeighborsDataset(center.x, center.y, center.z, autoRefreshRadius);
+        const spherejson = await fetchNeighborsDataset(center.x, center.y, center.z, autoRefreshRadius, 'reload');
         if (requestId !== autoRefreshRequestId || !Array.isArray(spherejson) || !spherejson.length) {
           return;
         }
@@ -684,6 +774,7 @@
         const nextResult = initSolutionJson(center.x, center.y, center.z, "simple");
         populateResult(spherejson, nextResult, autoRefreshRadius, "simple", true);
         reloadDynamicNeighborhood(nextResult, viewState, inactiveFilterIds);
+        cacheNeighborhoodDataset(center, autoRefreshRadius, spherejson, 'reload');
         lastAutoLoadCenter = center;
         activeNeighborhoodRadius = autoRefreshRadius;
         updateBrowserUrlFromCurrentCenter(center);
@@ -695,25 +786,30 @@
       }
     }
 
-    function scheduleCameraNeighborhoodRefresh() {
+    function scheduleCameraNeighborhoodRefresh(options = {}) {
       if (externalSolutionJson) {
         return;
       }
       if (isCameraRefreshSuppressed()) {
         return;
       }
-      const center = getCurrentMapCenter();
+      const center = options.center || getCurrentMapCenter();
       if (!center) {
+        return;
+      }
+      const resetExistingTimer = options.resetExistingTimer !== false;
+      if (cameraRefreshTimer && !resetExistingTimer) {
         return;
       }
       if (cameraRefreshTimer) {
         clearTimeout(cameraRefreshTimer);
       }
+      const debounceMs = Number.isFinite(options.debounceMs) ? options.debounceMs : CAMERA_REFRESH_DEBOUNCE_MS;
       setEdgisHomeLoadingState(true);
       cameraRefreshTimer = setTimeout(() => {
         cameraRefreshTimer = null;
-        reloadSystemsAroundCurrentCamera(center);
-      }, CAMERA_REFRESH_DEBOUNCE_MS);
+        reloadSystemsAroundCurrentCamera(center, options);
+      }, debounceMs);
     }
 
     function attachCameraNeighborhoodRefresh() {
@@ -726,6 +822,24 @@
         lastAutoLoadCenter = initialCenter;
         lastCameraTarget = initialCenter;
       }
+      controls.addEventListener('change', () => {
+        const center = getCurrentMapCenter();
+        if (!center || isCameraRefreshSuppressed()) {
+          return;
+        }
+        if (!hasMovedFarEnoughForLiveRefresh(center, getAutoRefreshRadius())) {
+          return;
+        }
+        const centerMoved = !lastCameraTarget || distanceBetweenCenters(center, lastCameraTarget) > CAMERA_CENTER_CHANGE_EPSILON;
+        if (!centerMoved) {
+          return;
+        }
+        scheduleCameraNeighborhoodRefresh({
+          center,
+          debounceMs: CAMERA_DRAG_REFRESH_INTERVAL_MS,
+          resetExistingTimer: false
+        });
+      });
       controls.addEventListener('end', () => {
         const center = getCurrentMapCenter();
         if (!center) {
@@ -739,7 +853,9 @@
         const centerMoved = !lastCameraTarget || distanceBetweenCenters(center, lastCameraTarget) > CAMERA_CENTER_CHANGE_EPSILON;
         lastCameraTarget = center;
         if (centerMoved) {
-          scheduleCameraNeighborhoodRefresh();
+          scheduleCameraNeighborhoodRefresh({
+            center
+          });
         }
       });
     }
@@ -1012,10 +1128,10 @@
        lastAutoLoadCenter = { x, y, z };
        lastCameraTarget = { x, y, z };
        updateEdgisLinks({ x, y, z });
-        const densityProfile = computeDensityProfile(solutionjson['systems'].length, radius);
-        const playerPos = [x, y, z];
-        const cameraPos = [x, y + (1.5 * radius), z - (1.5 * radius)];
-        startEd3dMap(solutionjson, playerPos, cameraPos, densityProfile);
+       const densityProfile = computeDensityProfile(solutionjson['systems'].length, radius);
+       const playerPos = [x, y, z];
+       const cameraPos = [x, y + (1.5 * radius), z - (1.5 * radius)];
+       startEd3dMap(solutionjson, playerPos, cameraPos, densityProfile);
         updateTrackedSolidSystemNames(solutionjson);
         autoSelectZeroDistanceSystem(solutionjson);
       } catch (error) {
