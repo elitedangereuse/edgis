@@ -759,16 +759,21 @@
       const radiusCurve = normalizedRadius * normalizedRadius * (3 - (2 * normalizedRadius));
       const radiusScaleFactor = 0.72 + (0.33 * radiusCurve);
       const smallRadiusBlend = clamp((80 - effectiveRadius) / 60, 0, 1);
-      const smallRadiusPenalty = 1 - (5 * smallRadiusBlend * smallRadiusBlend);
+      const smallRadiusPenalty = 1 - (0.5 * smallRadiusBlend * smallRadiusBlend);
       const particleScaleFactor = clamp((densityScale * radiusScaleFactor * smallRadiusPenalty) / crowdingPenalty, 0.08, 1.05);
       const glowVisibilityFactor = clamp((meanSpacing - 1.5) / 5.5, 0.22, 1);
+      const pointCountGlowPenalty = count <= 2500
+        ? 1
+        : clamp(1 - ((Math.log10(count) - Math.log10(2500)) * 0.32), 0.45, 1);
+      const largeRadiusBlend = clamp((effectiveRadius - 80) / 120, 0, 1);
+      const largeRadiusBoost = 1 + (1.9 * largeRadiusBlend * largeRadiusBlend);
 
       return {
-        effectScaleMin: clamp(7 * particleScaleFactor, 3.8, 10),
-        effectScaleMax: clamp(148 * particleScaleFactor + 20, 28, 155),
+        effectScaleMin: clamp(0.45 * particleScaleFactor * largeRadiusBoost, 0.3, 2.4),
+        effectScaleMax: clamp(((7 * particleScaleFactor) + 1.4) * largeRadiusBoost, 2.2, 24),
         particleScaleFactor,
         particleOpacity: clamp(
-          ((0.08 + (densityScale * 0.035) + (radiusScaleFactor * 0.02)) / Math.pow(crowdingPenalty, 0.22)) * glowVisibilityFactor,
+          (((0.08 + (densityScale * 0.035) + (radiusScaleFactor * 0.02)) / Math.pow(crowdingPenalty, 0.22)) * glowVisibilityFactor) * pointCountGlowPenalty,
           0.04,
           0.16
         )
