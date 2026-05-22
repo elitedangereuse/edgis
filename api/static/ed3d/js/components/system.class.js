@@ -30,6 +30,7 @@ var System = {
         var sphereOpacity = val.coords?.sphereOpacity ?? 0.5; // sphere opacity
         var sphereGeometryWidth = parseInt(val.coords?.sphereGeometryWidth ?? 64, 10);
         var sphereGeometryHeight = parseInt(val.coords?.sphereGeometryHeight ?? 32, 10);
+        var hidePoint = val.hidePoint === true;
         if(!Number.isFinite(sphereGeometryWidth) || sphereGeometryWidth < 3) sphereGeometryWidth = 64;
         if(!Number.isFinite(sphereGeometryHeight) || sphereGeometryHeight < 2) sphereGeometryHeight = 32;
 
@@ -37,7 +38,7 @@ var System = {
         //-- Particle for near and far view
 
         var colors = [];
-        if(this.particleGeo !== null) {
+        if(this.particleGeo !== null && !hidePoint) {
 
             //-- If system with info already registered, concat datas
             var idSys = x+'_'+y+'_'+z;
