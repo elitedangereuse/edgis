@@ -752,18 +752,26 @@
       const count = Math.max(systemCount || 0, 1);
       const effectiveRadius = parsePositiveNumber(radius, activeNeighborhoodRadius || 20);
       const volume = (4 / 3) * Math.PI * Math.pow(effectiveRadius, 3);
-      const meanSpacing = Math.log(volume / count);
-      const densityScale = clamp(meanSpacing / 5, 0.35, 1.4);
-      const crowdingPenalty = clamp(14 / Math.max(meanSpacing, 0.01), 1, 6.5);
-      const radiusScaleFactor = clamp(Math.pow(effectiveRadius / 140, 50), 0.04, 1.5);
-      const particleScaleFactor = clamp((1 / crowdingPenalty) * radiusScaleFactor, 0.08, 1);
-      const bloomScaleFactor = Math.pow(particleScaleFactor, 0.55);
+      const meanSpacing = Math.cbrt(volume / count);
+      const densityScale = clamp((meanSpacing - 3) / 10, 0.55, 1.3);
+      const crowdingPenalty = clamp(6 / Math.max(meanSpacing, 0.1), 0.85, 3.8);
+      const normalizedRadius = clamp((effectiveRadius - 20) / 130, 0, 1);
+      const radiusCurve = normalizedRadius * normalizedRadius * (3 - (2 * normalizedRadius));
+      const radiusScaleFactor = 0.72 + (0.33 * radiusCurve);
+      const smallRadiusBlend = clamp((80 - effectiveRadius) / 60, 0, 1);
+      const smallRadiusPenalty = 1 - (5 * smallRadiusBlend * smallRadiusBlend);
+      const particleScaleFactor = clamp((densityScale * radiusScaleFactor * smallRadiusPenalty) / crowdingPenalty, 0.08, 1.05);
+      const glowVisibilityFactor = clamp((meanSpacing - 1.5) / 5.5, 0.22, 1);
 
       return {
-        effectScaleMin: clamp(6 * particleScaleFactor, 3.5, 10),
-        effectScaleMax: clamp(140 * particleScaleFactor + 18, 24, 150),
+        effectScaleMin: clamp(7 * particleScaleFactor, 3.8, 10),
+        effectScaleMax: clamp(148 * particleScaleFactor + 20, 28, 155),
         particleScaleFactor,
-        particleOpacity: clamp(((0.3 + densityScale * 0.1) * bloomScaleFactor), 0.07, 0.21)
+        particleOpacity: clamp(
+          ((0.08 + (densityScale * 0.035) + (radiusScaleFactor * 0.02)) / Math.pow(crowdingPenalty, 0.22)) * glowVisibilityFactor,
+          0.04,
+          0.16
+        )
       };
     }
 
@@ -1068,6 +1076,7 @@
      $( document ).on( "systemClick", async function( event, name, infos, url ) {
        const requestId = ++systemInfoRequestId;
        let s = infos;
+       const infoPanel = document.getElementById("InfoPanel");
 
        if (!s && name) {
          s = manualSystemsLookup.get(name) || null;
@@ -1080,6 +1089,10 @@
 
        lastSelectedSystemInfo = s;
        lastClickedSystemName = s.name ?? name ?? null;
+       showInfoPanel();
+       if (infoPanel) {
+         renderInfoPanelLoading(s);
+       }
 
        async function getSystemBodies(systemName) {
          try {
@@ -1177,10 +1190,13 @@
        if (requestId !== systemInfoRequestId) {
          return;
        }
-       document.getElementById("InfoPanel").innerHTML = "";
+       if (!infoPanel) {
+         return;
+       }
+       infoPanel.innerHTML = "";
        // fetch main star data
        const body = systemData?.bodies?.find(b => b.isMainStar === true) ?? null;
-       document.getElementById("InfoPanel").appendChild(buildStarCard(body));
+       infoPanel.appendChild(buildStarCard(body));
      });
 
       const systemInfoButton = document.querySelector('button[title="System Info"]');
