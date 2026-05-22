@@ -43,10 +43,6 @@ var Galaxy = {
 
     this.obj = System.create(objVal, true);
 
-    var sprite = new THREE.Sprite( Ed3d.material.glow_2 );
-    sprite.scale.set(50, 40, 2.0);
-    this.obj.add(sprite); /// this centers the glow at the mesh
-
     this.createParticles();
     this.add2DPlane();
 
@@ -216,7 +212,7 @@ var Galaxy = {
     if(size==undefined) size = 450;
     textShow = textShow.toUpperCase();
 
-    var textShapes = THREE.FontUtils.generateShapes(textShow, {
+    var textShapes = Ed3d.generateTextShapes(textShow, {
       'font': 'helvetiker',
       'weight': 'normal',
       'style': 'normal',
@@ -350,14 +346,13 @@ var Galaxy = {
       map: Ed3d.textures.flare_yellow,
       transparent: true,
       size: 64,
-      vertexColors: THREE.VertexColors,
+      vertexColors: true,
       blending: THREE.AdditiveBlending,
       depthTest: true,
       depthWrite: false
     });
 
     var points = new THREE.Points(particles, particleMaterial);
-    points.sortParticles = true;
 
     obj.milkyway[0] = points;
     obj.milkyway[0].scale.set(20,20,20);
@@ -374,7 +369,7 @@ var Galaxy = {
     var particleMaterialBig = new THREE.PointsMaterial({
       map: Ed3d.textures.flare_yellow,
       transparent: true,
-      vertexColors: THREE.VertexColors,
+      vertexColors: true,
       size: 16,
       blending: THREE.AdditiveBlending,
       depthTest: true,
@@ -382,7 +377,6 @@ var Galaxy = {
     });
 
     var pointsBig = new THREE.Points(particlesBig, particleMaterialBig);
-    pointsBig.sortParticles = true;
 
     obj.milkyway[1] = pointsBig;
     obj.milkyway[1].scale.set(20,20,20);

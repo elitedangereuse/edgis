@@ -132,7 +132,7 @@ var Grid = {
 
       //-- Generate a new text shape
 
-      this.textShapes = THREE.FontUtils.generateShapes( this.coordTxt, options );
+      this.textShapes = Ed3d.generateTextShapes(this.coordTxt, options);
       this.textGeo.dispose();
       if(!this.textShapes || this.textShapes.length === 0) return;
       this.textGeo = new THREE.ShapeGeometry(this.textShapes);
@@ -146,7 +146,7 @@ var Grid = {
 
     } else {
 
-      this.textShapes = THREE.FontUtils.generateShapes(textShow, options);
+      this.textShapes = Ed3d.generateTextShapes(textShow, options);
       if(!this.textShapes || this.textShapes.length === 0) return;
       this.textGeo = new THREE.ShapeGeometry(this.textShapes);
       this.coordGrid = new THREE.Mesh(this.textGeo, Ed3d.material.darkblue);
