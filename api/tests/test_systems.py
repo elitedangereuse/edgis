@@ -114,7 +114,16 @@ def test_get_neighbors_radius_too_large():
     ],
 )
 def test_get_neighbors_success(monkeypatch, expected):
-    async def fake_fetch_neighbors_from_db(x, y, z, radius, limit):
+    async def fake_fetch_neighbors_from_db(
+        x,
+        y,
+        z,
+        radius,
+        limit,
+        atmosphere_gas=None,
+        material=None,
+        include_facets=False,
+    ):
         return [expected]
 
     monkeypatch.setattr(
@@ -145,7 +154,16 @@ def test_get_neighbors_cursor_requires_page_size():
 
 
 def test_get_neighbors_paged_success(monkeypatch):
-    async def fake_fetch_neighbors_seeded_page_from_db(x, y, z, radius, page_size):
+    async def fake_fetch_neighbors_seeded_page_from_db(
+        x,
+        y,
+        z,
+        radius,
+        page_size,
+        atmosphere_gas=None,
+        material=None,
+        include_facets=False,
+    ):
         assert page_size == 100
         return {
             "items": [
@@ -174,6 +192,45 @@ def test_get_neighbors_paged_success(monkeypatch):
     assert response.status_code == 200
     assert response.json()["has_more"] is True
     assert response.json()["next_cursor"] == "cursor-1"
+
+
+def test_get_neighbors_forwards_optional_filters(monkeypatch):
+    captured = {}
+
+    async def fake_fetch_neighbors_from_db(
+        x,
+        y,
+        z,
+        radius,
+        limit,
+        atmosphere_gas=None,
+        material=None,
+        include_facets=False,
+    ):
+        captured["atmosphere_gas"] = atmosphere_gas
+        captured["material"] = material
+        return []
+
+    monkeypatch.setattr(
+        systems, "fetch_neighbors_from_db", fake_fetch_neighbors_from_db
+    )
+
+    response = client.get(
+        "/neighbors",
+        params={
+            "x": 10,
+            "y": -2,
+            "z": 5,
+            "radius": 25,
+            "atmosphere_gas": " Argon ",
+            "material": " Selenium ",
+        },
+    )
+    assert response.status_code == 200
+    assert captured == {
+        "atmosphere_gas": "Argon",
+        "material": "Selenium",
+    }
 
 
 def test_neighbors_seeded_radii_for_request():
@@ -1095,6 +1152,24 @@ async def test_fetch_neighbors_page_from_db_with_cursor_uses_keyset(monkeypatch)
     select_query, select_params = cursor.executed[-1]
     assert "WHERE (\n                    distance > %s" in select_query
     assert select_params == (0, 0, 0, 10, 5.2, 5.2, "Achenar", 5.2, "Achenar", 100, 3)
+
+
+@pytest.mark.anyio("asyncio")
+async def test_fetch_neighbors_from_db_applies_optional_filters(monkeypatch):
+    cursor = _patch_db(
+        monkeypatch,
+        rows=[(99, "Sol", "G", "POINT Z (1 2 3)", 4.2)],
+    )
+
+    rows = await systems.fetch_neighbors_from_db.__wrapped__(  # type: ignore[attr-defined]
+        0, 0, 0, 10, 25, "Argon", "Selenium"
+    )
+    assert rows[0]["id64"] == 99
+    select_query, select_params = cursor.executed[-1]
+    assert "body_atmospheres" in select_query
+    assert "body_materials" in select_query
+    assert "%Argon%" in select_params
+    assert "%Selenium%" in select_params
 
 
 @pytest.mark.anyio("asyncio")

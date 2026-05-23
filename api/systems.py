@@ -668,14 +668,16 @@ def _fetch_total_systems_from_db_sync() -> int:
     return int(row[0])
 
 
-def _normalize_neighbor_row(row: Sequence[Any]) -> dict[str, Any]:
+def _normalize_neighbor_row(
+    row: Sequence[Any], include_facets: bool = False
+) -> dict[str, Any]:
     coords = str(row[3]).replace("POINT Z (", "").replace(")", "").split()
     distance = row[4]
     if isinstance(distance, (Decimal, int, float)):
         normalized_distance: Any = float(distance)
     else:
         normalized_distance = distance
-    return {
+    normalized = {
         "id64": row[0],
         "name": row[1],
         "mainstar": row[2],
@@ -686,6 +688,12 @@ def _normalize_neighbor_row(row: Sequence[Any]) -> dict[str, Any]:
         },
         "distance": normalized_distance,
     }
+    if include_facets:
+        atmosphere_gases = row[5] if len(row) > 5 else []
+        materials = row[6] if len(row) > 6 else []
+        normalized["atmosphere_gases"] = list(atmosphere_gases or [])
+        normalized["materials"] = list(materials or [])
+    return normalized
 
 
 def _neighbors_seeded_radii_for_request(radius: float) -> list[float]:
@@ -701,6 +709,13 @@ def _neighbors_seeded_radii_for_request(radius: float) -> list[float]:
             continue
         deduped.append(candidate)
     return deduped
+
+
+def _normalize_optional_filter(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
 
 
 def _encode_neighbors_cursor(item: dict[str, Any]) -> str:
@@ -734,9 +749,14 @@ def _decode_neighbors_cursor(cursor: str) -> tuple[float, str, int]:
 
 
 def _neighbors_page_payload(
-    rows: Sequence[Sequence[Any]], page_size: int
+    rows: Sequence[Sequence[Any]],
+    page_size: int,
+    include_facets: bool = False,
 ) -> dict[str, Any]:
-    items = [_normalize_neighbor_row(row) for row in rows[:page_size]]
+    items = [
+        _normalize_neighbor_row(row, include_facets=include_facets)
+        for row in rows[:page_size]
+    ]
     has_more = len(rows) > page_size
     next_cursor = (
         _encode_neighbors_cursor(items[-1]) if has_more and items else None
@@ -757,15 +777,37 @@ def _neighbors_page_payload(
     serializer=PickleSerializer(),  # Or JsonSerializer if you prefer
 )
 async def fetch_neighbors_from_db(
-    x: float, y: float, z: float, radius: float, limit: int
+    x: float,
+    y: float,
+    z: float,
+    radius: float,
+    limit: int,
+    atmosphere_gas: str | None = None,
+    material: str | None = None,
+    include_facets: bool = False,
 ):
     return await _run_db_task(
-        _fetch_neighbors_from_db_sync, x, y, z, radius, limit
+        _fetch_neighbors_from_db_sync,
+        x,
+        y,
+        z,
+        radius,
+        limit,
+        atmosphere_gas,
+        material,
+        include_facets,
     )
 
 
 def _fetch_neighbors_from_db_sync(
-    x: float, y: float, z: float, radius: float, limit: int
+    x: float,
+    y: float,
+    z: float,
+    radius: float,
+    limit: int,
+    atmosphere_gas: str | None = None,
+    material: str | None = None,
+    include_facets: bool = False,
 ) -> list[dict[str, Any]]:
     with _db_connection() as conn:
         cursor = conn.cursor()
@@ -775,7 +817,63 @@ def _fetch_neighbors_from_db_sync(
                     f"SET LOCAL statement_timeout = {int(NEIGHBORS_STATEMENT_TIMEOUT_MS)};"
                 )
 
-            query = """
+            where_clauses: list[str] = [
+                "ST_3DDWithin(s.coords, ref.geom, %s)"
+            ]
+            params: list[Any] = [x, y, z, radius]
+
+            if atmosphere_gas:
+                where_clauses.append(
+                    """
+                    EXISTS (
+                        SELECT 1
+                        FROM body_atmospheres ba
+                        JOIN atmosphere_gases ag ON ag.id = ba.gas_id
+                        WHERE ba.system_id64 = s.id64
+                          AND ag.name ILIKE %s
+                    )
+                    """.strip()
+                )
+                params.append(f"%{atmosphere_gas}%")
+
+            if material:
+                where_clauses.append(
+                    """
+                    EXISTS (
+                        SELECT 1
+                        FROM body_materials bm
+                        JOIN material_names mn ON mn.id = bm.material_id
+                        WHERE bm.system_id64 = s.id64
+                          AND mn.name ILIKE %s
+                    )
+                    """.strip()
+                )
+                params.append(f"%{material}%")
+
+            facet_select = ""
+            facet_joins = ""
+            if include_facets:
+                facet_select = """
+                        ,
+                        COALESCE(atm.atmosphere_gases, ARRAY[]::text[]) AS atmosphere_gases,
+                        COALESCE(mat.materials, ARRAY[]::text[]) AS materials
+                """
+                facet_joins = """
+                    LEFT JOIN LATERAL (
+                        SELECT array_agg(DISTINCT ag.name ORDER BY ag.name) AS atmosphere_gases
+                        FROM body_atmospheres ba
+                        JOIN atmosphere_gases ag ON ag.id = ba.gas_id
+                        WHERE ba.system_id64 = s.id64
+                    ) atm ON true
+                    LEFT JOIN LATERAL (
+                        SELECT array_agg(DISTINCT mn.name ORDER BY mn.name) AS materials
+                        FROM body_materials bm
+                        JOIN material_names mn ON mn.id = bm.material_id
+                        WHERE bm.system_id64 = s.id64
+                    ) mat ON true
+                """
+
+            query = f"""
                 WITH ref AS (
                     SELECT ST_SetSRID(ST_MakePoint(%s, %s, %s), 0) AS geom
                 ), candidates AS (
@@ -785,20 +883,25 @@ def _fetch_neighbors_from_db_sync(
                         s.mainstar,
                         ST_AsText(s.coords) AS coordinates,
                         ST_3DDistance(s.coords, ref.geom) AS distance
+                        {facet_select}
                     FROM systems_big s, ref
-                    WHERE ST_3DDWithin(s.coords, ref.geom, %s)
+                    {facet_joins}
+                    WHERE {" AND ".join(where_clauses)}
                 )
                 SELECT *
                 FROM candidates
                 ORDER BY distance, name, id64
                 LIMIT %s;
             """
-            cursor.execute(query, (x, y, z, radius, limit))
+            cursor.execute(query, tuple(params + [limit]))
             rows = cursor.fetchall()
         finally:
             cursor.close()
 
-    return [_normalize_neighbor_row(row) for row in rows]
+    return [
+        _normalize_neighbor_row(row, include_facets=include_facets)
+        for row in rows
+    ]
 
 
 @cached(
@@ -818,6 +921,9 @@ async def fetch_neighbors_page_from_db(
     cursor_distance: float | None,
     cursor_name: str | None,
     cursor_id64: int | None,
+    atmosphere_gas: str | None = None,
+    material: str | None = None,
+    include_facets: bool = False,
 ):
     return await _run_db_task(
         _fetch_neighbors_page_from_db_sync,
@@ -829,6 +935,9 @@ async def fetch_neighbors_page_from_db(
         cursor_distance,
         cursor_name,
         cursor_id64,
+        atmosphere_gas,
+        material,
+        include_facets,
     )
 
 
@@ -841,6 +950,9 @@ def _fetch_neighbors_page_from_db_sync(
     cursor_distance: float | None,
     cursor_name: str | None,
     cursor_id64: int | None,
+    atmosphere_gas: str | None = None,
+    material: str | None = None,
+    include_facets: bool = False,
 ) -> dict[str, Any]:
     with _db_connection() as conn:
         cursor = conn.cursor()
@@ -850,7 +962,63 @@ def _fetch_neighbors_page_from_db_sync(
                     f"SET LOCAL statement_timeout = {int(NEIGHBORS_STATEMENT_TIMEOUT_MS)};"
                 )
 
-            base_query = """
+            where_clauses: list[str] = [
+                "ST_3DDWithin(s.coords, ref.geom, %s)"
+            ]
+            params_prefix: list[Any] = [x, y, z, radius]
+
+            if atmosphere_gas:
+                where_clauses.append(
+                    """
+                    EXISTS (
+                        SELECT 1
+                        FROM body_atmospheres ba
+                        JOIN atmosphere_gases ag ON ag.id = ba.gas_id
+                        WHERE ba.system_id64 = s.id64
+                          AND ag.name ILIKE %s
+                    )
+                    """.strip()
+                )
+                params_prefix.append(f"%{atmosphere_gas}%")
+
+            if material:
+                where_clauses.append(
+                    """
+                    EXISTS (
+                        SELECT 1
+                        FROM body_materials bm
+                        JOIN material_names mn ON mn.id = bm.material_id
+                        WHERE bm.system_id64 = s.id64
+                          AND mn.name ILIKE %s
+                    )
+                    """.strip()
+                )
+                params_prefix.append(f"%{material}%")
+
+            facet_select = ""
+            facet_joins = ""
+            if include_facets:
+                facet_select = """
+                        ,
+                        COALESCE(atm.atmosphere_gases, ARRAY[]::text[]) AS atmosphere_gases,
+                        COALESCE(mat.materials, ARRAY[]::text[]) AS materials
+                """
+                facet_joins = """
+                    LEFT JOIN LATERAL (
+                        SELECT array_agg(DISTINCT ag.name ORDER BY ag.name) AS atmosphere_gases
+                        FROM body_atmospheres ba
+                        JOIN atmosphere_gases ag ON ag.id = ba.gas_id
+                        WHERE ba.system_id64 = s.id64
+                    ) atm ON true
+                    LEFT JOIN LATERAL (
+                        SELECT array_agg(DISTINCT mn.name ORDER BY mn.name) AS materials
+                        FROM body_materials bm
+                        JOIN material_names mn ON mn.id = bm.material_id
+                        WHERE bm.system_id64 = s.id64
+                    ) mat ON true
+                """
+
+            base_query = f"""
                 WITH ref AS (
                     SELECT ST_SetSRID(ST_MakePoint(%s, %s, %s), 0) AS geom
                 ), candidates AS (
@@ -860,8 +1028,10 @@ def _fetch_neighbors_page_from_db_sync(
                         s.mainstar,
                         ST_AsText(s.coords) AS coordinates,
                         ST_3DDistance(s.coords, ref.geom) AS distance
+                        {facet_select}
                     FROM systems_big s, ref
-                    WHERE ST_3DDWithin(s.coords, ref.geom, %s)
+                    {facet_joins}
+                    WHERE {" AND ".join(where_clauses)}
                 )
             """
 
@@ -875,7 +1045,7 @@ def _fetch_neighbors_page_from_db_sync(
                 LIMIT %s;
                 """
                 )
-                params = (x, y, z, radius, page_size + 1)
+                params = tuple(params_prefix + [page_size + 1])
             else:
                 query = (
                     base_query
@@ -891,18 +1061,17 @@ def _fetch_neighbors_page_from_db_sync(
                 LIMIT %s;
                 """
                 )
-                params = (
-                    x,
-                    y,
-                    z,
-                    radius,
-                    cursor_distance,
-                    cursor_distance,
-                    cursor_name,
-                    cursor_distance,
-                    cursor_name,
-                    cursor_id64,
-                    page_size + 1,
+                params = tuple(
+                    params_prefix
+                    + [
+                        cursor_distance,
+                        cursor_distance,
+                        cursor_name,
+                        cursor_distance,
+                        cursor_name,
+                        cursor_id64,
+                        page_size + 1,
+                    ]
                 )
 
             cursor.execute(query, params)
@@ -910,11 +1079,20 @@ def _fetch_neighbors_page_from_db_sync(
         finally:
             cursor.close()
 
-    return _neighbors_page_payload(rows, page_size)
+    return _neighbors_page_payload(
+        rows, page_size, include_facets=include_facets
+    )
 
 
 async def fetch_neighbors_seeded_page_from_db(
-    x: float, y: float, z: float, radius: float, page_size: int
+    x: float,
+    y: float,
+    z: float,
+    radius: float,
+    page_size: int,
+    atmosphere_gas: str | None = None,
+    material: str | None = None,
+    include_facets: bool = False,
 ) -> dict[str, Any]:
     fallback_page: dict[str, Any] | None = None
     for candidate_radius in _neighbors_seeded_radii_for_request(radius):
@@ -927,6 +1105,9 @@ async def fetch_neighbors_seeded_page_from_db(
             None,
             None,
             None,
+            atmosphere_gas,
+            material,
+            include_facets,
         )
         fallback_page = page
         if page["has_more"] or len(page["items"]) >= page_size:
@@ -962,6 +1143,21 @@ async def get_neighbors(
         None,
         description="Opaque cursor returned by the previous paginated neighbors page",
     ),
+    atmosphere_gas: str
+    | None = Query(
+        None,
+        description="Optional atmosphere gas filter (matches systems containing at least one body with this gas)",
+    ),
+    material: str
+    | None = Query(
+        None,
+        description="Optional body material filter (matches systems containing at least one body with this material)",
+    ),
+    include_facets: bool
+    | None = Query(
+        False,
+        description="Include per-system atmosphere/material facet arrays",
+    ),
 ):
     if radius <= 0:
         return JSONResponse(
@@ -981,6 +1177,8 @@ async def get_neighbors(
         )
 
     paged = page_size is not None
+    normalized_atmosphere_gas = _normalize_optional_filter(atmosphere_gas)
+    normalized_material = _normalize_optional_filter(material)
     async with _get_neighbors_semaphore(paged):
         try:
             if paged:
@@ -999,14 +1197,33 @@ async def get_neighbors(
                         cursor_distance,
                         cursor_name,
                         cursor_id64,
+                        normalized_atmosphere_gas,
+                        normalized_material,
+                        bool(include_facets),
                     )
                 else:
                     results = await fetch_neighbors_seeded_page_from_db(
-                        x, y, z, radius, page_size
+                        x,
+                        y,
+                        z,
+                        radius,
+                        page_size,
+                        normalized_atmosphere_gas,
+                        normalized_material,
+                        bool(include_facets),
                     )
                 return JSONResponse(content=results)
 
-            results = await fetch_neighbors_from_db(x, y, z, radius, limit)
+            results = await fetch_neighbors_from_db(
+                x,
+                y,
+                z,
+                radius,
+                limit,
+                normalized_atmosphere_gas,
+                normalized_material,
+                bool(include_facets),
+            )
             return JSONResponse(content=results)
         except HTTPException:
             raise
