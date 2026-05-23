@@ -42,31 +42,17 @@ var HUD = {
             $('#'+this.container).append('<div id="hud"></div>');
             $('#hud').append(
                 '<div>'+
+                    '  <div id="hud-infos">'+
                     '    <h8>Infos</h8>'+
                     '     Dist. Sol <span id="distsol"></span>'+
                     '    <div id="coords" class="coords">'+
                     '      <span id="cx"></span><span id="cy"></span><span id="cz"></span></div>'+
                     '      <p id="infos"></p>'+
-                    '    </div>'+
+                    '  </div>'+
                     '  <div id="filters">'+
                     '  </div>'+
                     '</div>'
             );
-
-            // Add the toggle button
-            $('#hud').append('<div id="hud-toggle" title="Hide panel">◀</div>');
-
-            // Toggle click event
-            $(document).on('click', '#hud-toggle', function() {
-                $('#hud').toggleClass('hidden');
-                if ($('#hud').hasClass('hidden')) {
-                    $(this).text('▶');
-                    $(this).attr('title', 'Show panel');
-                } else {
-                    $(this).text('◀');
-                    $(this).attr('title', 'Hide panel');
-                }
-            });
         }
     },
 
