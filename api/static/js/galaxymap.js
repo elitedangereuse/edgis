@@ -22,6 +22,7 @@
      let suppressCameraRefreshUntil = 0;
      let currentSolidSystemNames = [];
      let activeNeighborhoodRadius = 20;
+     let activeFilterMode = 'simple';
      let neighborhoodPrefetchCache = new Map();
      let neighborhoodFetchPromises = new Map();
      let userStarSizeScale = 1;
@@ -113,8 +114,24 @@
       return numericValue.toFixed(2).replace(/\.?0+$/, '');
     }
 
+    function normalizeFilterMode(mode) {
+      return String(mode || '').toLowerCase() === 'expert' ? 'expert' : 'simple';
+    }
+
     function getCurrentRadiusParamValue() {
       return formatRadiusValue(activeNeighborhoodRadius || getRequestedNeighborhoodRadius());
+    }
+
+    function updateRadiusDisplay() {
+      const radiusDisplay = document.getElementById('radiusDisplay');
+      if (!radiusDisplay) {
+        return;
+      }
+      const value = getCurrentRadiusParamValue();
+      const label = `Radius: ${value} LY`;
+      radiusDisplay.textContent = label;
+      radiusDisplay.title = label;
+      radiusDisplay.setAttribute('aria-label', `Current ${label}`);
     }
 
     function buildNeighborsInputValue(center) {
@@ -199,8 +216,54 @@
       nextUrl.searchParams.set('y', Number(center.y).toFixed(2));
       nextUrl.searchParams.set('z', Number(center.z).toFixed(2));
       nextUrl.searchParams.set('radius', getCurrentRadiusParamValue());
+      if (activeFilterMode === 'expert') {
+        nextUrl.searchParams.set('mode', 'expert');
+      } else {
+        nextUrl.searchParams.delete('mode');
+      }
       window.history.replaceState({}, '', nextUrl);
       updateEdgisLinks(center);
+      updateRadiusDisplay();
+    }
+
+    function updateModeButtonState() {
+      const expertModeToggle = document.getElementById('expertModeToggle');
+      if (!expertModeToggle) {
+        return;
+      }
+      const isExpert = activeFilterMode === 'expert';
+      expertModeToggle.checked = isExpert;
+      expertModeToggle.title = 'Expert Mode';
+      expertModeToggle.setAttribute('aria-label', 'Expert Mode');
+    }
+
+    async function setFilterMode(nextMode) {
+      const normalizedMode = normalizeFilterMode(nextMode);
+      if (activeFilterMode === normalizedMode) {
+        updateModeButtonState();
+        return;
+      }
+      activeFilterMode = normalizedMode;
+      updateModeButtonState();
+
+      if (externalSolutionJson) {
+        return;
+      }
+
+      const center = getCurrentMapCenter() || lastAutoLoadCenter;
+      if (!center) {
+        const nextUrl = new URL(window.location.href);
+        if (activeFilterMode === 'expert') {
+          nextUrl.searchParams.set('mode', 'expert');
+        } else {
+          nextUrl.searchParams.delete('mode');
+        }
+        window.history.replaceState({}, '', nextUrl);
+        return;
+      }
+
+      updateBrowserUrlFromCurrentCenter(center);
+      await reloadSystemsAroundCurrentCamera(center, { force: true });
     }
 
     function suppressCameraRefresh(durationMs = 1500) {
@@ -226,48 +289,48 @@
                  name: "Neighbors",
                },
 
-               // Most common main sequence stars
-               "M (Red dwarf) Star": { name: "M (Red dwarf) Star", color: "f8ce9d" },
-               "K (Yellow-Orange) Star": { name: "K (Yellow-Orange) Star", color: "feeace" },
-               "G (White-Yellow) Star": { name: "G (White-Yellow) Star", color: "faefcd" },
-               "F (White) Star": { name: "F (White) Star", color: "fcf8e3" },
-               "A (Blue-White) Star": { name: "A (Blue-White) Star", color: "f8fafd" },
-               "B (Blue-White) Star": { name: "B (Blue-White) Star", color: "f1fdfd" },
+               // Main sequence (hot to cool)
                "O (Blue-White) Star": { name: "O (Blue-White) Star", color: "f5fcfe" },
-               "T Tauri Star": { name: "T Tauri Star", color: "e2f2fe" },
+               "B (Blue-White) Star": { name: "B (Blue-White) Star", color: "f1fdfd" },
+               "A (Blue-White) Star": { name: "A (Blue-White) Star", color: "f8fafd" },
+               "F (White) Star": { name: "F (White) Star", color: "fcf8e3" },
+               "G (White-Yellow) Star": { name: "G (White-Yellow) Star", color: "faefcd" },
+               "K (Yellow-Orange) Star": { name: "K (Yellow-Orange) Star", color: "feeace" },
+               "M (Red dwarf) Star": { name: "M (Red dwarf) Star", color: "f8ce9d" },
 
-               // Brown dwarfs (likely very common, but faint)
-               "L (Brown dwarf) Star": { name: "L (Brown dwarf) Star", color: "a52a2a" },
-               "T (Brown dwarf) Star": { name: "T (Brown dwarf) Star", color: "8b4513" },
-               "Y (Brown dwarf) Star": { name: "Y (Brown dwarf) Star", color: "a0522d" },
-
-               // Giants & Supergiants (rarer evolutionary phases)
-               "M (Red giant) Star": { name: "M (Red giant) Star", color: "f0b955" },
-               "K (Yellow-Orange giant) Star": { name: "K (Yellow-Orange giant) Star", color: "fee3ab" },
-               "G (White-Yellow super giant) Star": { name: "G (White-Yellow super giant) Star", color: "f6e5b4" },
-               "F (White super giant) Star": { name: "F (White super giant) Star", color: "fdf1cb" },
-               "A (Blue-White super giant) Star": { name: "A (Blue-White super giant) Star", color: "fafdfe" },
+               // Giants & supergiants
                "B (Blue-White super giant) Star": { name: "B (Blue-White super giant) Star", color: "e5e9f1" },
+               "A (Blue-White super giant) Star": { name: "A (Blue-White super giant) Star", color: "fafdfe" },
+               "F (White super giant) Star": { name: "F (White super giant) Star", color: "fdf1cb" },
+               "G (White-Yellow super giant) Star": { name: "G (White-Yellow super giant) Star", color: "f6e5b4" },
+               "K (Yellow-Orange giant) Star": { name: "K (Yellow-Orange giant) Star", color: "fee3ab" },
+               "M (Red giant) Star": { name: "M (Red giant) Star", color: "f0b955" },
                "M (Red super giant) Star": { name: "M (Red super giant) Star", color: "e48c46" },
 
-               // Carbon-rich & chemically peculiar stars
-               "C Star": { name: "C Star", color: "981055" },
-               "CN Star": { name: "CN Star", color: "fecd8f" },
-               "CJ Star": { name: "CJ Star", color: "f9b66a" },
-               "S-type Star": { name: "S-type Star", color: "ffdead" },
-               "MS-type Star": { name: "MS-type Star", color: "fcca88" },
-
-               // Pre-main sequence stars
+               // Pre-main sequence
+               "T Tauri Star": { name: "T Tauri Star", color: "e2f2fe" },
                "Herbig Ae/Be Star": { name: "Herbig Ae/Be Star", color: "ffe6b1" },
 
-               // Wolf-Rayet stars (very rare)
+               // Wolf-Rayet
                "Wolf-Rayet Star": { name: "Wolf-Rayet Star", color: "fec2fe" },
                "Wolf-Rayet N Star": { name: "Wolf-Rayet N Star", color: "f5fcfb" },
                "Wolf-Rayet C Star": { name: "Wolf-Rayet C Star", color: "f0fafb" },
                "Wolf-Rayet O Star": { name: "Wolf-Rayet O Star", color: "e1e8f1" },
                "Wolf-Rayet NC Star": { name: "Wolf-Rayet NC Star", color: "e2e7f0" },
 
-               // Stellar remnants (white dwarfs are actually numerous)
+               // Carbon-rich & chemically peculiar
+               "C Star": { name: "C Star", color: "981055" },
+               "CN Star": { name: "CN Star", color: "fecd8f" },
+               "CJ Star": { name: "CJ Star", color: "f9b66a" },
+               "S-type Star": { name: "S-type Star", color: "ffdead" },
+               "MS-type Star": { name: "MS-type Star", color: "fcca88" },
+
+               // Brown dwarfs
+               "L (Brown dwarf) Star": { name: "L (Brown dwarf) Star", color: "a52a2a" },
+               "T (Brown dwarf) Star": { name: "T (Brown dwarf) Star", color: "8b4513" },
+               "Y (Brown dwarf) Star": { name: "Y (Brown dwarf) Star", color: "a0522d" },
+
+               // White dwarfs
                "White Dwarf (DA) Star": { name: "White Dwarf (DA) Star", color: "f8f8ff" },
                "White Dwarf (DAZ) Star": { name: "White Dwarf (DAZ) Star", color: "ffffff" },
                "White Dwarf (DAB) Star": { name: "White Dwarf (DAB) Star", color: "fffafa" },
@@ -280,7 +343,7 @@
                "White Dwarf (DQ) Star": { name: "White Dwarf (DQ) Star", color: "f5f5f5" },
                "White Dwarf (D) Star": { name: "White Dwarf (D) Star", color: "f8f8ff" },
 
-               // Ultra-rare remnants
+               // Compact remnants
                "Neutron Star": { name: "Neutron Star", color: "696969" },
                "Black Hole": { name: "Black Hole", color: "000000" },
                "Supermassive Black Hole": { name: "Supermassive Black Hole", color: "0a0a0a" },
@@ -837,12 +900,13 @@
           target: getCurrentInternalTarget()
         };
         const inactiveFilterIds = collectInactiveFilterIds();
-        const nextResult = initSolutionJson(center.x, center.y, center.z, "simple");
-        populateResult(spherejson, nextResult, autoRefreshRadius, "simple", false, center);
+        const nextResult = initSolutionJson(center.x, center.y, center.z, activeFilterMode);
+        populateResult(spherejson, nextResult, autoRefreshRadius, activeFilterMode, false, center);
         reloadDynamicNeighborhood(nextResult, viewState, inactiveFilterIds);
         cacheNeighborhoodDataset(center, autoRefreshRadius, spherejson, 'reload');
         lastAutoLoadCenter = center;
         activeNeighborhoodRadius = autoRefreshRadius;
+        updateRadiusDisplay();
         updateBrowserUrlFromCurrentCenter(center);
       } catch (error) {
         console.error('Failed to reload nearby systems', error);
@@ -1294,8 +1358,8 @@
         if (!Array.isArray(spherejson) || !spherejson.length) {
           return;
         }
-        const nextResult = initSolutionJson(x, y, z, "simple");
-        populateResult(spherejson, nextResult, nextRadius, "simple", false, { x, y, z });
+        const nextResult = initSolutionJson(x, y, z, activeFilterMode);
+        populateResult(spherejson, nextResult, nextRadius, activeFilterMode, false, { x, y, z });
         const inactiveFilterIds = collectInactiveFilterIds();
         const viewState = {
           camera: {
@@ -1314,6 +1378,7 @@
         lastAutoLoadCenter = { x, y, z };
         lastCameraTarget = { x, y, z };
         activeNeighborhoodRadius = nextRadius;
+        updateRadiusDisplay();
         updateBrowserUrlFromCurrentCenter({ x, y, z });
         suppressSelectionNeighborhoodJump();
         const didSelectTarget = await queueAutoSelectByName(selectedInfo.name, selectedInfo);
@@ -1327,12 +1392,16 @@
       }
     }
 
-    async function drawSystems(x, y, z, radius, mode) {
+    async function drawSystems(x, y, z, radius, mode = activeFilterMode) {
       setEdgisHomeLoadingState(true);
       try {
+       const effectiveMode = normalizeFilterMode(mode);
+       activeFilterMode = effectiveMode;
+       updateModeButtonState();
        activeNeighborhoodRadius = radius;
-       const solutionjson = initSolutionJson(x, y, z, mode);
-       await drawSolution(x, y, z, radius, solutionjson, mode, false, { x, y, z });
+       updateRadiusDisplay();
+       const solutionjson = initSolutionJson(x, y, z, effectiveMode);
+       await drawSolution(x, y, z, radius, solutionjson, effectiveMode, false, { x, y, z });
        lastAutoLoadCenter = { x, y, z };
        lastCameraTarget = { x, y, z };
        updateEdgisLinks({ x, y, z });
@@ -1374,6 +1443,7 @@
          radius: params.get('radius') ?? params.get('r'), // allow r alias
          mode: params.get('mode')
        };
+       activeFilterMode = normalizeFilterMode(raw.mode);
        // Parse numbers safely
        const parsed = Object.fromEntries(Object.entries(raw).map(([k,v]) => [k, v === null ? null : Number(v)]));
 
@@ -1399,7 +1469,7 @@
          y: parsed.y,
          z: parsed.z
        });
-       drawSystems(parsed.x, parsed.y, parsed.z, parsed.radius, raw.mode);
+       drawSystems(parsed.x, parsed.y, parsed.z, parsed.radius, activeFilterMode);
 
        // Optional: If someone changes params manually via form encoded hash, live-update
        window.addEventListener('popstate', () => location.reload());
@@ -1540,6 +1610,7 @@
       const openEdgisButton = document.getElementById('openEdgisButton');
       const searchSystemButton = document.getElementById('searchSystemButton');
       const settingsButton = document.getElementById('settingsButton');
+      const expertModeToggle = document.getElementById('expertModeToggle');
       const radiusDownButton = document.getElementById('radiusDownButton');
       const radiusUpButton = document.getElementById('radiusUpButton');
       const controlsPanel = document.getElementById('controlsPanel');
@@ -1672,6 +1743,7 @@
         const currentRadius = getAutoRefreshRadius();
         const nextRadius = clamp(currentRadius * factor, 1, 10000);
         activeNeighborhoodRadius = nextRadius;
+        updateRadiusDisplay();
         updateBrowserUrlFromCurrentCenter(center);
         await reloadSystemsAroundCurrentCamera(center, { force: true });
       };
@@ -1788,6 +1860,12 @@
         });
       }
 
+      if (expertModeToggle) {
+        expertModeToggle.addEventListener('change', async () => {
+          await setFilterMode(expertModeToggle.checked ? 'expert' : 'simple');
+        });
+      }
+
       if (starSizeRange) {
         starSizeRange.addEventListener('input', () => {
           userStarSizeScale = clamp(Number(starSizeRange.value) / 100, 0.01, 10);
@@ -1834,6 +1912,8 @@
       }
 
       syncStarSettingsControls();
+      updateRadiusDisplay();
+      updateModeButtonState();
 
       document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {

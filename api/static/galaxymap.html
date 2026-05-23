@@ -115,6 +115,18 @@
        fill: currentColor;
      }
 
+     .radius-display-corner {
+       position: fixed;
+       right: 10px;
+       bottom: 10px;
+       z-index: 1000;
+       color: #fa6d00;
+       font-size: 0.82rem;
+       letter-spacing: 0.06em;
+       user-select: none;
+       pointer-events: none;
+     }
+
      .controls-panel {
        position: fixed;
        top: 16px;
@@ -218,6 +230,23 @@
        width: 100%;
        margin: 2px 0 10px 0;
        accent-color: #fa6d00;
+     }
+
+     .settings-checkbox-row {
+       margin-top: 8px;
+       margin-bottom: 10px;
+     }
+
+     .settings-checkbox-row label {
+       cursor: pointer;
+     }
+
+     .settings-checkbox-row input[type="checkbox"] {
+       width: 16px;
+       height: 16px;
+       margin: 0;
+       accent-color: #fa6d00;
+       cursor: pointer;
      }
 
      .settings-note {
@@ -362,6 +391,10 @@
 
      /* Mobile: Half-height & scrollable info panel */
      @media (max-width: 768px) {
+       .radius-display-corner {
+         font-size: 0.74rem;
+       }
+
        .controls-panel {
          right: 72px;
          left: auto;
@@ -518,6 +551,10 @@
       </div>
       <input id="starOpacityRange" type="range" min="1" max="100" step="1" value="100">
       <p class="settings-note">Adaptive baseline comes from local star density and radius. Sliders are saved as multipliers.</p>
+      <div class="settings-row settings-checkbox-row">
+        <label for="expertModeToggle">Expert Mode</label>
+        <input id="expertModeToggle" type="checkbox" aria-label="Expert Mode">
+      </div>
       <div class="settings-actions">
         <button id="resetStarSettingsButton" type="button">Reset</button>
       </div>
@@ -586,6 +623,9 @@
           <path d="m14.495 12.305a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm-10.089 6.7178a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm11.794-0.30414a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm-0.25378-12.724a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm7.9976-0.53351a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898z" fill="currentColor" style="paint-order:stroke markers fill"/>
         </svg>
       </button>
+    </div>
+    <div id="radiusDisplay" class="radius-display-corner" aria-live="polite" aria-atomic="true" title="Current Radius">
+      Radius: 20 LY
     </div>
 
     <!-- Info Panel -->
