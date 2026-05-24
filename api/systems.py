@@ -113,6 +113,19 @@ BOXELS_ADAPTIVE_MAX_COARSE_ITERATIONS = max(
     1,
     int(os.getenv("BOXELS_ADAPTIVE_MAX_COARSE_ITERATIONS") or "800000"),
 )
+PREDICTED_SYSTEMS_DEFAULT_LIMIT = max(
+    1, int(os.getenv("PREDICTED_SYSTEMS_DEFAULT_LIMIT") or "2500")
+)
+PREDICTED_SYSTEMS_RESULT_LIMIT = max(
+    PREDICTED_SYSTEMS_DEFAULT_LIMIT,
+    int(os.getenv("PREDICTED_SYSTEMS_RESULT_LIMIT") or "12000"),
+)
+PREDICTED_SYSTEMS_MAX_ITERATIONS = max(
+    1, int(os.getenv("PREDICTED_SYSTEMS_MAX_ITERATIONS") or "1200000")
+)
+PREDICTED_SYSTEMS_AUTO_MCODE_MAX_ITERATIONS = max(
+    1, int(os.getenv("PREDICTED_SYSTEMS_AUTO_MCODE_MAX_ITERATIONS") or "450000")
+)
 app = FastAPI()
 SYSTEM_NOT_FOUND = "System not found"
 logger = logging.getLogger(__name__)
@@ -1402,6 +1415,170 @@ def _resolve_sector_name_for_coords(x: float, y: float, z: float) -> str | None:
     if isinstance(sector_obj, str):
         return sector_obj
     return getattr(sector_obj, "name", None)
+
+
+def _estimate_boxel_iteration_count(
+    x: float,
+    y: float,
+    z: float,
+    radius: float,
+    mcode: str,
+) -> int:
+    cube_width = float(sector.get_mcode_cube_width(mcode))
+    if cube_width <= 0:
+        return 0
+    min_x = x - radius
+    min_y = y - radius
+    min_z = z - radius
+    max_x = x + radius
+    max_y = y + radius
+    max_z = z + radius
+    start_origin = pgnames.get_boxel_origin((min_x, min_y, min_z), mcode)
+    if start_origin is None:
+        return 0
+    nx = int(math.floor((max_x - start_origin.x) / cube_width)) + 1
+    ny = int(math.floor((max_y - start_origin.y) / cube_width)) + 1
+    nz = int(math.floor((max_z - start_origin.z) / cube_width)) + 1
+    return max(nx, 0) * max(ny, 0) * max(nz, 0)
+
+
+def _infer_prediction_mcode_for_radius(
+    x: float,
+    y: float,
+    z: float,
+    radius: float,
+) -> str:
+    """
+    Select the finest viable mcode for this view, bounded by an iteration budget.
+    This gives denser predicted overlays while keeping requests responsive.
+    """
+    for candidate in ("a", "b", "c", "d", "e", "f", "g", "h"):
+        estimated = _estimate_boxel_iteration_count(x, y, z, radius, candidate)
+        if (
+            estimated > 0
+            and estimated <= PREDICTED_SYSTEMS_AUTO_MCODE_MAX_ITERATIONS
+            and estimated <= PREDICTED_SYSTEMS_MAX_ITERATIONS
+        ):
+            return candidate
+    return "h"
+
+
+def _materialize_predicted_name(proto_name: str) -> str:
+    name = str(proto_name or "").strip()
+    if name.endswith("-"):
+        return f"{name}0"
+    return name
+
+
+@app.get("/predicted-systems")
+async def get_predicted_systems(
+    x: float = Query(...),
+    y: float = Query(...),
+    z: float = Query(...),
+    radius: float = Query(20.0, gt=0),
+    mcode: str | None = Query(
+        None, description="Optional mcode override (a..h)."
+    ),
+    limit: int = Query(
+        PREDICTED_SYSTEMS_DEFAULT_LIMIT,
+        ge=1,
+        description="Maximum number of predicted systems to return.",
+    ),
+):
+    effective_limit = min(int(limit), PREDICTED_SYSTEMS_RESULT_LIMIT)
+    normalized_mcode = _normalize_boxel_mcode(
+        mcode,
+        default=_infer_prediction_mcode_for_radius(x, y, z, radius),
+    )
+    cube_width = float(sector.get_mcode_cube_width(normalized_mcode))
+    if cube_width <= 0:
+        raise HTTPException(status_code=400, detail="Invalid mcode size")
+
+    min_x = x - radius
+    min_y = y - radius
+    min_z = z - radius
+    max_x = x + radius
+    max_y = y + radius
+    max_z = z + radius
+
+    start_origin = pgnames.get_boxel_origin((min_x, min_y, min_z), normalized_mcode)
+    if start_origin is None:
+        raise HTTPException(status_code=400, detail="Invalid coordinates")
+
+    nx = int(math.floor((max_x - start_origin.x) / cube_width)) + 1
+    ny = int(math.floor((max_y - start_origin.y) / cube_width)) + 1
+    nz = int(math.floor((max_z - start_origin.z) / cube_width)) + 1
+    estimated_iterations = max(nx, 0) * max(ny, 0) * max(nz, 0)
+    if estimated_iterations > PREDICTED_SYSTEMS_MAX_ITERATIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Requested predicted grid is too broad; reduce radius or use a coarser mcode",
+        )
+
+    items: list[dict[str, Any]] = []
+    truncated = False
+
+    ox = float(start_origin.x)
+    while ox <= max_x:
+        oy = float(start_origin.y)
+        while oy <= max_y:
+            oz = float(start_origin.z)
+            while oz <= max_z:
+                if _sphere_intersects_aabb(x, y, z, radius, ox, oy, oz, cube_width):
+                    center_x = ox + (cube_width * 0.5)
+                    center_y = oy + (cube_width * 0.5)
+                    center_z = oz + (cube_width * 0.5)
+                    center_distance = math.sqrt(
+                        ((center_x - x) ** 2)
+                        + ((center_y - y) ** 2)
+                        + ((center_z - z) ** 2)
+                    )
+                    proto = pgnames.get_system(
+                        (center_x, center_y, center_z),
+                        normalized_mcode,
+                        allow_ha=False,
+                    )
+                    proto_name = _materialize_predicted_name(
+                        str(getattr(proto, "name", "") or "")
+                    )
+                    if proto_name:
+                        items.append(
+                            {
+                                "name": proto_name,
+                                "coords": {
+                                    "x": center_x,
+                                    "y": center_y,
+                                    "z": center_z,
+                                },
+                                "distance": center_distance,
+                                "mcode": normalized_mcode,
+                                "uncertainty": cube_width * 0.5,
+                            }
+                        )
+                        if len(items) >= effective_limit:
+                            truncated = True
+                            break
+                oz += cube_width
+            if truncated:
+                break
+            oy += cube_width
+        if truncated:
+            break
+        ox += cube_width
+
+    items.sort(key=lambda item: (item["distance"], item["name"]))
+    return JSONResponse(
+        content={
+            "items": items,
+            "truncated": truncated,
+            "mcode": normalized_mcode,
+            "size": cube_width,
+            "estimated_iterations": estimated_iterations,
+            "requested_limit": int(limit),
+            "applied_limit": effective_limit,
+            "max_limit": PREDICTED_SYSTEMS_RESULT_LIMIT,
+        }
+    )
 
 
 @app.get("/boxels")
