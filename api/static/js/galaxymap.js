@@ -28,6 +28,7 @@
        atmosphereGas: '',
        material: ''
      };
+     let pendingSharedFilterIds = null;
      let neighborhoodPrefetchCache = new Map();
      let neighborhoodFetchPromises = new Map();
      let userStarSizeScale = 1;
@@ -44,6 +45,8 @@
      let hudFacetSortMode = 'count_desc';
      let distanceHeatEnabled = false;
      let boxelOverlayEnabled = false;
+     let predictedSystemsEnabled = false;
+     let experimentalFeaturesEnabled = false;
      let regionNamesEnabled = true;
      let reverseDebugGridDetailOrder = false;
      const boxelOverlayMode = 'adaptive';
@@ -293,6 +296,7 @@
       ensureHudSelectionActions();
       bindHudFilterColorSync();
       applyHudFilterSearchAndSort();
+      applyPendingSharedFacetSelection();
       applyActivePointColorMode();
       if (boxelOverlayEnabled) {
         refreshBoxelOverlay();
@@ -325,13 +329,24 @@
           filterEl.remove();
         }
       });
+
+      const predictedFilterEl = document.querySelector('#hud #filters .map_filter[data-filter="Predicted Systems"]');
+      if (predictedFilterEl) {
+        predictedFilterEl.style.display = experimentalFeaturesEnabled ? '' : 'none';
+      }
     }
 
     function getHudSelectableFilters() {
       const allFilters = Array.from(document.querySelectorAll('#hud #filters .map_filter'));
       return allFilters.filter((filterEl) => {
         const filterId = String(filterEl.getAttribute('data-filter') || '');
-        return filterId !== 'Target' && filterId !== 'Neighbors';
+        if (filterId === 'Target' || filterId === 'Neighbors') {
+          return false;
+        }
+        if (!experimentalFeaturesEnabled && filterId === 'Predicted Systems') {
+          return false;
+        }
+        return true;
       });
     }
 
@@ -375,6 +390,11 @@
 
       const term = hudFacetSearchTerm.toLowerCase();
       filters.forEach((filterEl) => {
+        const filterId = String(filterEl.getAttribute('data-filter') || '').trim();
+        if (!experimentalFeaturesEnabled && filterId === 'Predicted Systems') {
+          filterEl.style.display = 'none';
+          return;
+        }
         if (!term) {
           filterEl.style.display = '';
           return;
@@ -437,6 +457,140 @@
         .filter((filterEl) => !filterEl.classList.contains('disabled'))
         .map((filterEl) => String(filterEl.getAttribute('data-filter') || '').trim())
         .filter(Boolean);
+    }
+
+    function normalizeSharedFilterIds(values) {
+      if (!Array.isArray(values)) {
+        return null;
+      }
+      const seen = new Set();
+      const normalized = [];
+      values.forEach((value) => {
+        const id = String(value ?? '').trim();
+        if (!id) {
+          return;
+        }
+        const key = id.toLowerCase();
+        if (seen.has(key)) {
+          return;
+        }
+        seen.add(key);
+        normalized.push(id);
+      });
+      return normalized;
+    }
+
+    function parseSharedFilterIdsParam(rawValues) {
+      if (rawValues == null) {
+        return null;
+      }
+      const values = Array.isArray(rawValues) ? rawValues : [rawValues];
+      if (!values.length) {
+        return null;
+      }
+
+      const cleanedValues = values
+        .map((value) => String(value ?? '').trim())
+        .filter((value) => value.length > 0);
+      if (!cleanedValues.length) {
+        return [];
+      }
+
+      const firstValue = cleanedValues[0];
+      if (firstValue.startsWith('[') && firstValue.endsWith(']')) {
+        try {
+          const parsed = JSON.parse(firstValue);
+          if (Array.isArray(parsed)) {
+            return normalizeSharedFilterIds(parsed);
+          }
+        } catch (error) {
+          // Fallback to comma-separated parsing.
+        }
+      }
+
+      const splitValues = cleanedValues.flatMap((value) => value.split(','));
+      return normalizeSharedFilterIds(splitValues);
+    }
+
+    function applyFacetSelectionToSearchParams(searchParams) {
+      const selectableFilters = getHudSelectableFilters();
+      if (!selectableFilters.length) {
+        if (Array.isArray(pendingSharedFilterIds)) {
+          searchParams.set('filter_ids', pendingSharedFilterIds.join(','));
+        } else {
+          searchParams.delete('filter_ids');
+        }
+        return;
+      }
+
+      const activeIds = getActiveHudFilterIds();
+      if (activeIds.length === selectableFilters.length) {
+        searchParams.delete('filter_ids');
+        return;
+      }
+      searchParams.set('filter_ids', activeIds.join(','));
+    }
+
+    function syncFacetSelectionUrlParam() {
+      if (externalSolutionJson) {
+        return;
+      }
+      const center = getCurrentMapCenter() || lastAutoLoadCenter;
+      if (center) {
+        updateBrowserUrlFromCurrentCenter(center);
+        return;
+      }
+      const nextUrl = new URL(window.location.href);
+      applyFacetSelectionToSearchParams(nextUrl.searchParams);
+      window.history.replaceState({}, '', nextUrl);
+    }
+
+    function applyPendingSharedFacetSelection() {
+      if (!Array.isArray(pendingSharedFilterIds)) {
+        return;
+      }
+
+      const selectableFilters = getHudSelectableFilters();
+      if (!selectableFilters.length) {
+        return;
+      }
+
+      const desiredIds = new Set(pendingSharedFilterIds.map((id) => String(id).toLowerCase()));
+      const filtersById = new Map(
+        selectableFilters.map((filterEl) => [
+          String(filterEl.getAttribute('data-filter') || '').trim().toLowerCase(),
+          filterEl
+        ])
+      );
+
+      suppressFacetColorSync = true;
+      try {
+        // Phase 1: clear current selection so multi-facet stars are reset consistently.
+        selectableFilters.forEach((filterEl) => {
+          const isActive = !filterEl.classList.contains('disabled');
+          if (isActive) {
+            filterEl.click();
+          }
+        });
+
+        // Phase 2: activate only requested facets.
+        desiredIds.forEach((id) => {
+          const filterEl = filtersById.get(id);
+          if (!filterEl) {
+            return;
+          }
+          const isActive = !filterEl.classList.contains('disabled');
+          if (!isActive) {
+            filterEl.click();
+          }
+        });
+      } finally {
+        suppressFacetColorSync = false;
+      }
+
+      pendingSharedFilterIds = null;
+      applyActivePointColorMode();
+      syncFacetSelectionUrlParam();
     }
 
     function restoreVisiblePointBaseColors() {
@@ -577,6 +731,7 @@
           }
           setTimeout(() => {
             applyActivePointColorMode();
+            syncFacetSelectionUrlParam();
           }, 0);
         });
     }
@@ -603,6 +758,7 @@
         suppressFacetColorSync = false;
       }
       applyActivePointColorMode();
+      syncFacetSelectionUrlParam();
     }
 
     function ensureHudSelectionActions() {
@@ -704,6 +860,14 @@
         searchParams.set('base_grid', '0');
       } else {
         searchParams.delete('base_grid');
+      }
+    }
+
+    function applyExperimentalFeaturesToSearchParams(searchParams) {
+      if (experimentalFeaturesEnabled) {
+        searchParams.set('experimental_features', '1');
+      } else {
+        searchParams.delete('experimental_features');
       }
     }
 
@@ -823,9 +987,16 @@
       } else {
         nextUrl.searchParams.delete('boxels');
       }
+      if (predictedSystemsEnabled) {
+        nextUrl.searchParams.set('predicted', '1');
+      } else {
+        nextUrl.searchParams.delete('predicted');
+      }
+      applyFacetSelectionToSearchParams(nextUrl.searchParams);
       applyDebugGridOrderToSearchParams(nextUrl.searchParams);
       applyRegionNamesToSearchParams(nextUrl.searchParams);
       applyBaseGridToSearchParams(nextUrl.searchParams);
+      applyExperimentalFeaturesToSearchParams(nextUrl.searchParams);
       window.history.replaceState({}, '', nextUrl);
       updateEdgisLinks(center);
       updateRadiusDisplay();
@@ -839,6 +1010,18 @@
       button.classList.toggle('is-active', Boolean(distanceHeatEnabled));
       button.title = distanceHeatEnabled ? 'Distance Heat: On' : 'Distance Heat: Off';
       button.setAttribute('aria-label', button.title);
+    }
+
+    function applyExperimentalFeatureButtonsVisibility() {
+      const shouldShow = Boolean(experimentalFeaturesEnabled);
+      const predictedSystemsButton = document.getElementById('predictedSystemsButton');
+      const boxelOverlayButton = document.getElementById('boxelOverlayButton');
+      if (predictedSystemsButton) {
+        predictedSystemsButton.style.display = shouldShow ? '' : 'none';
+      }
+      if (boxelOverlayButton) {
+        boxelOverlayButton.style.display = shouldShow ? '' : 'none';
+      }
     }
 
     function applyRegionNamesVisibility() {
@@ -1153,6 +1336,16 @@
       }
       button.classList.toggle('is-active', Boolean(boxelOverlayEnabled));
       button.title = boxelOverlayEnabled ? 'Octree: On' : 'Octree: Off';
+      button.setAttribute('aria-label', button.title);
+    }
+
+    function updatePredictedSystemsButtonState() {
+      const button = document.getElementById('predictedSystemsButton');
+      if (!button) {
+        return;
+      }
+      button.classList.toggle('is-active', Boolean(predictedSystemsEnabled));
+      button.title = predictedSystemsEnabled ? 'Predicted Systems: On' : 'Predicted Systems: Off';
       button.setAttribute('aria-label', button.title);
     }
 
@@ -1508,6 +1701,9 @@
     }
 
     async function toggleBoxelOverlay() {
+      if (!experimentalFeaturesEnabled) {
+        return;
+      }
       boxelOverlayEnabled = !boxelOverlayEnabled;
       updateBoxelOverlayButtonState();
       if (boxelOverlayEnabled) {
@@ -1521,6 +1717,27 @@
       distanceHeatEnabled = !distanceHeatEnabled;
       updateDistanceHeatButtonState();
       applyActivePointColorMode();
+    }
+
+    async function togglePredictedSystems() {
+      if (!experimentalFeaturesEnabled) {
+        return;
+      }
+      predictedSystemsEnabled = !predictedSystemsEnabled;
+      updatePredictedSystemsButtonState();
+      const center = getCurrentMapCenter() || lastAutoLoadCenter;
+      if (!center || externalSolutionJson) {
+        const nextUrl = new URL(window.location.href);
+        if (predictedSystemsEnabled) {
+          nextUrl.searchParams.set('predicted', '1');
+        } else {
+          nextUrl.searchParams.delete('predicted');
+        }
+        window.history.replaceState({}, '', nextUrl);
+        return;
+      }
+      updateBrowserUrlFromCurrentCenter(center);
+      await reloadSystemsAroundCurrentCamera(center, { force: true });
     }
 
     function syncNeighborhoodFilterControls() {
@@ -1561,6 +1778,14 @@
         showBaseGridToggle.title = 'Show Base Grid';
         showBaseGridToggle.setAttribute('aria-label', 'Show Base Grid');
       }
+      const experimentalFeaturesToggle = document.getElementById('experimentalFeaturesToggle');
+      if (experimentalFeaturesToggle) {
+        experimentalFeaturesToggle.checked = experimentalFeaturesEnabled;
+        experimentalFeaturesToggle.title = 'Experimental Features';
+        experimentalFeaturesToggle.setAttribute('aria-label', 'Experimental Features');
+      }
+      applyExperimentalFeatureButtonsVisibility();
+      removeUtilityFiltersFromHud();
     }
 
     async function setFilterMode(nextMode) {
@@ -1688,6 +1913,10 @@
                "Neighbors": {
                  name: "Neighbors",
                },
+               "Predicted Systems": {
+                 name: "Predicted Systems",
+                 color: "49d3ff"
+               },
                [unknownCategoryName]: {
                  name: unknownCategoryName,
                  color: "999999"
@@ -1708,6 +1937,10 @@
                },
                "Neighbors": {
                  name: "Neighbors",
+               },
+               "Predicted Systems": {
+                 name: "Predicted Systems",
+                 color: "49d3ff"
                },
 
                // Main sequence (hot to cool)
@@ -1787,6 +2020,10 @@
                "Neighbors": {
                  name: "Neighbors",
                },
+               "Predicted Systems": {
+                 name: "Predicted Systems",
+                 color: "49d3ff"
+               },
 
                // Main sequence
                "O-type Stars": { name: "O-type Stars", color: "0001fb" },
@@ -1834,9 +2071,20 @@
      }
 
      async function drawSolution(x, y, z, radius, res, mode, focusTarget = true, targetCenter = null) {
-      const spherejson = await fetchNeighborsDataset(x, y, z, radius, "initial");
-      if (spherejson && spherejson.length > 0) {
-        populateResult(spherejson, res, radius, mode, focusTarget, targetCenter);
+      const [spherejson, predictedjson] = await Promise.all([
+        fetchNeighborsDataset(x, y, z, radius, "initial"),
+        fetchPredictedDataset(x, y, z, radius)
+      ]);
+      if ((spherejson && spherejson.length > 0) || (predictedjson && predictedjson.length > 0)) {
+        populateResult(
+          Array.isArray(spherejson) ? spherejson : [],
+          res,
+          radius,
+          mode,
+          focusTarget,
+          targetCenter,
+          Array.isArray(predictedjson) ? predictedjson : []
+        );
       }
      }
 
@@ -1900,7 +2148,7 @@
      }
 
 
-     function populateResult(spherejson, res, radius, mode = "simple", focusTarget = true, targetCenter = null) {
+     function populateResult(spherejson, res, radius, mode = "simple", focusTarget = true, targetCenter = null, predictedjson = []) {
        const normalizedDimension = normalizeFilterDimension(activeFilterDimension);
        if (normalizedDimension !== 'spectral') {
          ensureFacetCategories(res, spherejson, normalizedDimension);
@@ -2064,9 +2312,36 @@
              coords: { ...s.coords, radius: 0 },
              cat: [...categories, "Neighbors"],
              infos: { ...s, mainStar, radius }
-           };
+          };
          })
        );
+
+       if (Array.isArray(predictedjson) && predictedjson.length > 0) {
+         res.systems.push(
+           ...predictedjson.map((item, index) => {
+             const px = Number(item?.coords?.x);
+             const py = Number(item?.coords?.y);
+             const pz = Number(item?.coords?.z);
+             if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) {
+               return null;
+             }
+             const predictedName = String(item?.name || `Predicted ${index + 1}`);
+             return {
+               name: predictedName,
+               coords: { x: px, y: py, z: pz, radius: 0 },
+               cat: ["Predicted Systems"],
+               infos: {
+                 name: predictedName,
+                 distance: null,
+                 mainStar: 'Predicted (EDTS)',
+                 predicted: true,
+                 uncertainty: Number(item?.uncertainty) || null,
+                 mcode: String(item?.mcode || '')
+               }
+             };
+           }).filter(Boolean)
+         );
+       }
      }
 
     function getCurrentMapCenter() {
@@ -2299,6 +2574,19 @@
       return inactive;
     }
 
+    function collectActiveFilterIds() {
+      if (!window.$) {
+        return [];
+      }
+      const active = [];
+      $('.map_filter').each(function () {
+        if (Number($(this).data('active')) === 1) {
+          active.push(String($(this).data('filter')));
+        }
+      });
+      return active;
+    }
+
     function restoreInactiveFilterIds(filterIds) {
       if (!window.$ || !Array.isArray(filterIds)) {
         return;
@@ -2324,6 +2612,35 @@
 
     async function fetchNeighborsDataset(x, y, z, radius, source = 'fetch') {
       return await fetchAndCacheNeighborhood({ x, y, z }, radius, source);
+    }
+
+    async function fetchPredictedDataset(x, y, z, radius) {
+      if (!predictedSystemsEnabled || externalSolutionJson) {
+        return [];
+      }
+      const requestedLimit = 10000;
+      try {
+        const predictedUrl = new URL('/predicted-systems', sameHostBaseUrl);
+        predictedUrl.searchParams.set('x', String(x));
+        predictedUrl.searchParams.set('y', String(y));
+        predictedUrl.searchParams.set('z', String(z));
+        predictedUrl.searchParams.set('radius', String(radius));
+        predictedUrl.searchParams.set('limit', String(requestedLimit));
+        let response = await fetch(predictedUrl.toString());
+        if (response.status === 422) {
+          // Graceful fallback if a stale client/build sends an out-of-range limit.
+          predictedUrl.searchParams.set('limit', '10000');
+          response = await fetch(predictedUrl.toString());
+        }
+        if (!response.ok) {
+          throw new Error(`Predicted query failed (${response.status})`);
+        }
+        const payload = await response.json();
+        return Array.isArray(payload?.items) ? payload.items : [];
+      } catch (error) {
+        console.error('Failed to fetch predicted systems', error);
+        return [];
+      }
     }
 
     function updateTrackedSolidSystemNames(solutionjson) {
@@ -2372,15 +2689,15 @@
       controls.update();
     }
 
-    function reloadDynamicNeighborhood(solutionjson, viewState, inactiveFilterIds) {
+    function reloadDynamicNeighborhood(solutionjson, viewState, selectedFilterIds) {
       resetDynamicMapState();
       Ed3d.loadDatas(solutionjson);
       System.endParticleSystem();
       HUD.init();
+      pendingSharedFilterIds = normalizeSharedFilterIds(selectedFilterIds);
       syncHudPanelUi();
       buildDynamicBaseGridOverlay();
       updateTrackedSolidSystemNames(solutionjson);
-      restoreInactiveFilterIds(inactiveFilterIds);
       refreshHudFilterCounts();
       restoreView(viewState);
     }
@@ -2403,18 +2720,33 @@
       const requestId = ++autoRefreshRequestId;
       try {
         const autoRefreshRadius = getAutoRefreshRadius();
-        const spherejson = await fetchNeighborsDataset(center.x, center.y, center.z, autoRefreshRadius, 'reload');
-        if (requestId !== autoRefreshRequestId || !Array.isArray(spherejson) || !spherejson.length) {
+        const [spherejson, predictedjson] = await Promise.all([
+          fetchNeighborsDataset(center.x, center.y, center.z, autoRefreshRadius, 'reload'),
+          fetchPredictedDataset(center.x, center.y, center.z, autoRefreshRadius)
+        ]);
+        if (
+          requestId !== autoRefreshRequestId
+          || !Array.isArray(spherejson)
+          || (!spherejson.length && !(Array.isArray(predictedjson) && predictedjson.length))
+        ) {
           return;
         }
         const viewState = {
           camera: getCurrentWorldCamera(),
           target: getCurrentInternalTarget()
         };
-        const inactiveFilterIds = collectInactiveFilterIds();
+        const activeFilterIds = collectActiveFilterIds();
         const nextResult = initSolutionJson(center.x, center.y, center.z, activeFilterMode, activeFilterDimension);
-        populateResult(spherejson, nextResult, autoRefreshRadius, activeFilterMode, false, center);
-        reloadDynamicNeighborhood(nextResult, viewState, inactiveFilterIds);
+        populateResult(
+          spherejson,
+          nextResult,
+          autoRefreshRadius,
+          activeFilterMode,
+          false,
+          center,
+          predictedjson
+        );
+        reloadDynamicNeighborhood(nextResult, viewState, activeFilterIds);
         cacheNeighborhoodDataset(center, autoRefreshRadius, spherejson, 'reload');
         lastAutoLoadCenter = center;
         activeNeighborhoodRadius = autoRefreshRadius;
@@ -2881,13 +3213,24 @@
 
       setEdgisHomeLoadingState(true);
       try {
-        const spherejson = await fetchNeighborsDataset(x, y, z, nextRadius, 'selection');
-        if (!Array.isArray(spherejson) || !spherejson.length) {
+        const [spherejson, predictedjson] = await Promise.all([
+          fetchNeighborsDataset(x, y, z, nextRadius, 'selection'),
+          fetchPredictedDataset(x, y, z, nextRadius)
+        ]);
+        if (!Array.isArray(spherejson) || (!spherejson.length && !(Array.isArray(predictedjson) && predictedjson.length))) {
           return;
         }
         const nextResult = initSolutionJson(x, y, z, activeFilterMode, activeFilterDimension);
-        populateResult(spherejson, nextResult, nextRadius, activeFilterMode, false, { x, y, z });
-        const inactiveFilterIds = collectInactiveFilterIds();
+        populateResult(
+          spherejson,
+          nextResult,
+          nextRadius,
+          activeFilterMode,
+          false,
+          { x, y, z },
+          predictedjson
+        );
+        const activeFilterIds = collectActiveFilterIds();
         const viewState = {
           camera: {
             x: x + currentOffset.x,
@@ -2900,7 +3243,7 @@
             z: -z
           }
         };
-        reloadDynamicNeighborhood(nextResult, viewState, inactiveFilterIds);
+        reloadDynamicNeighborhood(nextResult, viewState, activeFilterIds);
         cacheNeighborhoodDataset({ x, y, z }, nextRadius, spherejson, 'selection');
         lastAutoLoadCenter = { x, y, z };
         lastCameraTarget = { x, y, z };
@@ -2974,9 +3317,12 @@
          material: params.get('material'),
          heat: params.get('heat'),
          boxels: params.get('boxels'),
+         predicted: params.get('predicted'),
+         filter_ids: params.getAll('filter_ids'),
          region_names: params.get('region_names'),
          grid_detail: params.get('grid_detail'),
-         base_grid: params.get('base_grid')
+         base_grid: params.get('base_grid'),
+         experimental_features: params.get('experimental_features')
        };
        activeFilterMode = normalizeFilterMode(raw.mode);
        activeFilterDimension = normalizeFilterDimension(raw.filter_dimension);
@@ -2986,9 +3332,16 @@
        });
        distanceHeatEnabled = raw.heat === '1';
        boxelOverlayEnabled = raw.boxels === '1';
+       predictedSystemsEnabled = raw.predicted === '1';
        regionNamesEnabled = String(raw.region_names || '1') !== '0';
        reverseDebugGridDetailOrder = String(raw.grid_detail || '').toLowerCase() === 'reverse';
        dynamicBaseGridEnabled = String(raw.base_grid || '1') !== '0';
+       experimentalFeaturesEnabled = raw.experimental_features === '1';
+       pendingSharedFilterIds = parseSharedFilterIdsParam(raw.filter_ids);
+       if (!experimentalFeaturesEnabled) {
+         boxelOverlayEnabled = false;
+         predictedSystemsEnabled = false;
+       }
        // Parse numbers safely
        const parsed = {
          x: raw.x === null ? null : Number(raw.x),
@@ -3160,12 +3513,14 @@
       const openEdgisButton = document.getElementById('openEdgisButton');
       const distanceHeatButton = document.getElementById('distanceHeatButton');
       const boxelOverlayButton = document.getElementById('boxelOverlayButton');
+      const predictedSystemsButton = document.getElementById('predictedSystemsButton');
       const searchSystemButton = document.getElementById('searchSystemButton');
       const settingsButton = document.getElementById('settingsButton');
       const filterDimensionSpectralButton = document.getElementById('filterDimensionSpectralButton');
       const filterDimensionAtmosphereButton = document.getElementById('filterDimensionAtmosphereButton');
       const filterDimensionMaterialButton = document.getElementById('filterDimensionMaterialButton');
       const expertModeToggle = document.getElementById('expertModeToggle');
+      const experimentalFeaturesToggle = document.getElementById('experimentalFeaturesToggle');
       const reverseDebugGridDetailToggle = document.getElementById('reverseDebugGridDetailToggle');
       const regionNamesToggle = document.getElementById('regionNamesToggle');
       const showBaseGridToggle = document.getElementById('showBaseGridToggle');
@@ -3224,6 +3579,12 @@
       if (boxelOverlayButton) {
         boxelOverlayButton.addEventListener('click', async () => {
           await toggleBoxelOverlay();
+        });
+      }
+
+      if (predictedSystemsButton) {
+        predictedSystemsButton.addEventListener('click', async () => {
+          await togglePredictedSystems();
         });
       }
 
@@ -3436,6 +3797,47 @@
         });
       }
 
+      if (experimentalFeaturesToggle) {
+        experimentalFeaturesToggle.addEventListener('change', () => {
+          const nextValue = Boolean(experimentalFeaturesToggle.checked);
+          if (experimentalFeaturesEnabled === nextValue) {
+            updateModeButtonState();
+            return;
+          }
+
+          experimentalFeaturesEnabled = nextValue;
+          if (!experimentalFeaturesEnabled) {
+            boxelOverlayEnabled = false;
+            predictedSystemsEnabled = false;
+            updateBoxelOverlayButtonState();
+            updatePredictedSystemsButtonState();
+            applyActivePointColorMode();
+            clearBoxelOverlay();
+          }
+          updateModeButtonState();
+
+          const center = getCurrentMapCenter() || lastAutoLoadCenter;
+          if (center) {
+            updateBrowserUrlFromCurrentCenter(center);
+            return;
+          }
+
+          const nextUrl = new URL(window.location.href);
+          if (boxelOverlayEnabled) {
+            nextUrl.searchParams.set('boxels', '1');
+          } else {
+            nextUrl.searchParams.delete('boxels');
+          }
+          if (predictedSystemsEnabled) {
+            nextUrl.searchParams.set('predicted', '1');
+          } else {
+            nextUrl.searchParams.delete('predicted');
+          }
+          applyExperimentalFeaturesToSearchParams(nextUrl.searchParams);
+          window.history.replaceState({}, '', nextUrl);
+        });
+      }
+
       if (reverseDebugGridDetailToggle) {
         reverseDebugGridDetailToggle.addEventListener('change', async () => {
           const nextValue = Boolean(reverseDebugGridDetailToggle.checked);
@@ -3568,6 +3970,7 @@
       updateFilterDimensionButtonState();
       updateDistanceHeatButtonState();
       updateBoxelOverlayButtonState();
+      updatePredictedSystemsButtonState();
 
       document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {
