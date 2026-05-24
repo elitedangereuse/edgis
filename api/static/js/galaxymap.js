@@ -40,6 +40,25 @@
      let isHudPanelVisible = true;
      let hudStatusObserver = null;
      let suppressFacetColorSync = false;
+     let hudFacetSearchTerm = '';
+     let hudFacetSortMode = 'count_desc';
+     let distanceHeatEnabled = false;
+     let boxelOverlayEnabled = false;
+     let regionNamesEnabled = true;
+     let reverseDebugGridDetailOrder = false;
+     const boxelOverlayMode = 'adaptive';
+     const boxelOverlayMinMcode = 'b';
+     const boxelOverlayMaxMcode = 'g';
+     const boxelOverlayMaxRequestLimit = 30000;
+     const boxelOverlayShowLabels = true;
+     let dynamicBaseGridEnabled = true;
+     let boxelOverlayGroup = null;
+     let boxelOverlayCells = [];
+     let boxelLabelGroup = null;
+     let boxelLabelRefreshTimer = null;
+     let boxelOverlayRequestId = 0;
+     let dynamicBaseGridGroup = null;
+     let dynamicBaseGridRefreshTimer = null;
 
      function loadStoredStarSettings() {
        try {
@@ -161,6 +180,50 @@
       hud.classList.remove('hidden');
     }
 
+    function disposeLegacyGridCoordMesh(gridObj) {
+      const coordMesh = gridObj?.coordGrid;
+      if (!coordMesh) {
+        return;
+      }
+      if (typeof scene !== 'undefined' && scene && typeof scene.remove === 'function') {
+        scene.remove(coordMesh);
+      }
+      if (coordMesh.geometry?.dispose) {
+        coordMesh.geometry.dispose();
+      }
+      if (Array.isArray(coordMesh.material)) {
+        coordMesh.material.forEach((material) => material?.dispose?.());
+      } else if (coordMesh.material?.dispose) {
+        coordMesh.material.dispose();
+      }
+      gridObj.coordGrid = null;
+      gridObj.coordTxt = '';
+    }
+
+    function suppressLegacyEd3dGrid() {
+      if (!window.Ed3d) {
+        return;
+      }
+      ['grid1H', 'grid1K', 'grid1XL'].forEach((gridKey) => {
+        const gridObj = Ed3d?.[gridKey];
+        if (!gridObj || typeof gridObj !== 'object') {
+          return;
+        }
+        gridObj.visible = false;
+        if (gridObj.obj) {
+          gridObj.obj.visible = false;
+          gridObj.obj.customUpdateCallback = null;
+        }
+        if (gridKey !== 'grid1XL') {
+          gridObj.addCoords = function noopLegacyGridCoords() {};
+          disposeLegacyGridCoordMesh(gridObj);
+        }
+        if (typeof gridObj.hide === 'function') {
+          gridObj.hide();
+        }
+      });
+    }
+
     function removeLegacyHudToggle() {
       if (window.$) {
         $(document).off('click', '#hud-toggle');
@@ -221,13 +284,19 @@
 
     function syncHudPanelUi() {
       removeLegacyHudToggle();
+      suppressLegacyEd3dGrid();
       setHudPanelVisibility(isHudPanelVisible);
       attachHudStatusObserver();
       applyHudFilterPanelTitle();
       removeUtilityFiltersFromHud();
+      ensureHudFacetTools();
       ensureHudSelectionActions();
       bindHudFilterColorSync();
-      applyFacetSelectionColoring();
+      applyHudFilterSearchAndSort();
+      applyActivePointColorMode();
+      if (boxelOverlayEnabled) {
+        refreshBoxelOverlay();
+      }
     }
 
     function getFilterDimensionPanelTitle() {
@@ -266,6 +335,103 @@
       });
     }
 
+    function getHudFacetFilterCount(filterId) {
+      return Array.isArray(Ed3d?.catObjs?.[filterId]) ? Ed3d.catObjs[filterId].length : 0;
+    }
+
+    function applyHudFilterSearchAndSort() {
+      const filtersRoot = document.getElementById('filters');
+      if (!filtersRoot) {
+        return;
+      }
+      const filterGroup = filtersRoot.querySelector(':scope > div[id^="group_"]');
+      if (!filterGroup) {
+        return;
+      }
+
+      const filters = Array.from(filterGroup.querySelectorAll('.map_filter'));
+      filters.sort((a, b) => {
+        const aId = String(a.getAttribute('data-filter') || '').trim();
+        const bId = String(b.getAttribute('data-filter') || '').trim();
+        const aLabel = String(a.getAttribute('data-label') || a.textContent || '').trim();
+        const bLabel = String(b.getAttribute('data-label') || b.textContent || '').trim();
+
+        if (hudFacetSortMode === 'alpha_asc') {
+          return aLabel.localeCompare(bLabel);
+        }
+        if (hudFacetSortMode === 'alpha_desc') {
+          return bLabel.localeCompare(aLabel);
+        }
+
+        const countDiff = getHudFacetFilterCount(bId) - getHudFacetFilterCount(aId);
+        if (countDiff !== 0) {
+          return countDiff;
+        }
+        return aLabel.localeCompare(bLabel);
+      });
+      filters.forEach((filterEl) => {
+        filterGroup.appendChild(filterEl);
+      });
+
+      const term = hudFacetSearchTerm.toLowerCase();
+      filters.forEach((filterEl) => {
+        if (!term) {
+          filterEl.style.display = '';
+          return;
+        }
+        const label = String(filterEl.getAttribute('data-label') || filterEl.textContent || '').toLowerCase();
+        filterEl.style.display = label.includes(term) ? '' : 'none';
+      });
+    }
+
+    function ensureHudFacetTools() {
+      const filtersRoot = document.getElementById('filters');
+      if (!filtersRoot) {
+        return;
+      }
+
+      const existing = document.getElementById('hudFacetTools');
+      if (existing) {
+        existing.remove();
+      }
+
+      const filterTitle = filtersRoot.querySelector(':scope > h8');
+      if (!filterTitle) {
+        return;
+      }
+
+      const tools = document.createElement('div');
+      tools.id = 'hudFacetTools';
+      tools.className = 'hud-facet-tools';
+      tools.innerHTML = `
+        <input type="search" id="hudFacetSearchInput" placeholder="Search..." aria-label="Search facets">
+        <select id="hudFacetSortSelect" aria-label="Sort facets">
+          <option value="count_desc">Sort: Count</option>
+          <option value="alpha_asc">Sort: A-Z</option>
+          <option value="alpha_desc">Sort: Z-A</option>
+        </select>
+      `;
+
+      const searchInput = tools.querySelector('#hudFacetSearchInput');
+      const sortSelect = tools.querySelector('#hudFacetSortSelect');
+      if (searchInput) {
+        searchInput.value = hudFacetSearchTerm;
+        searchInput.addEventListener('input', () => {
+          hudFacetSearchTerm = String(searchInput.value || '').trim();
+          applyHudFilterSearchAndSort();
+        });
+      }
+      if (sortSelect) {
+        sortSelect.value = hudFacetSortMode;
+        sortSelect.addEventListener('change', () => {
+          hudFacetSortMode = String(sortSelect.value || 'count_desc');
+          applyHudFilterSearchAndSort();
+        });
+      }
+
+      filterTitle.insertAdjacentElement('afterend', tools);
+    }
+
     function getActiveHudFilterIds() {
       return getHudSelectableFilters()
         .filter((filterEl) => !filterEl.classList.contains('disabled'))
@@ -273,10 +439,88 @@
         .filter(Boolean);
     }
 
-    function applyFacetSelectionColoring() {
-      if (normalizeFilterDimension(activeFilterDimension) === 'spectral') {
+    function restoreVisiblePointBaseColors() {
+      if (!window.System?.particleGeo?.vertices || !Array.isArray(window.System.particleGeo.colors)) {
         return;
       }
+      const vertices = window.System.particleGeo.vertices;
+      const colors = window.System.particleGeo.colors;
+      for (let index = 0; index < vertices.length; index++) {
+        const vertex = vertices[index];
+        if (!vertex || vertex.visible !== true || !vertex.color) {
+          continue;
+        }
+        colors[index] = vertex.color;
+      }
+      window.System.syncParticleColors();
+    }
+
+    function getInternalHeatCenter() {
+      const cameraCenter = getCurrentInternalTarget();
+      if (cameraCenter) {
+        return cameraCenter;
+      }
+      if (lastAutoLoadCenter && Number.isFinite(lastAutoLoadCenter.x) && Number.isFinite(lastAutoLoadCenter.y) && Number.isFinite(lastAutoLoadCenter.z)) {
+        return {
+          x: Number(lastAutoLoadCenter.x),
+          y: Number(lastAutoLoadCenter.y),
+          z: -Number(lastAutoLoadCenter.z)
+        };
+      }
+      return null;
+    }
+
+    function colorFromHeatRatio(ratio) {
+      const stops = [
+        { at: 0, rgb: [42, 98, 255] },
+        { at: 0.45, rgb: [0, 226, 255] },
+        { at: 0.75, rgb: [255, 196, 0] },
+        { at: 1, rgb: [255, 72, 0] }
+      ];
+      const t = clamp(ratio, 0, 1);
+      for (let idx = 0; idx < stops.length - 1; idx++) {
+        const left = stops[idx];
+        const right = stops[idx + 1];
+        if (t >= left.at && t <= right.at) {
+          const span = Math.max(right.at - left.at, 0.0001);
+          const local = (t - left.at) / span;
+          const r = Math.round(left.rgb[0] + ((right.rgb[0] - left.rgb[0]) * local));
+          const g = Math.round(left.rgb[1] + ((right.rgb[1] - left.rgb[1]) * local));
+          const b = Math.round(left.rgb[2] + ((right.rgb[2] - left.rgb[2]) * local));
+          return new THREE.Color(`rgb(${r}, ${g}, ${b})`);
+        }
+      }
+      return new THREE.Color('rgb(255,72,0)');
+    }
+
+    function applyDistanceHeatColoring() {
+      if (!window.System?.particleGeo?.vertices || !Array.isArray(window.System.particleGeo.colors)) {
+        return;
+      }
+      const center = getInternalHeatCenter();
+      if (!center) {
+        return;
+      }
+      const vertices = window.System.particleGeo.vertices;
+      const colors = window.System.particleGeo.colors;
+      const maxDistance = Math.max(1, Number(activeNeighborhoodRadius) || Number(getAutoRefreshRadius()) || 20);
+
+      for (let index = 0; index < vertices.length; index++) {
+        const vertex = vertices[index];
+        if (!vertex || vertex.visible !== true) {
+          continue;
+        }
+        const dx = Number(vertex.x) - center.x;
+        const dy = Number(vertex.y) - center.y;
+        const dz = Number(vertex.z) - center.z;
+        const distance = Math.sqrt((dx * dx) + (dy * dy) + (dz * dz));
+        const ratio = distance / maxDistance;
+        colors[index] = colorFromHeatRatio(ratio);
+      }
+      window.System.syncParticleColors();
+    }
+
+    function applyFacetSelectionColoring() {
       if (!window.System?.particleGeo?.vertices || !Array.isArray(window.System.particleGeo.colors)) {
         return;
       }
@@ -304,11 +548,21 @@
         if (!mappedColor) {
           continue;
         }
-        vertex.color = mappedColor;
         colors[index] = mappedColor;
       }
 
       window.System.syncParticleColors();
+    }
+
+    function applyActivePointColorMode() {
+      if (distanceHeatEnabled) {
+        applyDistanceHeatColoring();
+        return;
+      }
+      restoreVisiblePointBaseColors();
+      if (normalizeFilterDimension(activeFilterDimension) !== 'spectral') {
+        applyFacetSelectionColoring();
+      }
     }
 
     function bindHudFilterColorSync() {
@@ -322,7 +576,7 @@
             return;
           }
           setTimeout(() => {
-            applyFacetSelectionColoring();
+            applyActivePointColorMode();
           }, 0);
         });
     }
@@ -348,7 +602,7 @@
       } finally {
         suppressFacetColorSync = false;
       }
-      applyFacetSelectionColoring();
+      applyActivePointColorMode();
     }
 
     function ensureHudSelectionActions() {
@@ -366,6 +620,7 @@
       if (!filterTitle) {
         return;
       }
+      const insertionAnchor = document.getElementById('hudFacetTools') || filterTitle;
 
       const actions = document.createElement('div');
       actions.id = 'hudFilterActions';
@@ -388,7 +643,7 @@
         applyHudFilterBulkAction(action);
       });
 
-      filterTitle.insertAdjacentElement('afterend', actions);
+      insertionAnchor.insertAdjacentElement('afterend', actions);
     }
 
     function normalizeNeighborhoodFilterValue(value) {
@@ -426,6 +681,30 @@
         return;
       }
       searchParams.set('filter_dimension', activeFilterDimension);
+    }
+
+    function applyDebugGridOrderToSearchParams(searchParams) {
+      if (reverseDebugGridDetailOrder) {
+        searchParams.set('grid_detail', 'reverse');
+      } else {
+        searchParams.delete('grid_detail');
+      }
+    }
+
+    function applyRegionNamesToSearchParams(searchParams) {
+      if (!regionNamesEnabled) {
+        searchParams.set('region_names', '0');
+      } else {
+        searchParams.delete('region_names');
+      }
+    }
+
+    function applyBaseGridToSearchParams(searchParams) {
+      if (!dynamicBaseGridEnabled) {
+        searchParams.set('base_grid', '0');
+      } else {
+        searchParams.delete('base_grid');
+      }
     }
 
     function getCurrentRadiusParamValue() {
@@ -534,9 +813,714 @@
       }
       applyFilterDimensionToSearchParams(nextUrl.searchParams);
       applyNeighborhoodFiltersToSearchParams(nextUrl.searchParams);
+      if (distanceHeatEnabled) {
+        nextUrl.searchParams.set('heat', '1');
+      } else {
+        nextUrl.searchParams.delete('heat');
+      }
+      if (boxelOverlayEnabled) {
+        nextUrl.searchParams.set('boxels', '1');
+      } else {
+        nextUrl.searchParams.delete('boxels');
+      }
+      applyDebugGridOrderToSearchParams(nextUrl.searchParams);
+      applyRegionNamesToSearchParams(nextUrl.searchParams);
+      applyBaseGridToSearchParams(nextUrl.searchParams);
       window.history.replaceState({}, '', nextUrl);
       updateEdgisLinks(center);
       updateRadiusDisplay();
+    }
+
+    function updateDistanceHeatButtonState() {
+      const button = document.getElementById('distanceHeatButton');
+      if (!button) {
+        return;
+      }
+      button.classList.toggle('is-active', Boolean(distanceHeatEnabled));
+      button.title = distanceHeatEnabled ? 'Distance Heat: On' : 'Distance Heat: Off';
+      button.setAttribute('aria-label', button.title);
+    }
+
+    function applyRegionNamesVisibility() {
+      if (typeof Ed3d === 'undefined' || !Ed3d) {
+        return;
+      }
+      Ed3d.showGalaxyInfos = Boolean(regionNamesEnabled);
+      if (typeof Galaxy === 'undefined' || !Galaxy) {
+        return;
+      }
+      if (!regionNamesEnabled) {
+        if (typeof Galaxy.infosHide === 'function') {
+          Galaxy.infosHide();
+        }
+        return;
+      }
+      if (typeof isFarView !== 'undefined' && isFarView && typeof Galaxy.infosShow === 'function') {
+        Galaxy.infosShow();
+      }
+    }
+
+    function clearBoxelOverlay() {
+      if (boxelLabelRefreshTimer) {
+        clearTimeout(boxelLabelRefreshTimer);
+        boxelLabelRefreshTimer = null;
+      }
+      boxelOverlayCells = [];
+      clearBoxelLabels();
+      if (!boxelOverlayGroup || typeof scene === 'undefined' || !scene) {
+        boxelOverlayGroup = null;
+        updateDebugGridLegend([]);
+        return;
+      }
+      scene.remove(boxelOverlayGroup);
+      boxelOverlayGroup.traverse((obj) => {
+        if (obj.geometry) {
+          obj.geometry.dispose?.();
+        }
+        if (obj.material) {
+          if (Array.isArray(obj.material)) {
+            obj.material.forEach((material) => material?.dispose?.());
+          } else {
+            obj.material.dispose?.();
+          }
+        }
+      });
+      boxelOverlayGroup = null;
+      updateDebugGridLegend([]);
+    }
+
+    function clearBoxelLabels() {
+      if (!boxelLabelGroup || typeof scene === 'undefined' || !scene) {
+        boxelLabelGroup = null;
+        return;
+      }
+      scene.remove(boxelLabelGroup);
+      boxelLabelGroup.traverse((obj) => {
+        if (obj.geometry) {
+          obj.geometry.dispose?.();
+        }
+        if (obj.material) {
+          if (obj.material.map) {
+            obj.material.map.dispose?.();
+          }
+          obj.material.dispose?.();
+        }
+      });
+      boxelLabelGroup = null;
+    }
+
+    function clearDynamicBaseGrid() {
+      if (dynamicBaseGridRefreshTimer) {
+        clearTimeout(dynamicBaseGridRefreshTimer);
+        dynamicBaseGridRefreshTimer = null;
+      }
+      if (!dynamicBaseGridGroup || typeof scene === 'undefined' || !scene) {
+        dynamicBaseGridGroup = null;
+        return;
+      }
+      scene.remove(dynamicBaseGridGroup);
+      dynamicBaseGridGroup.traverse((obj) => {
+        if (obj.geometry) {
+          obj.geometry.dispose?.();
+        }
+        if (obj.material) {
+          if (obj.material.map) {
+            obj.material.map.dispose?.();
+          }
+          obj.material.dispose?.();
+        }
+      });
+      dynamicBaseGridGroup = null;
+    }
+
+    function getNiceGridStep(value) {
+      const safe = Math.max(1, Number(value) || 1);
+      const pow10 = Math.pow(10, Math.floor(Math.log10(safe)));
+      const normalized = safe / pow10;
+      if (normalized <= 1) return 1 * pow10;
+      if (normalized <= 2) return 2 * pow10;
+      if (normalized <= 5) return 5 * pow10;
+      return 10 * pow10;
+    }
+
+    function formatGridCoordValue(value) {
+      const rounded = Math.round(Number(value) || 0);
+      if (Math.abs(rounded) >= 1000) {
+        return rounded.toLocaleString('en-US');
+      }
+      return String(rounded);
+    }
+
+    function getDynamicBaseGridStep() {
+      const target = getCurrentInternalTarget();
+      if (!target || typeof camera === 'undefined' || !camera) {
+        return 50;
+      }
+      const radius = Number(activeNeighborhoodRadius || getAutoRefreshRadius() || 20);
+      const dx = Number(camera.position.x) - Number(target.x);
+      const dy = Number(camera.position.y) - Number(target.y);
+      const dz = Number(camera.position.z) - Number(target.z);
+      const cameraDistance = Math.sqrt((dx * dx) + (dy * dy) + (dz * dz));
+      const targetStep = Math.max(radius * 0.45, cameraDistance * 0.16, 10);
+      return getNiceGridStep(targetStep);
+    }
+
+    function createFlatGridTextMesh(text, colorHex, scale = 2.8) {
+      if (typeof THREE === 'undefined') {
+        return null;
+      }
+      const effectiveScale = Math.max(0.6, Number(scale) || 2.8);
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      if (!context) {
+        return null;
+      }
+      const fontSize = Math.max(10, Math.min(Math.round(effectiveScale * 6), 140));
+      const paddingX = Math.max(2, Math.round(fontSize * 0.2));
+      const paddingY = Math.max(2, Math.round(fontSize * 0.18));
+      context.font = `${fontSize}px Arial`;
+      const metrics = context.measureText(text);
+      const textWidth = Math.ceil(metrics.width);
+      const width = Math.max(14, textWidth + (paddingX * 2));
+      const height = fontSize + (paddingY * 2);
+      canvas.width = width;
+      canvas.height = height;
+
+      context.font = `${fontSize}px Arial`;
+      context.fillStyle = `#${colorHex.toString(16).padStart(6, '0')}`;
+      context.fillText(text, paddingX, paddingY + fontSize - 1);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.needsUpdate = true;
+
+      const material = new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        opacity: 0.72,
+        depthWrite: false,
+        side: THREE.DoubleSide
+      });
+      const geometry = new THREE.PlaneGeometry(1, 1);
+      const mesh = new THREE.Mesh(geometry, material);
+      const aspect = width / Math.max(1, height);
+      mesh.scale.set(effectiveScale * aspect, effectiveScale, 1);
+      return mesh;
+    }
+
+    function buildDynamicBaseGridOverlay() {
+      clearDynamicBaseGrid();
+      if (!dynamicBaseGridEnabled) {
+        return;
+      }
+      if (typeof THREE === 'undefined' || typeof scene === 'undefined' || !scene) {
+        return;
+      }
+      const center = getCurrentMapCenter();
+      const target = getCurrentInternalTarget();
+      if (!center || !target) {
+        return;
+      }
+      const step = getDynamicBaseGridStep();
+      const halfCount = 10;
+      const extent = step * halfCount;
+      const gridY = Number(target.y) || 0;
+      const originX = Math.round((Number(center.x) || 0) / step) * step;
+      const originZ = Math.round((Number(center.z) || 0) / step) * step;
+
+      const group = new THREE.Group();
+      group.name = 'dynamicBaseGridGroup';
+
+      const majorStride = 10;
+      const minorMaterial = new THREE.LineBasicMaterial({
+        color: 0x2a6ea0,
+        transparent: true,
+        opacity: 0.2
+      });
+      const microMaterial = new THREE.LineBasicMaterial({
+        color: 0x2a6ea0,
+        transparent: true,
+        opacity: 0.08
+      });
+      const majorMaterial = new THREE.LineBasicMaterial({
+        color: 0x58b5ff,
+        transparent: true,
+        opacity: 0.42
+      });
+
+      for (let offset = -halfCount; offset <= halfCount; offset++) {
+        const lineX = originX + (offset * step);
+        const xLinePoints = [
+          new THREE.Vector3(lineX, gridY, -(originZ - extent)),
+          new THREE.Vector3(lineX, gridY, -(originZ + extent))
+        ];
+        const xGeom = new THREE.BufferGeometry().setFromPoints(xLinePoints);
+        const xMat = (offset % majorStride === 0) ? majorMaterial.clone() : minorMaterial.clone();
+        group.add(new THREE.LineSegments(xGeom, xMat));
+
+        const lineZ = originZ + (offset * step);
+        const zLinePoints = [
+          new THREE.Vector3(originX - extent, gridY, -lineZ),
+          new THREE.Vector3(originX + extent, gridY, -lineZ)
+        ];
+        const zGeom = new THREE.BufferGeometry().setFromPoints(zLinePoints);
+        const zMat = (offset % majorStride === 0) ? majorMaterial.clone() : minorMaterial.clone();
+        group.add(new THREE.LineSegments(zGeom, zMat));
+      }
+
+      // Add a finer subdivision: each base cell gets split into 10x10.
+      const microDivisionsPerCell = 10;
+      const microStep = step / microDivisionsPerCell;
+      const microHalfCount = halfCount * microDivisionsPerCell;
+      for (let microOffset = -microHalfCount; microOffset <= microHalfCount; microOffset++) {
+        // Skip lines already drawn by the base grid.
+        if (microOffset % microDivisionsPerCell === 0) {
+          continue;
+        }
+        const lineX = originX + (microOffset * microStep);
+        const xLinePoints = [
+          new THREE.Vector3(lineX, gridY, -(originZ - extent)),
+          new THREE.Vector3(lineX, gridY, -(originZ + extent))
+        ];
+        const xGeom = new THREE.BufferGeometry().setFromPoints(xLinePoints);
+        group.add(new THREE.LineSegments(xGeom, microMaterial.clone()));
+
+        const lineZ = originZ + (microOffset * microStep);
+        const zLinePoints = [
+          new THREE.Vector3(originX - extent, gridY, -lineZ),
+          new THREE.Vector3(originX + extent, gridY, -lineZ)
+        ];
+        const zGeom = new THREE.BufferGeometry().setFromPoints(zLinePoints);
+        group.add(new THREE.LineSegments(zGeom, microMaterial.clone()));
+      }
+
+      const labelStride = step < 20 ? 4 : step < 100 ? 3 : 2;
+      const labelOffsetX = -step * 0.12;
+      const labelOffsetZ = step * 0.12;
+      const labelScale = Math.max(1.6, step * 0.085);
+      const tupleColor = 0x58b5ff;
+      for (let ix = -halfCount; ix <= halfCount; ix++) {
+        if (ix % labelStride !== 0) {
+          continue;
+        }
+        for (let iz = -halfCount; iz <= halfCount; iz++) {
+          if (iz % labelStride !== 0) {
+            continue;
+          }
+          const lineX = originX + (ix * step);
+          const lineZ = originZ + (iz * step);
+          const tupleLabel = createFlatGridTextMesh(
+            `${formatGridCoordValue(lineX)} : ${formatGridCoordValue(gridY)} : ${formatGridCoordValue(lineZ)}`,
+            tupleColor,
+            labelScale
+          );
+          if (!tupleLabel) {
+            continue;
+          }
+          tupleLabel.rotation.set(-Math.PI / 2, 0, 0);
+          tupleLabel.position.set(
+            lineX + labelOffsetX,
+            gridY + 0.03,
+            -(lineZ + labelOffsetZ)
+          );
+          group.add(tupleLabel);
+        }
+      }
+
+      scene.add(group);
+      dynamicBaseGridGroup = group;
+    }
+
+    function scheduleDynamicBaseGridRefresh(delayMs = 120) {
+      if (!dynamicBaseGridEnabled) {
+        clearDynamicBaseGrid();
+        return;
+      }
+      if (dynamicBaseGridRefreshTimer) {
+        clearTimeout(dynamicBaseGridRefreshTimer);
+      }
+      dynamicBaseGridRefreshTimer = setTimeout(() => {
+        dynamicBaseGridRefreshTimer = null;
+        buildDynamicBaseGridOverlay();
+      }, delayMs);
+    }
+
+    function updateBoxelOverlayButtonState() {
+      const button = document.getElementById('boxelOverlayButton');
+      if (!button) {
+        return;
+      }
+      button.classList.toggle('is-active', Boolean(boxelOverlayEnabled));
+      button.title = boxelOverlayEnabled ? 'Octree: On' : 'Octree: Off';
+      button.setAttribute('aria-label', button.title);
+    }
+
+    function colorForBoxelMcode(mcodeRaw) {
+      const mcode = String(mcodeRaw || '').toLowerCase();
+      if (mcode === 'a') return 0xff4d4d;
+      if (mcode === 'b') return 0xff8a3d;
+      if (mcode === 'c') return 0xffbf3d;
+      if (mcode === 'd') return 0x9ad14b;
+      if (mcode === 'e') return 0x3ccf91;
+      if (mcode === 'f') return 0x2f8ecf;
+      if (mcode === 'g') return 0x7f6cff;
+      if (mcode === 'h') return 0xbf6cff;
+      return 0x2f8ecf;
+    }
+
+    function mcodeCubeSizeLy(mcodeRaw) {
+      const mcode = String(mcodeRaw || '').toLowerCase();
+      const idx = mcode.charCodeAt(0) - 'a'.charCodeAt(0);
+      if (!Number.isFinite(idx) || idx < 0 || idx > 7) {
+        return null;
+      }
+      return 10 * Math.pow(2, idx);
+    }
+
+    function createBoxelLabelMesh(text, colorHex, baseScale = 3.2) {
+      if (typeof THREE === 'undefined') {
+        return null;
+      }
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      if (!context) {
+        return null;
+      }
+      const fontSize = 9;
+      const paddingX = 3;
+      const paddingY = 2;
+      context.font = `${fontSize}px Arial`;
+      const metrics = context.measureText(text);
+      const textWidth = Math.ceil(metrics.width);
+      const width = Math.max(20, textWidth + (paddingX * 2));
+      const height = fontSize + (paddingY * 2);
+      canvas.width = width;
+      canvas.height = height;
+
+      context.font = `${fontSize}px Arial`;
+      context.fillStyle = `#${colorHex.toString(16).padStart(6, '0')}`;
+      context.fillText(text, paddingX, paddingY + fontSize - 1);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.needsUpdate = true;
+
+      const material = new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide
+      });
+      const geometry = new THREE.PlaneGeometry(1, 1);
+      const mesh = new THREE.Mesh(geometry, material);
+      const aspect = width / Math.max(1, height);
+      const widthScale = baseScale * aspect;
+      const heightScale = baseScale;
+      mesh.scale.set(widthScale, heightScale, 1);
+      return mesh;
+    }
+
+    function orientLabelMeshToSegment(mesh, directionVec3) {
+      if (!mesh || typeof THREE === 'undefined') {
+        return;
+      }
+      const xAxis = directionVec3.clone().normalize();
+      const yAxis = new THREE.Vector3(0, 1, 0);
+      if (Math.abs(xAxis.dot(yAxis)) > 0.99) {
+        yAxis.set(0, 0, 1);
+      }
+      const zAxis = new THREE.Vector3().crossVectors(xAxis, yAxis).normalize();
+      const correctedYAxis = new THREE.Vector3().crossVectors(zAxis, xAxis).normalize();
+      const basis = new THREE.Matrix4().makeBasis(xAxis, correctedYAxis, zAxis);
+      mesh.quaternion.setFromRotationMatrix(basis);
+    }
+
+    function updateBoxelProximityLabels() {
+      if (!boxelOverlayShowLabels) {
+        clearBoxelLabels();
+        return;
+      }
+      clearBoxelLabels();
+      if (!boxelOverlayEnabled || !Array.isArray(boxelOverlayCells) || !boxelOverlayCells.length || typeof scene === 'undefined' || !scene) {
+        return;
+      }
+      const cameraPos = getCurrentWorldCamera();
+      if (!cameraPos) {
+        return;
+      }
+      const candidates = [];
+      for (let i = 0; i < boxelOverlayCells.length; i++) {
+        const cell = boxelOverlayCells[i];
+        const c = cell?.center;
+        const size = Number(cell?.size);
+        if (!c || !Number.isFinite(size) || size <= 0) {
+          continue;
+        }
+        const worldX = Number(c.x) || 0;
+        const worldY = Number(c.y) || 0;
+        const worldZ = -(Number(c.z) || 0);
+        const dx = worldX - cameraPos.x;
+        const dy = worldY - cameraPos.y;
+        const dz = worldZ - cameraPos.z;
+        const dist = Math.sqrt((dx * dx) + (dy * dy) + (dz * dz));
+        const threshold = Math.max(45, size * 2.4);
+        if (dist <= threshold) {
+          candidates.push({ cell, dist });
+        }
+      }
+      if (!candidates.length) {
+        return;
+      }
+      candidates.sort((a, b) => a.dist - b.dist);
+      const selected = candidates.slice(0, 5);
+      const labelGroup = new THREE.Group();
+      labelGroup.name = 'boxelLabelGroup';
+
+      selected.forEach(({ cell }) => {
+        const c = cell.center;
+        const size = Number(cell.size);
+        const half = size * 0.5;
+        const worldX = Number(c.x) || 0;
+        const worldY = Number(c.y) || 0;
+        const worldZ = -(Number(c.z) || 0);
+        const color = colorForBoxelMcode(cell.mcode);
+        const labelScale = clamp(size * 0.03, 0.9, 3.2);
+
+        const xMin = Math.round((Number(c.x) || 0) - half);
+        const xMax = Math.round((Number(c.x) || 0) + half);
+        const yTop = Math.round((Number(c.y) || 0) + half);
+        const zMin = Math.round((Number(c.z) || 0) - half);
+        const zMax = Math.round((Number(c.z) || 0) + half);
+
+        const cornerLabels = [
+          {
+            text: `(${xMin},${yTop},${zMin})`,
+            worldPos: [worldX - half, worldY + half + (size * 0.02), worldZ + half],
+            dir: new THREE.Vector3(1, 0, 0)
+          },
+          {
+            text: `(${xMax},${yTop},${zMin})`,
+            worldPos: [worldX + half, worldY + half + (size * 0.02), worldZ + half],
+            dir: new THREE.Vector3(0, 0, -1)
+          },
+          {
+            text: `(${xMax},${yTop},${zMax})`,
+            worldPos: [worldX + half, worldY + half + (size * 0.02), worldZ - half],
+            dir: new THREE.Vector3(-1, 0, 0)
+          },
+          {
+            text: `(${xMin},${yTop},${zMax})`,
+            worldPos: [worldX - half, worldY + half + (size * 0.02), worldZ - half],
+            dir: new THREE.Vector3(0, 0, 1)
+          }
+        ];
+
+        cornerLabels.forEach((corner) => {
+          const mesh = createBoxelLabelMesh(corner.text, color, labelScale);
+          if (!mesh) {
+            return;
+          }
+          orientLabelMeshToSegment(mesh, corner.dir);
+          mesh.position.set(corner.worldPos[0], corner.worldPos[1], corner.worldPos[2]);
+          labelGroup.add(mesh);
+        });
+      });
+
+      if (!labelGroup.children.length) {
+        return;
+      }
+      scene.add(labelGroup);
+      boxelLabelGroup = labelGroup;
+    }
+
+    function scheduleBoxelLabelRefresh(delayMs = 90) {
+      if (!boxelOverlayShowLabels) {
+        return;
+      }
+      if (!boxelOverlayEnabled) {
+        return;
+      }
+      if (boxelLabelRefreshTimer) {
+        clearTimeout(boxelLabelRefreshTimer);
+      }
+      boxelLabelRefreshTimer = setTimeout(() => {
+        boxelLabelRefreshTimer = null;
+        updateBoxelProximityLabels();
+      }, delayMs);
+    }
+
+    function getAdaptiveMinMcodeForRadius(radiusLy) {
+      const radius = Number(radiusLy);
+      if (!Number.isFinite(radius) || radius <= 0) {
+        return boxelOverlayMinMcode;
+      }
+      if (reverseDebugGridDetailOrder) {
+        if (radius < 70) return 'a';
+        if (radius < 180) return 'b';
+        if (radius < 450) return 'c';
+        return 'd';
+      }
+      if (radius < 70) return 'd';
+      if (radius < 180) return 'c';
+      if (radius < 450) return 'b';
+      return 'a';
+    }
+
+    function getDebugGridLimitForRadius(radiusLy) {
+      const radius = Number(radiusLy);
+      if (!Number.isFinite(radius) || radius <= 0) {
+        return 12000;
+      }
+      if (radius < 80) return 8000;
+      if (radius < 220) return 12000;
+      if (radius < 500) return 18000;
+      return boxelOverlayMaxRequestLimit;
+    }
+
+    function updateDebugGridLegend(boxels = [], payload = null) {
+      const legend = document.getElementById('debugGridLegend');
+      if (!legend) {
+        return;
+      }
+      if (!boxelOverlayEnabled || !Array.isArray(boxels) || !boxels.length) {
+        legend.style.display = 'none';
+        legend.innerHTML = '';
+        return;
+      }
+
+      const countsByMcode = new Map();
+      boxels.forEach((item) => {
+        const mcode = String(item?.mcode || '').toLowerCase();
+        if (mcode < 'a' || mcode > 'h') {
+          return;
+        }
+        countsByMcode.set(mcode, (countsByMcode.get(mcode) || 0) + 1);
+      });
+
+      const ordered = Array.from(countsByMcode.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]));
+      const rows = ordered.map(([mcode, count]) => {
+        const hex = colorForBoxelMcode(mcode).toString(16).padStart(6, '0');
+        const size = mcodeCubeSizeLy(mcode);
+        const sizeLabel = Number.isFinite(size) ? `${size} LY` : '?';
+        return `
+          <div class="legend-row">
+            <span class="legend-chip" style="background:#${hex}"></span>
+            <span>${mcode.toUpperCase()} · ${sizeLabel} · ${count}</span>
+          </div>
+        `;
+      }).join('');
+
+      const modeLabel = String(payload?.mode || 'adaptive');
+      const visibleCells = Array.isArray(boxels) ? boxels.length : 0;
+      const isTruncated = Boolean(payload?.truncated);
+      const truncationLabel = isTruncated ? ' - truncated' : '';
+      legend.innerHTML = `
+        <div class="legend-title">Debug Grid (${modeLabel})</div>
+        <div>Cells: ${visibleCells}${truncationLabel}</div>
+        ${rows}
+      `;
+      legend.style.display = 'block';
+    }
+
+    function renderBoxelOverlay(boxels = [], payload = null) {
+      clearBoxelOverlay();
+      if (!Array.isArray(boxels) || !boxels.length || typeof THREE === 'undefined' || typeof scene === 'undefined' || !scene) {
+        updateDebugGridLegend([], payload);
+        return;
+      }
+      const group = new THREE.Group();
+      group.name = 'boxelOverlayGroup';
+      boxels.forEach((boxel) => {
+        const center = boxel?.center;
+        const size = Number(boxel?.size);
+        const mcode = String(boxel?.mcode || '').toLowerCase();
+        if (!center || !Number.isFinite(size) || size <= 0) {
+          return;
+        }
+        const geometry = new THREE.BoxGeometry(size, size, size);
+        const edges = new THREE.EdgesGeometry(geometry);
+        geometry.dispose();
+        const lines = new THREE.LineSegments(
+          edges,
+          new THREE.LineBasicMaterial({
+            color: colorForBoxelMcode(mcode),
+            transparent: true,
+            opacity: 0.44
+          })
+        );
+        lines.position.set(
+          Number(center.x) || 0,
+          Number(center.y) || 0,
+          -(Number(center.z) || 0)
+        );
+        group.add(lines);
+      });
+      scene.add(group);
+      boxelOverlayGroup = group;
+      boxelOverlayCells = boxels;
+      updateDebugGridLegend(boxels, payload);
+      updateBoxelProximityLabels();
+    }
+
+    async function refreshBoxelOverlay() {
+      if (!boxelOverlayEnabled) {
+        clearBoxelOverlay();
+        return;
+      }
+      const center = getCurrentMapCenter() || lastAutoLoadCenter;
+      if (!center) {
+        clearBoxelOverlay();
+        return;
+      }
+      const requestId = ++boxelOverlayRequestId;
+      const radius = Number(activeNeighborhoodRadius || getAutoRefreshRadius() || 20);
+      const adaptiveMinMcode = getAdaptiveMinMcodeForRadius(radius);
+      const requestLimit = getDebugGridLimitForRadius(radius);
+      const url = new URL('/boxels', sameHostBaseUrl);
+      url.searchParams.set('x', String(center.x));
+      url.searchParams.set('y', String(center.y));
+      url.searchParams.set('z', String(center.z));
+      url.searchParams.set('radius', String(radius));
+      url.searchParams.set('mode', boxelOverlayMode);
+      url.searchParams.set('min_mcode', adaptiveMinMcode);
+      url.searchParams.set('max_mcode', boxelOverlayMaxMcode);
+      url.searchParams.set('limit', String(requestLimit));
+
+      try {
+        const response = await fetch(url.toString());
+        if (!response.ok) {
+          throw new Error(`Debug grid query failed (${response.status})`);
+        }
+        const payload = await response.json();
+        if (requestId !== boxelOverlayRequestId || !boxelOverlayEnabled) {
+          return;
+        }
+        renderBoxelOverlay(Array.isArray(payload?.items) ? payload.items : [], payload);
+      } catch (error) {
+        console.error('Failed to render boxel overlay', error);
+        if (requestId === boxelOverlayRequestId) {
+          clearBoxelOverlay();
+        }
+      }
+    }
+
+    async function toggleBoxelOverlay() {
+      boxelOverlayEnabled = !boxelOverlayEnabled;
+      updateBoxelOverlayButtonState();
+      if (boxelOverlayEnabled) {
+        await refreshBoxelOverlay();
+      } else {
+        clearBoxelOverlay();
+      }
+    }
+
+    function toggleDistanceHeat() {
+      distanceHeatEnabled = !distanceHeatEnabled;
+      updateDistanceHeatButtonState();
+      applyActivePointColorMode();
     }
 
     function syncNeighborhoodFilterControls() {
@@ -553,13 +1537,30 @@
 
     function updateModeButtonState() {
       const expertModeToggle = document.getElementById('expertModeToggle');
-      if (!expertModeToggle) {
-        return;
+      if (expertModeToggle) {
+        const isExpert = activeFilterMode === 'expert';
+        expertModeToggle.checked = isExpert;
+        expertModeToggle.title = 'Expert Mode';
+        expertModeToggle.setAttribute('aria-label', 'Expert Mode');
       }
-      const isExpert = activeFilterMode === 'expert';
-      expertModeToggle.checked = isExpert;
-      expertModeToggle.title = 'Expert Mode';
-      expertModeToggle.setAttribute('aria-label', 'Expert Mode');
+      const reverseDebugGridDetailToggle = document.getElementById('reverseDebugGridDetailToggle');
+      if (reverseDebugGridDetailToggle) {
+        reverseDebugGridDetailToggle.checked = reverseDebugGridDetailOrder;
+        reverseDebugGridDetailToggle.title = 'Reverse Debug Grid Detail';
+        reverseDebugGridDetailToggle.setAttribute('aria-label', 'Reverse Debug Grid Detail');
+      }
+      const regionNamesToggle = document.getElementById('regionNamesToggle');
+      if (regionNamesToggle) {
+        regionNamesToggle.checked = regionNamesEnabled;
+        regionNamesToggle.title = 'Show Region Names';
+        regionNamesToggle.setAttribute('aria-label', 'Show Region Names');
+      }
+      const showBaseGridToggle = document.getElementById('showBaseGridToggle');
+      if (showBaseGridToggle) {
+        showBaseGridToggle.checked = dynamicBaseGridEnabled;
+        showBaseGridToggle.title = 'Show Base Grid';
+        showBaseGridToggle.setAttribute('aria-label', 'Show Base Grid');
+      }
     }
 
     async function setFilterMode(nextMode) {
@@ -1226,6 +2227,7 @@
         const countHtml = count > 1 ? ` (${count})` : '';
         $(this).html(`${checkHtml}${label}${countHtml}`);
       });
+      applyHudFilterSearchAndSort();
     }
 
     function showInfoPanel() {
@@ -1346,6 +2348,8 @@
       if (typeof Action !== 'undefined') {
         Action.disableSelection();
       }
+      clearDynamicBaseGrid();
+      clearBoxelOverlay();
       removeTrackedSolidSystems();
       System.remove();
       System.particleInfos = [];
@@ -1374,6 +2378,7 @@
       System.endParticleSystem();
       HUD.init();
       syncHudPanelUi();
+      buildDynamicBaseGridOverlay();
       updateTrackedSolidSystemNames(solutionjson);
       restoreInactiveFilterIds(inactiveFilterIds);
       refreshHudFilterCounts();
@@ -1465,6 +2470,10 @@
       });
       controls.addEventListener('change', () => {
         controlsMovedDuringInteraction = true;
+        scheduleDynamicBaseGridRefresh(140);
+        if (boxelOverlayEnabled) {
+          scheduleBoxelLabelRefresh(110);
+        }
         const center = getCurrentMapCenter();
         if (!center || isCameraRefreshSuppressed()) {
           return;
@@ -1493,6 +2502,10 @@
         updateBrowserUrlFromCurrentCenter(center);
         if (isCameraRefreshSuppressed()) {
           lastCameraTarget = center;
+          scheduleDynamicBaseGridRefresh(0);
+          if (boxelOverlayEnabled) {
+            scheduleBoxelLabelRefresh(0);
+          }
           return;
         }
         const centerMoved = !lastCameraTarget || distanceBetweenCenters(center, lastCameraTarget) > CAMERA_CENTER_CHANGE_EPSILON;
@@ -1501,6 +2514,10 @@
           scheduleCameraNeighborhoodRefresh({
             center
           });
+        }
+        scheduleDynamicBaseGridRefresh(0);
+        if (boxelOverlayEnabled) {
+          scheduleBoxelLabelRefresh(0);
         }
       });
     }
@@ -1592,7 +2609,7 @@
         hudMultipleSelect : true,
         withOptionsPanel: false,
         withFullscreenToggle: false,
-        showGalaxyInfos: true,
+        showGalaxyInfos: regionNamesEnabled,
         showNameNear: false,
         playerPos: playerPos,
         cameraPos: cameraPos,
@@ -1601,6 +2618,8 @@
           attachCameraNeighborhoodRefresh();
           refreshHudFilterCounts();
           syncHudPanelUi();
+          buildDynamicBaseGridOverlay();
+          applyRegionNamesVisibility();
           applyUserStarVisualSettings();
         }
       });
@@ -1952,7 +2971,12 @@
          mode: params.get('mode'),
          filter_dimension: params.get('filter_dimension'),
          atmosphere_gas: params.get('atmosphere_gas'),
-         material: params.get('material')
+         material: params.get('material'),
+         heat: params.get('heat'),
+         boxels: params.get('boxels'),
+         region_names: params.get('region_names'),
+         grid_detail: params.get('grid_detail'),
+         base_grid: params.get('base_grid')
        };
        activeFilterMode = normalizeFilterMode(raw.mode);
        activeFilterDimension = normalizeFilterDimension(raw.filter_dimension);
@@ -1960,6 +2984,11 @@
          atmosphereGas: raw.atmosphere_gas,
          material: raw.material
        });
+       distanceHeatEnabled = raw.heat === '1';
+       boxelOverlayEnabled = raw.boxels === '1';
+       regionNamesEnabled = String(raw.region_names || '1') !== '0';
+       reverseDebugGridDetailOrder = String(raw.grid_detail || '').toLowerCase() === 'reverse';
+       dynamicBaseGridEnabled = String(raw.base_grid || '1') !== '0';
        // Parse numbers safely
        const parsed = {
          x: raw.x === null ? null : Number(raw.x),
@@ -2076,8 +3105,8 @@
            <header>
              <h2>SYSTEM INFORMATION</h2>
              <ul>
-               <li><span style="font-size: x-large;margin-top: -7px;">${systemName ?? 'Unknown'}</span> <span><a title="CENTER VIEW" href="/static/galaxymap.html?x=${coords.x ?? 0}&y=${coords.y ?? 0}&z=${coords.z ?? 0}&radius=${radius ?? 0}"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-border-center" viewBox="0 0 16 16">
-                 <path d="M.969 0H0v.969h.5V1h.469V.969H1V.5H.969zm.937 1h.938V0h-.938zm1.875 0h.938V0H3.78v1zm1.875 0h.938V0h-.938zM7.531.969V1h.938V.969H8.5V.5h-.031V0H7.53v.5H7.5v.469zM9.406 1h.938V0h-.938zm1.875 0h.938V0h-.938zm1.875 0h.938V0h-.938zm1.875 0h.469V.969h.5V0h-.969v.5H15v.469h.031zM1 2.844v-.938H0v.938zm6.5-.938v.938h1v-.938zm7.5 0v.938h1v-.938zM1 4.719V3.78H0v.938h1zm6.5-.938v.938h1V3.78h-1zm7.5 0v.938h1V3.78h-1zM1 6.594v-.938H0v.938zm6.5-.938v.938h1v-.938zm7.5 0v.938h1v-.938zM0 8.5v-1h16v1zm0 .906v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zm-16 .937v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zm-16 .937v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zM0 16h.969v-.5H1v-.469H.969V15H.5v.031H0zm1.906 0h.938v-1h-.938zm1.875 0h.938v-1H3.78v1zm1.875 0h.938v-1h-.938zm1.875-.5v.5h.938v-.5H8.5v-.469h-.031V15H7.53v.031H7.5v.469zm1.875.5h.938v-1h-.938zm1.875 0h.938v-1h-.938zm1.875 0h.938v-1h-.938zm1.875-.5v.5H16v-.969h-.5V15h-.469v.031H15v.469z"/>
+             <li><span style="font-size: x-large;margin-top: -7px;">${systemName ?? 'Unknown'}</span> <span><a title="CENTER VIEW" href="/static/galaxymap.html?x=${coords.x ?? 0}&y=${coords.y ?? 0}&z=${coords.z ?? 0}&radius=${radius ?? 0}"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-border-center" viewBox="0 0 16 16">
+                <path d="M.969 0H0v.969h.5V1h.469V.969H1V.5H.969zm.937 1h.938V0h-.938zm1.875 0h.938V0H3.78v1zm1.875 0h.938V0h-.938zM7.531.969V1h.938V.969H8.5V.5h-.031V0H7.53v.5H7.5v.469zM9.406 1h.938V0h-.938zm1.875 0h.938V0h-.938zm1.875 0h.938V0h-.938zm1.875 0h.469V.969h.5V0h-.969v.5H15v.469h.031zM1 2.844v-.938H0v.938zm6.5-.938v.938h1v-.938zm7.5 0v.938h1v-.938zM1 4.719V3.78H0v.938h1zm6.5-.938v.938h1V3.78h-1zm7.5 0v.938h1V3.78h-1zM1 6.594v-.938H0v.938zm6.5-.938v.938h1v-.938zm7.5 0v.938h1v-.938zM0 8.5v-1h16v1zm0 .906v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zm-16 .937v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zm-16 .937v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zM0 16h.969v-.5H1v-.469H.969V15H.5v.031H0zm1.906 0h.938v-1h-.938zm1.875 0h.938v-1H3.78v1zm1.875 0h.938v-1h-.938zm1.875-.5v.5h.938v-.5H8.5v-.469h-.031V15H7.53v.031H7.5v.469zm1.875.5h.938v-1h-.938zm1.875 0h.938v-1h-.938zm1.875 0h.938v-1h-.938zm1.875-.5v.5H16v-.969h-.5V15h-.469v.031H15v.469z"/>
                </svg></a></span></li>
              </ul>
              <h2>ASTRONOMICAL INFORMATION</h2>
@@ -2129,12 +3158,17 @@
       const systemInfoButton = document.querySelector('button[title="System Info"]');
       const systemMapButton = document.querySelector('button[title="System Map"]');
       const openEdgisButton = document.getElementById('openEdgisButton');
+      const distanceHeatButton = document.getElementById('distanceHeatButton');
+      const boxelOverlayButton = document.getElementById('boxelOverlayButton');
       const searchSystemButton = document.getElementById('searchSystemButton');
       const settingsButton = document.getElementById('settingsButton');
       const filterDimensionSpectralButton = document.getElementById('filterDimensionSpectralButton');
       const filterDimensionAtmosphereButton = document.getElementById('filterDimensionAtmosphereButton');
       const filterDimensionMaterialButton = document.getElementById('filterDimensionMaterialButton');
       const expertModeToggle = document.getElementById('expertModeToggle');
+      const reverseDebugGridDetailToggle = document.getElementById('reverseDebugGridDetailToggle');
+      const regionNamesToggle = document.getElementById('regionNamesToggle');
+      const showBaseGridToggle = document.getElementById('showBaseGridToggle');
       const radiusDownButton = document.getElementById('radiusDownButton');
       const radiusUpButton = document.getElementById('radiusUpButton');
       const controlsPanel = document.getElementById('controlsPanel');
@@ -2178,6 +3212,18 @@
         openEdgisButton.addEventListener('click', () => {
           const targetUrl = openEdgisButton.dataset.href || buildEdgisHomeUrl(getCurrentMapCenter());
           window.location.href = targetUrl;
+        });
+      }
+
+      if (distanceHeatButton) {
+        distanceHeatButton.addEventListener('click', () => {
+          toggleDistanceHeat();
+        });
+      }
+
+      if (boxelOverlayButton) {
+        boxelOverlayButton.addEventListener('click', async () => {
+          await toggleBoxelOverlay();
         });
       }
 
@@ -2390,6 +3436,69 @@
         });
       }
 
+      if (reverseDebugGridDetailToggle) {
+        reverseDebugGridDetailToggle.addEventListener('change', async () => {
+          const nextValue = Boolean(reverseDebugGridDetailToggle.checked);
+          if (reverseDebugGridDetailOrder === nextValue) {
+            return;
+          }
+          reverseDebugGridDetailOrder = nextValue;
+          const center = getCurrentMapCenter() || lastAutoLoadCenter;
+          if (center) {
+            updateBrowserUrlFromCurrentCenter(center);
+          }
+          if (boxelOverlayEnabled) {
+            await refreshBoxelOverlay();
+          } else {
+            updateModeButtonState();
+          }
+        });
+      }
+
+      if (regionNamesToggle) {
+        regionNamesToggle.addEventListener('change', () => {
+          const nextValue = Boolean(regionNamesToggle.checked);
+          if (regionNamesEnabled === nextValue) {
+            return;
+          }
+          regionNamesEnabled = nextValue;
+          applyRegionNamesVisibility();
+          const center = getCurrentMapCenter() || lastAutoLoadCenter;
+          if (center) {
+            updateBrowserUrlFromCurrentCenter(center);
+          } else {
+            const nextUrl = new URL(window.location.href);
+            applyRegionNamesToSearchParams(nextUrl.searchParams);
+            window.history.replaceState({}, '', nextUrl);
+          }
+          updateModeButtonState();
+        });
+      }
+
+      if (showBaseGridToggle) {
+        showBaseGridToggle.addEventListener('change', () => {
+          const nextValue = Boolean(showBaseGridToggle.checked);
+          if (dynamicBaseGridEnabled === nextValue) {
+            return;
+          }
+          dynamicBaseGridEnabled = nextValue;
+          const center = getCurrentMapCenter() || lastAutoLoadCenter;
+          if (center) {
+            updateBrowserUrlFromCurrentCenter(center);
+          } else {
+            const nextUrl = new URL(window.location.href);
+            applyBaseGridToSearchParams(nextUrl.searchParams);
+            window.history.replaceState({}, '', nextUrl);
+          }
+          if (dynamicBaseGridEnabled) {
+            buildDynamicBaseGridOverlay();
+          } else {
+            clearDynamicBaseGrid();
+          }
+          updateModeButtonState();
+        });
+      }
+
       if (filterDimensionSpectralButton) {
         filterDimensionSpectralButton.addEventListener('click', async () => {
           await toggleOrSetFilterDimension('spectral');
@@ -2457,6 +3566,8 @@
       updateRadiusDisplay();
       updateModeButtonState();
       updateFilterDimensionButtonState();
+      updateDistanceHeatButtonState();
+      updateBoxelOverlayButtonState();
 
       document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {
