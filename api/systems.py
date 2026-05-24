@@ -1,6 +1,7 @@
 import os
 import logging
 import time
+import math
 import base64
 import json
 from contextlib import contextmanager
@@ -19,7 +20,7 @@ from typing import Callable, Iterable, Optional, Any, Sequence
 from urllib.parse import quote
 
 try:
-    from .edts.edtslib import system  # type: ignore[attr-defined]
+    from .edts.edtslib import pgnames, sector, system  # type: ignore[attr-defined]
 except ImportError:
     import sys
     from pathlib import Path
@@ -27,7 +28,7 @@ except ImportError:
     _local_edts = Path(__file__).resolve().parent / "edts"
     if _local_edts.exists():
         sys.path.insert(0, str(_local_edts))
-        from edtslib import system  # type: ignore[attr-defined]
+        from edtslib import pgnames, sector, system  # type: ignore[attr-defined]
     else:
         raise
 import asyncio
@@ -97,6 +98,20 @@ NEIGHBORS_SEEDED_RADII = tuple(
         100.0,
     )
     if radius > 0
+)
+BOXELS_DEFAULT_LIMIT = max(
+    1, int(os.getenv("BOXELS_DEFAULT_LIMIT") or "2400")
+)
+BOXELS_RESULT_LIMIT = max(
+    BOXELS_DEFAULT_LIMIT,
+    int(os.getenv("BOXELS_RESULT_LIMIT") or "40000"),
+)
+BOXELS_FIXED_MAX_ITERATIONS = max(
+    1, int(os.getenv("BOXELS_FIXED_MAX_ITERATIONS") or "3000000")
+)
+BOXELS_ADAPTIVE_MAX_COARSE_ITERATIONS = max(
+    1,
+    int(os.getenv("BOXELS_ADAPTIVE_MAX_COARSE_ITERATIONS") or "800000"),
 )
 app = FastAPI()
 SYSTEM_NOT_FOUND = "System not found"
@@ -1311,6 +1326,362 @@ def _parse_point_wkt(point_wkt: Optional[str]) -> Optional[dict[str, float]]:
         return None
 
     return {"x": x, "y": y, "z": z}
+
+
+def _sphere_intersects_aabb(
+    cx: float,
+    cy: float,
+    cz: float,
+    radius: float,
+    ox: float,
+    oy: float,
+    oz: float,
+    size: float,
+) -> bool:
+    max_x = ox + size
+    max_y = oy + size
+    max_z = oz + size
+    closest_x = min(max(cx, ox), max_x)
+    closest_y = min(max(cy, oy), max_y)
+    closest_z = min(max(cz, oz), max_z)
+    dx = cx - closest_x
+    dy = cy - closest_y
+    dz = cz - closest_z
+    return (dx * dx + dy * dy + dz * dz) <= (radius * radius)
+
+
+def _normalize_boxel_mcode(
+    raw_mcode: str | None, *, default: str = "d"
+) -> str:
+    normalized = str(raw_mcode or default).strip().lower()
+    if normalized not in {"a", "b", "c", "d", "e", "f", "g", "h"}:
+        raise HTTPException(
+            status_code=400,
+            detail="mcode must be one of: a,b,c,d,e,f,g,h",
+        )
+    return normalized
+
+
+def _sphere_contains_aabb(
+    cx: float,
+    cy: float,
+    cz: float,
+    radius: float,
+    ox: float,
+    oy: float,
+    oz: float,
+    size: float,
+) -> bool:
+    max_x = ox + size
+    max_y = oy + size
+    max_z = oz + size
+    dx = max(abs(cx - ox), abs(cx - max_x))
+    dy = max(abs(cy - oy), abs(cy - max_y))
+    dz = max(abs(cz - oz), abs(cz - max_z))
+    return (dx * dx + dy * dy + dz * dz) <= (radius * radius)
+
+
+def _resolve_sector_name_for_coords(x: float, y: float, z: float) -> str | None:
+    coords = (x, y, z)
+    sector_obj: Any = None
+
+    # EDTS signature compatibility: older variants may not support get_name.
+    try:
+        sector_obj = pgnames.get_sector(coords, allow_ha=False, get_name=True)
+    except TypeError:
+        try:
+            sector_obj = pgnames.get_sector(coords, False)
+        except TypeError:
+            sector_obj = pgnames.get_sector(coords)
+    except Exception as exc:  # pragma: no cover - defensive safety for lookup edge-cases
+        logger.warning("Boxel sector lookup failed at %s: %s", coords, exc)
+        return None
+
+    if sector_obj is None:
+        return None
+    if isinstance(sector_obj, str):
+        return sector_obj
+    return getattr(sector_obj, "name", None)
+
+
+@app.get("/boxels")
+async def get_boxels(
+    x: float = Query(...),
+    y: float = Query(...),
+    z: float = Query(...),
+    radius: float = Query(20.0, gt=0),
+    mode: str = Query(
+        "adaptive",
+        description="Grid extraction mode: adaptive (octree-like) or fixed",
+    ),
+    mcode: str | None = Query(
+        None,
+        description="Used only with mode=fixed",
+    ),
+    min_mcode: str = Query(
+        "b",
+        description="Smallest cube size for adaptive mode (a finest .. h coarsest)",
+    ),
+    max_mcode: str = Query(
+        "g",
+        description="Largest cube size for adaptive mode (a finest .. h coarsest)",
+    ),
+    resolve_sector: bool = Query(
+        False,
+        description="Whether to resolve sector names for each returned cell",
+    ),
+    fixed_mcode: str = Query(
+        "d",
+        description="Deprecated alias of mcode for fixed mode compatibility",
+    ),
+    limit: int = Query(
+        BOXELS_DEFAULT_LIMIT,
+        ge=1,
+        le=BOXELS_RESULT_LIMIT,
+        description="Maximum number of cells to return",
+    ),
+):
+    normalized_mode = str(mode or "adaptive").strip().lower()
+    if normalized_mode not in {"adaptive", "fixed"}:
+        raise HTTPException(
+            status_code=400,
+            detail="mode must be one of: adaptive,fixed",
+        )
+
+    min_x = x - radius
+    min_y = y - radius
+    min_z = z - radius
+    max_x = x + radius
+    max_y = y + radius
+    max_z = z + radius
+
+    if normalized_mode == "fixed":
+        normalized_mcode = _normalize_boxel_mcode(
+            mcode if mcode else fixed_mcode, default="d"
+        )
+        cube_width = float(sector.get_mcode_cube_width(normalized_mcode))
+        if cube_width <= 0:
+            raise HTTPException(status_code=400, detail="Invalid boxel size")
+
+        start_origin = pgnames.get_boxel_origin(
+            (min_x, min_y, min_z), normalized_mcode
+        )
+        if start_origin is None:
+            raise HTTPException(
+                status_code=400, detail="Invalid coordinates"
+            )
+
+        nx = int(math.floor((max_x - start_origin.x) / cube_width)) + 1
+        ny = int(math.floor((max_y - start_origin.y) / cube_width)) + 1
+        nz = int(math.floor((max_z - start_origin.z) / cube_width)) + 1
+        estimated_iterations = max(nx, 0) * max(ny, 0) * max(nz, 0)
+
+        if estimated_iterations > BOXELS_FIXED_MAX_ITERATIONS:
+            raise HTTPException(
+                status_code=400,
+                detail="Requested radius/boxel size is too broad; increase mcode or reduce radius",
+            )
+
+        boxels: list[dict[str, Any]] = []
+        truncated = False
+
+        ox = float(start_origin.x)
+        while ox <= max_x:
+            oy = float(start_origin.y)
+            while oy <= max_y:
+                oz = float(start_origin.z)
+                while oz <= max_z:
+                    if _sphere_intersects_aabb(
+                        x, y, z, radius, ox, oy, oz, cube_width
+                    ):
+                        center_x = ox + (cube_width * 0.5)
+                        center_y = oy + (cube_width * 0.5)
+                        center_z = oz + (cube_width * 0.5)
+                        center_distance = math.sqrt(
+                            ((center_x - x) ** 2)
+                            + ((center_y - y) ** 2)
+                            + ((center_z - z) ** 2)
+                        )
+                        sector_name = (
+                            _resolve_sector_name_for_coords(
+                                center_x, center_y, center_z
+                            )
+                            if resolve_sector
+                            else None
+                        )
+                        boxels.append(
+                            {
+                                "id": f"{ox:.3f}_{oy:.3f}_{oz:.3f}_{normalized_mcode}",
+                                "origin": {"x": ox, "y": oy, "z": oz},
+                                "center": {
+                                    "x": center_x,
+                                    "y": center_y,
+                                    "z": center_z,
+                                },
+                                "size": cube_width,
+                                "mcode": normalized_mcode,
+                                "sector": sector_name,
+                                "distance": center_distance,
+                            }
+                        )
+                        if len(boxels) >= limit:
+                            truncated = True
+                            break
+                    oz += cube_width
+                if truncated:
+                    break
+                oy += cube_width
+            if truncated:
+                break
+            ox += cube_width
+
+        boxels.sort(key=lambda item: (item["distance"], item["id"]))
+        return JSONResponse(
+            content={
+                "items": boxels,
+                "truncated": truncated,
+                "mode": normalized_mode,
+                "mcode": normalized_mcode,
+                "size": cube_width,
+                "estimated_iterations": estimated_iterations,
+            }
+        )
+
+    normalized_min_mcode = _normalize_boxel_mcode(min_mcode, default="b")
+    normalized_max_mcode = _normalize_boxel_mcode(max_mcode, default="g")
+    if normalized_min_mcode > normalized_max_mcode:
+        raise HTTPException(
+            status_code=400,
+            detail="min_mcode must be finer or equal to max_mcode (a..h)",
+        )
+
+    finest_width = float(sector.get_mcode_cube_width(normalized_min_mcode))
+    coarsest_width = float(
+        sector.get_mcode_cube_width(normalized_max_mcode)
+    )
+    if finest_width <= 0 or coarsest_width <= 0:
+        raise HTTPException(status_code=400, detail="Invalid mcode range")
+
+    start_origin = pgnames.get_boxel_origin(
+        (min_x, min_y, min_z), normalized_max_mcode
+    )
+    if start_origin is None:
+        raise HTTPException(status_code=400, detail="Invalid coordinates")
+
+    nx = int(math.floor((max_x - start_origin.x) / coarsest_width)) + 1
+    ny = int(math.floor((max_y - start_origin.y) / coarsest_width)) + 1
+    nz = int(math.floor((max_z - start_origin.z) / coarsest_width)) + 1
+    coarse_iterations = max(nx, 0) * max(ny, 0) * max(nz, 0)
+    if coarse_iterations > BOXELS_ADAPTIVE_MAX_COARSE_ITERATIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Requested adaptive grid is too broad; reduce radius or increase max_mcode",
+        )
+
+    boxels: list[dict[str, Any]] = []
+    truncated = False
+    visited_nodes = 0
+
+    stack: list[tuple[float, float, float, str, float]] = []
+    ox = float(start_origin.x)
+    while ox <= max_x:
+        oy = float(start_origin.y)
+        while oy <= max_y:
+            oz = float(start_origin.z)
+            while oz <= max_z:
+                stack.append(
+                    (
+                        ox,
+                        oy,
+                        oz,
+                        normalized_max_mcode,
+                        coarsest_width,
+                    )
+                )
+                oz += coarsest_width
+            oy += coarsest_width
+        ox += coarsest_width
+
+    while stack:
+        cell_ox, cell_oy, cell_oz, cell_mcode, cell_size = stack.pop()
+        visited_nodes += 1
+
+        if not _sphere_intersects_aabb(
+            x, y, z, radius, cell_ox, cell_oy, cell_oz, cell_size
+        ):
+            continue
+
+        if len(boxels) >= limit:
+            truncated = True
+            break
+
+        center_x = cell_ox + (cell_size * 0.5)
+        center_y = cell_oy + (cell_size * 0.5)
+        center_z = cell_oz + (cell_size * 0.5)
+        center_distance = math.sqrt(
+            ((center_x - x) ** 2)
+            + ((center_y - y) ** 2)
+            + ((center_z - z) ** 2)
+        )
+
+        can_subdivide = (
+            cell_mcode > normalized_min_mcode and cell_size > finest_width
+        )
+        fully_inside = _sphere_contains_aabb(
+            x, y, z, radius, cell_ox, cell_oy, cell_oz, cell_size
+        )
+        if (not can_subdivide) or fully_inside:
+            sector_name = (
+                _resolve_sector_name_for_coords(center_x, center_y, center_z)
+                if resolve_sector
+                else None
+            )
+            boxels.append(
+                {
+                    "id": f"{cell_ox:.3f}_{cell_oy:.3f}_{cell_oz:.3f}_{cell_mcode}",
+                    "origin": {"x": cell_ox, "y": cell_oy, "z": cell_oz},
+                    "center": {
+                        "x": center_x,
+                        "y": center_y,
+                        "z": center_z,
+                    },
+                    "size": cell_size,
+                    "mcode": cell_mcode,
+                    "sector": sector_name,
+                    "distance": center_distance,
+                }
+            )
+            continue
+
+        child_mcode = chr(ord(cell_mcode) - 1)
+        child_size = cell_size * 0.5
+        for dx in (0.0, child_size):
+            for dy in (0.0, child_size):
+                for dz in (0.0, child_size):
+                    stack.append(
+                        (
+                            cell_ox + dx,
+                            cell_oy + dy,
+                            cell_oz + dz,
+                            child_mcode,
+                            child_size,
+                        )
+                    )
+
+    boxels.sort(key=lambda item: (item["distance"], item["id"]))
+    return JSONResponse(
+        content={
+            "items": boxels,
+            "truncated": truncated,
+            "mode": normalized_mode,
+            "min_mcode": normalized_min_mcode,
+            "max_mcode": normalized_max_mcode,
+            "size_min": finest_width,
+            "size_max": coarsest_width,
+            "coarse_iterations": coarse_iterations,
+            "visited_nodes": visited_nodes,
+        }
+    )
 
 
 def _format_neutron_result(row: Optional[Sequence[Any]]):
