@@ -267,9 +267,9 @@ var Action = {
         }
       }
 
-    } else {
-      Action.outOnObj();
     }
+
+    Action.outOnObj();
 
   },
 
@@ -534,10 +534,10 @@ var Action = {
 
     //-- Add text
     var textAdd = obj.name;
-    var textAddC = Math.round(goX) + ', ' + Math.round(goY) + ', ' + Math.round(-goZ);
+    var textAddC = Math.round(goX) + ' : ' + Math.round(goY) + ' : ' + Math.round(-goZ);
 
     HUD.addText('system',  textAdd, 8, 20, 0, 6, this.cursor.selection);
-    HUD.addText('coords',  textAddC, 8, 15, 0, 3, this.cursor.selection);
+    HUD.addText('coords',  textAddC, 8, 10, 0, 3, this.cursor.selection);
 
     return true;
 

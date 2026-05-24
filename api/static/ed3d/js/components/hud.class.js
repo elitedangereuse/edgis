@@ -530,15 +530,19 @@ var HUD = {
 
         if(addToObj == undefined) addToObj = scene;
         if(isPoint == undefined) isPoint = false;
+        var textValue = (textShow != undefined && textShow != null) ? String(textShow) : '';
 
-        var textShapes = Ed3d.generateTextShapes(textShow, {
+        var textShapes = Ed3d.generateTextShapes(textValue, {
             'font': 'helvetiker',
             'weight': 'normal',
             'style': 'normal',
             'size': size,
             'curveSegments': 100
         });
-        if(!textShapes || textShapes.length === 0) return;
+        if(!textShapes || textShapes.length === 0) {
+            this.addTextSprite(id, textValue, x, y, z, size, addToObj, isPoint);
+            return;
+        }
 
         var textGeo = new THREE.ShapeGeometry(textShapes);
 
@@ -552,6 +556,7 @@ var HUD = {
 
         textMesh.geometry = textGeo;
         textMesh.geometry.needsUpdate = true;
+        textMesh.raycast = function() {};
 
         if(isPoint) {
             textMesh.position.set(addToObj.x, addToObj.y, addToObj.z);
@@ -567,12 +572,84 @@ var HUD = {
     },
 
     /**
+     * Fallback text rendering when shape fonts are unavailable.
+     */
+    'addTextSprite' : function(id, textShow, x, y, z, size, addToObj, isPoint) {
+        var measureCanvas = document.createElement('canvas');
+        var measureCtx = measureCanvas.getContext('2d');
+        if(!measureCtx) return;
+
+        var fontPx = 48;
+        var paddingX = 14;
+        var paddingY = 10;
+        measureCtx.font = '700 ' + fontPx + 'px Arial, sans-serif';
+
+        var measuredWidth = Math.ceil(measureCtx.measureText(textShow).width);
+        var textWidth = Math.max(16, measuredWidth);
+        var textHeight = fontPx + (paddingY * 2);
+
+        // Keep texture sizes reasonable and browser-friendly.
+        var canvas = document.createElement('canvas');
+        canvas.width = Math.min(2048, textWidth + (paddingX * 2));
+        canvas.height = textHeight;
+
+        var ctx = canvas.getContext('2d');
+        if(!ctx) return;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.font = '700 ' + fontPx + 'px Arial, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(textShow, paddingX, canvas.height / 2);
+
+        var texture = new THREE.CanvasTexture(canvas);
+        texture.needsUpdate = true;
+        texture.minFilter = THREE.LinearFilter;
+        texture.magFilter = THREE.LinearFilter;
+
+        var sprite = Ed3d.textSel[id];
+        if(sprite == undefined || !sprite.isSprite) {
+            sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+                map: texture,
+                transparent: true,
+                depthTest: false,
+                depthWrite: false
+            }));
+        } else {
+            if(sprite.material.map && sprite.material.map.dispose) {
+                sprite.material.map.dispose();
+            }
+            sprite.material.map = texture;
+            sprite.material.needsUpdate = true;
+        }
+
+        var scaleY = Math.max(6, size * 1.8);
+        var textureAspect = canvas.width / canvas.height;
+        var scaleX = scaleY * textureAspect;
+        sprite.scale.set(scaleX, scaleY, 1);
+        sprite.raycast = function() {};
+
+        if(isPoint) {
+            sprite.position.set(addToObj.x, addToObj.y, addToObj.z);
+            sprite.name = id;
+            scene.add(sprite);
+        } else {
+            sprite.position.set(x, y, z);
+            addToObj.add(sprite);
+        }
+
+        Ed3d.textSel[id] = sprite;
+    },
+
+    /**
      * Add Shape text
      */
 
     'rotateText' : function(id) {
 
         if(Ed3d.textSel[id] != undefined) {
+            if(Ed3d.textSel[id].isSprite) return;
             if(Ed3d.isTopView) {
                 Ed3d.textSel[id].rotation.set(-Math.PI/2,0,0);
             } else {
