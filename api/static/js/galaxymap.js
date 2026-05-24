@@ -535,11 +535,6 @@
       if (externalSolutionJson) {
         return;
       }
-      const center = getCurrentMapCenter() || lastAutoLoadCenter;
-      if (center) {
-        updateBrowserUrlFromCurrentCenter(center);
-        return;
-      }
       const nextUrl = new URL(window.location.href);
       applyFacetSelectionToSearchParams(nextUrl.searchParams);
       window.history.replaceState({}, '', nextUrl);
