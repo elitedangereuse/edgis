@@ -50,6 +50,7 @@ TMP_CHANGED_FILE_LIST=$(mktemp)
     echo static/ed3d/styles.css
     echo static/ed3d/vendor/three-js/three.min.js
     echo static/ed3d/vendor/three-js/OrbitControls.js
+    echo static/ed3d/vendor/three-js/FontLoader.js
     echo static/ed3d/vendor/three-js/helvetiker_regular.typeface.js
     echo static/ed3d/vendor/tween-js/Tween.js
     find static/ed3d/js -type f | sed 's#^#./#' | sed 's#^./##'
