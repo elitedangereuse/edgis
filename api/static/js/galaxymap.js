@@ -62,6 +62,8 @@
      let boxelOverlayRequestId = 0;
      let dynamicBaseGridGroup = null;
      let dynamicBaseGridRefreshTimer = null;
+     let cachedVisibleStarCount = null;
+     let cachedVisibleStarCountUpdatedAt = 0;
 
      function loadStoredStarSettings() {
        try {
@@ -240,7 +242,8 @@
     function updateBottomRightStatusDisplay() {
       const distanceDisplay = document.getElementById('mapStatusDistance');
       const coordsDisplay = document.getElementById('mapStatusCoords');
-      if (!distanceDisplay || !coordsDisplay) {
+      const starsDisplay = document.getElementById('mapStatusStars');
+      if (!distanceDisplay || !coordsDisplay || !starsDisplay) {
         return;
       }
 
@@ -255,6 +258,38 @@
       } else {
         coordsDisplay.textContent = 'Pos: --, --, --';
       }
+
+      const visibleStars = getVisibleStarsCount();
+      starsDisplay.textContent = Number.isFinite(visibleStars)
+        ? `Stars: ${visibleStars.toLocaleString('en-US')}`
+        : 'Stars: --';
+    }
+
+    function getVisibleStarsCount() {
+      const now = Date.now();
+      if (
+        cachedVisibleStarCount !== null
+        && (now - cachedVisibleStarCountUpdatedAt) < 250
+      ) {
+        return cachedVisibleStarCount;
+      }
+
+      let count = null;
+      const vertices = (typeof System !== 'undefined' && System && System.particleGeo)
+        ? System.particleGeo.vertices
+        : null;
+      if (Array.isArray(vertices)) {
+        count = 0;
+        for (let i = 0; i < vertices.length; i += 1) {
+          if (vertices[i]?.visible === true) {
+            count += 1;
+          }
+        }
+      }
+
+      cachedVisibleStarCount = count;
+      cachedVisibleStarCountUpdatedAt = now;
+      return count;
     }
 
     function attachHudStatusObserver() {
