@@ -143,6 +143,10 @@
        display: none !important;
      }
 
+     html[data-embed-variant="adventure"] [data-embed-adventure-hidden="true"] {
+       display: none !important;
+     }
+
      .left-toolbar .filter-dimension-icon {
        width: 20px;
        height: 20px;
@@ -869,7 +873,7 @@
     </div>
     <!-- Toolbar -->
     <div class="toolbar">
-      <button title="Open in EDGIS" id="openEdgisButton" data-embed-light-hidden="true" aria-label="Open in EDGIS">
+      <button title="Open in EDGIS" id="openEdgisButton" data-embed-light-hidden="true" data-embed-adventure-hidden="true" aria-label="Open in EDGIS">
         <svg style="margin-left: 2px;padding-top: 6px" width="32" height="32" version="1.1" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <clipPath id="galaxymapClipPath1257">
