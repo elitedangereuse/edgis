@@ -283,9 +283,16 @@
       if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
         return null;
       }
+      // ED3D stores rendered system points with integer-truncated coordinates.
+      // Adventure anchors need to use the same snapped positions or the locked
+      // cursor will drift slightly away from the selected system point.
       return {
         name: String(candidate.name || 'Adventure Anchor'),
-        coords: { x, y, z }
+        coords: {
+          x: Math.trunc(x),
+          y: Math.trunc(y),
+          z: Math.trunc(z)
+        }
       };
     }
 
@@ -3684,8 +3691,12 @@
          x: raw.x === null ? null : Number(raw.x),
          y: raw.y === null ? null : Number(raw.y),
          z: raw.z === null ? null : Number(raw.z),
-         radius: raw.radius === null ? null : Number(raw.radius)
+         radius: raw.radius === null ? activeNeighborhoodRadius : Number(raw.radius)
        };
+       const effectiveInitialRadius = parsePositiveNumber(
+         parsed.radius,
+         activeNeighborhoodRadius
+       );
 
        const edgisHref = document.getElementById('edgis');
        normalizeBlankTargetLinks();
@@ -3701,29 +3712,34 @@
        let resolvedCenter = null;
 
        if (raw.query) {
-         if (raw.radius === null) {
-           problems.push('Missing parameter: radius');
-         } else if (!Number.isFinite(parsed.radius)) {
+         if (raw.radius !== null && !Number.isFinite(parsed.radius)) {
            problems.push(`Invalid number for radius: "${raw.radius}"`);
-         } else if (parsed.radius <= 0) {
+         } else if (raw.radius !== null && parsed.radius <= 0) {
            problems.push('radius must be > 0');
          }
 
          if (!problems.length) {
            try {
              resolvedCenter = await resolveSystemReference(raw.query);
-             replaceUrlWithResolvedCenter(resolvedCenter, parsed.radius);
+             replaceUrlWithResolvedCenter(
+               resolvedCenter,
+               effectiveInitialRadius
+             );
            } catch (error) {
              console.error('Failed to resolve galaxy map system reference', error);
              problems.push(`Unable to resolve system reference: "${raw.query}"`);
            }
          }
        } else {
-         ['x','y','z','radius'].forEach(k => {
+         ['x','y','z'].forEach(k => {
            if (raw[k] === null) problems.push(`Missing parameter: ${k}`);
            else if (!Number.isFinite(parsed[k])) problems.push(`Invalid number for ${k}: "${raw[k]}"`);
          });
-         if (parsed.radius !== null && parsed.radius <= 0) problems.push('radius must be > 0');
+         if (raw.radius !== null && !Number.isFinite(parsed.radius)) {
+           problems.push(`Invalid number for radius: "${raw.radius}"`);
+         } else if (raw.radius !== null && parsed.radius <= 0) {
+           problems.push('radius must be > 0');
+         }
          if (!problems.length) {
            resolvedCenter = {
              x: parsed.x,
@@ -3745,7 +3761,7 @@
          resolvedCenter.x,
          resolvedCenter.y,
          resolvedCenter.z,
-         parsed.radius,
+         effectiveInitialRadius,
          activeFilterMode
        );
 
