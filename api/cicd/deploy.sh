@@ -35,32 +35,17 @@ case "$TARGET" in
 esac
 
 TMP_CHANGED_FILE_LIST=$(mktemp)
+trap 'rm -f "$TMP_CHANGED_FILE_LIST"' EXIT
+
 {
     echo systems.py
-    echo static/index.html
-    echo static/galaxymap.html
-    echo static/sysmap.html
-    echo static/tailwind.css
-    echo static/milkyway.css
-    echo static/js/panzoom.js
-    echo static/js/ed3dmap.js
-    echo static/js/galaxymap.js
-    echo static/js/sysmap.js
-    echo static/ed3d/main.css
-    echo static/ed3d/styles.css
-    echo static/ed3d/vendor/three-js/three.min.js
-    echo static/ed3d/vendor/three-js/OrbitControls.js
-    echo static/ed3d/vendor/three-js/FontLoader.js
-    echo static/ed3d/vendor/three-js/helvetiker_regular.typeface.js
-    echo static/ed3d/vendor/tween-js/Tween.js
-    find static/ed3d/js -type f | sed 's#^#./#' | sed 's#^./##'
-    find static/ed3d/textures -type f | sed 's#^#./#' | sed 's#^./##'
+    find static -type f | sort
     for file in "${EXTRA_FILES[@]}"; do
         if [[ -n "$file" ]]; then
             echo "$file"
         fi
     done
-} > "$TMP_CHANGED_FILE_LIST"
+} | awk '!seen[$0]++' > "$TMP_CHANGED_FILE_LIST"
 
 SSH_CMD=(ssh -p "$TARGET_PORT")
 
@@ -69,5 +54,5 @@ rsync -avuP --files-from="$TMP_CHANGED_FILE_LIST" -e "${SSH_CMD[*]}" \
       --rsync-path="sudo -u $TARGET_USER rsync" ./ "$TARGET_USER@$TARGET_HOST:$TARGET_PATH"
 
 "${SSH_CMD[@]}" "$TARGET_USER@$TARGET_HOST" sudo systemctl restart "$TARGET_SERVICE"
-"${SSH_CMD[@]}" "$TARGET_USER@$TARGET_HOST" systemctl status "$TARGET_SERVICE"
+"${SSH_CMD[@]}" "$TARGET_USER@$TARGET_HOST" sudo systemctl --no-pager --full status "$TARGET_SERVICE"
 echo
