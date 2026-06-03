@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>EDGIS Admin</title>
+    <meta
+      name="description"
+      content="EDGIS maintenance console for admin-only actions."
+    />
+    <link rel="preload" href="/static/tailwind.css" as="style" />
+    <link rel="stylesheet" href="/static/tailwind.css" />
+    <link rel="preload" href="/static/milkyway.css" as="style" />
+    <link rel="stylesheet" href="/static/milkyway.css" />
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+
+      body {
+        min-height: 100vh;
+        background:
+          radial-gradient(circle at top, rgba(18, 148, 214, 0.18), transparent 36%),
+          linear-gradient(180deg, rgba(4, 7, 16, 0.95), rgba(2, 3, 8, 0.98));
+      }
+
+      .admin-shell {
+        width: min(980px, calc(100% - 2rem));
+        margin: 0 auto;
+        padding: 3rem 0 4rem;
+      }
+
+      .admin-panel {
+        background: rgba(11, 16, 29, 0.76);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(18px);
+      }
+
+      .admin-grid {
+        display: grid;
+        gap: 1rem;
+      }
+
+      @media (min-width: 768px) {
+        .admin-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      .admin-card {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .admin-input,
+      .admin-button {
+        border-radius: 0.9rem;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .admin-input {
+        background: rgba(7, 10, 20, 0.8);
+      }
+
+      .admin-button {
+        background: linear-gradient(135deg, #1294d6, #6dc5ef);
+        color: #021019;
+        font-weight: 700;
+      }
+
+      .admin-button:disabled {
+        cursor: wait;
+        opacity: 0.7;
+      }
+
+      .status-box {
+        min-height: 7rem;
+        background: rgba(7, 10, 20, 0.82);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+    </style>
+  </head>
+  <body class="text-slate-100 antialiased">
+    <main class="admin-shell">
+      <section class="admin-panel rounded-[2rem] p-6 sm:p-8">
+        <section class="mt-8 grid gap-4 lg:grid-cols-[1.1fr,0.9fr]">
+          <div class="admin-card rounded-[1.5rem] p-5">
+            <h2 class="text-lg font-semibold">Admin Access</h2>
+            <p class="mt-2 text-sm text-slate-300">
+              Enter the shared admin token configured in `ADMIN_TOKEN`.
+            </p>
+            <div class="mt-4 flex flex-col gap-3 sm:flex-row">
+              <input
+                id="adminToken"
+                type="password"
+                autocomplete="current-password"
+                placeholder="Admin token"
+                class="admin-input w-full px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500"
+              />
+              <button id="loadActionsBtn" type="button" class="admin-button px-5 py-3 text-sm">
+                Load actions
+              </button>
+            </div>
+            <p class="mt-3 text-xs text-slate-400">
+              The token is stored in local browser storage for convenience on this device.
+            </p>
+          </div>
+
+          <div class="admin-card rounded-[1.5rem] p-5">
+            <div class="flex items-center justify-between gap-3">
+              <h2 class="text-lg font-semibold">Status</h2>
+              <span
+                id="statusBadge"
+                class="rounded-full border border-white/10 px-3 py-1 text-xs uppercase tracking-[0.25em] text-slate-300"
+              >
+                Idle
+              </span>
+            </div>
+            <pre
+              id="statusOutput"
+              class="status-box mt-4 rounded-[1.25rem] p-4 text-xs text-slate-200"
+            >Ready.</pre>
+          </div>
+        </section>
+
+        <section class="mt-8">
+          <div class="flex items-center justify-between gap-3">
+            <h2 class="text-2xl font-bold tracking-tight">Available Actions</h2>
+            <span id="actionCount" class="text-sm text-slate-400">0 loaded</span>
+          </div>
+          <div id="actionsEmpty" class="mt-4 rounded-[1.25rem] border border-dashed border-white/10 p-6 text-sm text-slate-400">
+            Load actions to start.
+          </div>
+          <div id="actionsContainer" class="admin-grid mt-4"></div>
+        </section>
+      </section>
+    </main>
+
+    <script>
+      const storageKey = "edgis.adminToken";
+      const tokenInput = document.getElementById("adminToken");
+      const loadActionsBtn = document.getElementById("loadActionsBtn");
+      const statusOutput = document.getElementById("statusOutput");
+      const statusBadge = document.getElementById("statusBadge");
+      const actionCount = document.getElementById("actionCount");
+      const actionsEmpty = document.getElementById("actionsEmpty");
+      const actionsContainer = document.getElementById("actionsContainer");
+
+      tokenInput.value = window.localStorage.getItem(storageKey) || "";
+
+      function setStatus(kind, message, payload) {
+        const labels = {
+          idle: "Idle",
+          working: "Running",
+          success: "Success",
+          error: "Error"
+        };
+        statusBadge.textContent = labels[kind] || "Idle";
+        statusBadge.className =
+          "rounded-full border px-3 py-1 text-xs uppercase tracking-[0.25em] " +
+          (kind === "success"
+            ? "border-emerald-400/40 text-emerald-200"
+            : kind === "error"
+              ? "border-rose-400/40 text-rose-200"
+              : kind === "working"
+                ? "border-cyan-400/40 text-cyan-200"
+                : "border-white/10 text-slate-300");
+        statusOutput.textContent = payload
+          ? `${message}\n\n${JSON.stringify(payload, null, 2)}`
+          : message;
+      }
+
+      function getToken() {
+        return tokenInput.value.trim();
+      }
+
+      async function adminFetch(path, options = {}) {
+        const token = getToken();
+        const headers = new Headers(options.headers || {});
+        headers.set("Accept", "application/json");
+        if (token) {
+          headers.set("X-Admin-Token", token);
+        }
+        return fetch(path, { ...options, headers });
+      }
+
+      function renderActions(actions) {
+        actionsContainer.innerHTML = "";
+        actionCount.textContent = `${actions.length} loaded`;
+        actionsEmpty.hidden = actions.length > 0;
+
+        for (const action of actions) {
+          const card = document.createElement("section");
+          card.className = "admin-card rounded-[1.5rem] p-5";
+
+          const parameters = (action.parameters || []).map((parameter) => {
+            const inputType = parameter.type === "number" ? "number" : "text";
+            const required = parameter.required ? "required" : "";
+            return `
+              <label class="block">
+                <span class="mb-2 block text-sm font-medium text-slate-200">${parameter.label}</span>
+                <input
+                  name="${parameter.name}"
+                  type="${inputType}"
+                  ${required}
+                  placeholder="${parameter.placeholder || ""}"
+                  class="admin-input w-full px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500"
+                />
+                ${parameter.description ? `<span class="mt-2 block text-xs text-slate-400">${parameter.description}</span>` : ""}
+              </label>
+            `;
+          }).join("");
+
+          card.innerHTML = `
+            <div class="flex h-full flex-col">
+              <div>
+                <p class="text-xs uppercase tracking-[0.25em] text-cyan-300/80">${action.id}</p>
+                <h3 class="mt-2 text-xl font-semibold">${action.label}</h3>
+                <p class="mt-2 text-sm text-slate-300">${action.description}</p>
+              </div>
+              <form class="mt-5 flex h-full flex-col gap-4" data-action-id="${action.id}">
+                ${parameters || '<p class="text-sm text-slate-400">No parameters required.</p>'}
+                <div class="mt-auto flex items-center justify-between gap-3 pt-2">
+                  <span class="text-xs text-slate-500">POST /admin/actions/${action.id}</span>
+                  <button type="submit" class="admin-button px-4 py-3 text-sm">Run action</button>
+                </div>
+              </form>
+            </div>
+          `;
+
+          const form = card.querySelector("form");
+          form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            await runAction(action, form);
+          });
+
+          actionsContainer.appendChild(card);
+        }
+      }
+
+      async function loadActions() {
+        const token = getToken();
+        window.localStorage.setItem(storageKey, token);
+        loadActionsBtn.disabled = true;
+        setStatus("working", "Loading admin actions...");
+
+        try {
+          const response = await adminFetch("/admin/actions");
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(payload.detail || `HTTP ${response.status}`);
+          }
+          renderActions(payload.actions || []);
+          setStatus("success", "Admin actions loaded.", payload);
+        } catch (error) {
+          renderActions([]);
+          setStatus("error", error.message || "Failed to load admin actions.");
+        } finally {
+          loadActionsBtn.disabled = false;
+        }
+      }
+
+      async function runAction(action, form) {
+        const submitButton = form.querySelector('button[type="submit"]');
+        const params = Object.fromEntries(new FormData(form).entries());
+        submitButton.disabled = true;
+        setStatus("working", `Running ${action.id}...`, { params });
+
+        try {
+          const response = await adminFetch(`/admin/actions/${action.id}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ params })
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(payload.detail || `HTTP ${response.status}`);
+          }
+          setStatus("success", `Action ${action.id} completed.`, payload);
+        } catch (error) {
+          setStatus("error", error.message || `Action ${action.id} failed.`);
+        } finally {
+          submitButton.disabled = false;
+        }
+      }
+
+      loadActionsBtn.addEventListener("click", loadActions);
+      tokenInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          loadActions();
+        }
+      });
+
+      if (tokenInput.value) {
+        loadActions();
+      }
+    </script>
+  </body>
+</html>

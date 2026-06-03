@@ -1602,6 +1602,66 @@ def test_spansh_refresh_invalid_id():
     assert response.status_code == 400
 
 
+def test_admin_page_route():
+    response = client.get("/admin")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+
+
+def test_list_admin_actions_disabled_without_token(monkeypatch):
+    monkeypatch.delenv("ADMIN_TOKEN", raising=False)
+
+    response = client.get("/admin/actions")
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Admin actions disabled"
+
+
+def test_list_admin_actions_rejects_invalid_token(monkeypatch):
+    monkeypatch.setenv("ADMIN_TOKEN", "secret-token")
+
+    response = client.get(
+        "/admin/actions", headers={"x-admin-token": "wrong-token"}
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Invalid admin token"
+
+
+def test_list_admin_actions_success(monkeypatch):
+    monkeypatch.setenv("ADMIN_TOKEN", "secret-token")
+
+    response = client.get(
+        "/admin/actions", headers={"x-admin-token": "secret-token"}
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["actions"][0]["id"] == "bodies-spansh-refresh"
+    assert payload["actions"][0]["parameters"][0]["name"] == "system_id64"
+
+
+def test_run_admin_action_dispatches_spansh_refresh(monkeypatch):
+    monkeypatch.setenv("ADMIN_TOKEN", "secret-token")
+
+    async def fake_refresh_bodies_from_spansh(system_id64):
+        return {"status": "ok", "system_id64": system_id64}
+
+    monkeypatch.setattr(
+        systems,
+        "refresh_bodies_from_spansh",
+        fake_refresh_bodies_from_spansh,
+    )
+
+    response = client.post(
+        "/admin/actions/bodies-spansh-refresh",
+        headers={"x-admin-token": "secret-token"},
+        json={"params": {"system_id64": "42"}},
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "action": "bodies-spansh-refresh",
+        "result": {"status": "ok", "system_id64": 42},
+    }
+
+
 def test_favicon_and_index_routes(tmp_path, monkeypatch):
     # ensure static dir accessible
     static_dir = tmp_path / "static"

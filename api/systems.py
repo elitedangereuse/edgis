@@ -2,6 +2,7 @@ import os
 import logging
 import time
 import math
+import hmac
 import base64
 import json
 from contextlib import contextmanager
@@ -15,7 +16,7 @@ from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import psycopg
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Callable, Iterable, Optional, Any, Sequence
 from urllib.parse import quote
 
@@ -231,6 +232,10 @@ INDEX_HTML_FILENAME = os.path.basename(
 )
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 INDEX_HTML_PATH = os.path.join(STATIC_DIR, INDEX_HTML_FILENAME)
+ADMIN_HTML_FILENAME = os.path.basename(
+    os.getenv("ADMIN_HTML_FILENAME") or "admin.html"
+)
+ADMIN_HTML_PATH = os.path.join(STATIC_DIR, ADMIN_HTML_FILENAME)
 
 REDIS_HOST = os.getenv("REDIS_HOST") or "localhost"
 REDIS_PORT = int(os.getenv("REDIS_PORT") or "6379")
@@ -251,6 +256,93 @@ from bisect import bisect_left
 from aiocache import cached
 from aiocache.serializers import PickleSerializer
 from aiocache.backends.redis import RedisCache
+
+
+class AdminActionRequest(BaseModel):
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+def _get_admin_token() -> str:
+    return (os.getenv("ADMIN_TOKEN") or "").strip()
+
+
+def _extract_admin_token(request: Request) -> str:
+    bearer = (request.headers.get("authorization") or "").strip()
+    if bearer.lower().startswith("bearer "):
+        return bearer[7:].strip()
+    return (request.headers.get("x-admin-token") or "").strip()
+
+
+def _require_admin_token(request: Request) -> None:
+    configured_token = _get_admin_token()
+    if not configured_token:
+        raise HTTPException(status_code=503, detail="Admin actions disabled")
+
+    provided_token = _extract_admin_token(request)
+    if not provided_token:
+        raise HTTPException(status_code=401, detail="Missing admin token")
+
+    if not hmac.compare_digest(provided_token, configured_token):
+        raise HTTPException(status_code=403, detail="Invalid admin token")
+
+
+def _coerce_positive_int_param(
+    params: dict[str, Any], key: str
+) -> int:
+    raw_value = params.get(key)
+    if raw_value is None or (
+        isinstance(raw_value, str) and not raw_value.strip()
+    ):
+        raise HTTPException(status_code=400, detail=f"{key} is required")
+
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400, detail=f"{key} must be an integer"
+        ) from exc
+
+    if value <= 0:
+        raise HTTPException(
+            status_code=400, detail=f"{key} must be positive"
+        )
+
+    return value
+
+
+async def _run_admin_spansh_refresh(
+    params: dict[str, Any]
+) -> dict[str, Any]:
+    system_id64 = _coerce_positive_int_param(params, "system_id64")
+    return await refresh_bodies_from_spansh(system_id64=system_id64)
+
+
+ADMIN_ACTIONS = {
+    "bodies-spansh-refresh": {
+        "id": "bodies-spansh-refresh",
+        "label": "Refresh bodies from Spansh",
+        "description": (
+            "Re-run the Spansh body ingestor for a system and upsert the"
+            " refreshed data into Postgres."
+        ),
+        "parameters": [
+            {
+                "name": "system_id64",
+                "label": "System ID64",
+                "type": "number",
+                "required": True,
+                "placeholder": "10477373803",
+                "description": "Positive system ID64 to refresh.",
+            }
+        ],
+    }
+}
+
+ADMIN_ACTION_HANDLERS: dict[
+    str, Callable[[dict[str, Any]], Any]
+] = {
+    "bodies-spansh-refresh": _run_admin_spansh_refresh,
+}
 
 
 def _create_db_connection():
@@ -2256,6 +2348,27 @@ async def refresh_bodies_from_spansh(system_id64: int):
     return {"status": "ok", "system_id64": system_id64}
 
 
+@app.get("/admin/actions", include_in_schema=False)
+def list_admin_actions(request: Request):
+    _require_admin_token(request)
+    return {"actions": list(ADMIN_ACTIONS.values())}
+
+
+@app.post("/admin/actions/{action_id}", include_in_schema=False)
+async def run_admin_action(
+    action_id: str, payload: AdminActionRequest, request: Request
+):
+    _require_admin_token(request)
+    handler = ADMIN_ACTION_HANDLERS.get(action_id)
+    if handler is None:
+        raise HTTPException(status_code=404, detail="Unknown admin action")
+
+    return {
+        "action": action_id,
+        "result": await handler(payload.params),
+    }
+
+
 @app.get("/edsm/bodies", include_in_schema=False)
 @cached(
     cache=RedisCache,
@@ -2595,6 +2708,11 @@ from fastapi.responses import FileResponse
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
     return FileResponse(os.path.join(STATIC_DIR, "favicon.png"))
+
+
+@app.get("/admin", include_in_schema=False)
+def read_admin():
+    return FileResponse(ADMIN_HTML_PATH)
 
 
 # Route to serve index.html
