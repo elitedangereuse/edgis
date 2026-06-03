@@ -64,6 +64,8 @@
      let dynamicBaseGridRefreshTimer = null;
      let cachedVisibleStarCount = null;
      let cachedVisibleStarCountUpdatedAt = 0;
+     let adventureAnchorState = null;
+     let adventureAnchorObject = null;
 
      function parseEmbedVariant(rawValue) {
        const normalized = String(rawValue || '').trim().toLowerCase();
@@ -73,6 +75,9 @@
          || normalized === 'minimal'
        ) {
          return 'light';
+       }
+       if (normalized === 'adventure') {
+         return 'adventure';
        }
        if (
          normalized === '1'
@@ -91,6 +96,7 @@
        urlParams.get('embed') ?? urlParams.get('embedded')
      );
      const isEmbeddedMode = embedVariant !== null;
+     const isAdventureEmbeddedMode = embedVariant === 'adventure';
      document.documentElement.dataset.embedMode = isEmbeddedMode ? 'true' : 'false';
      document.documentElement.dataset.embedVariant = embedVariant || 'none';
 
@@ -175,16 +181,77 @@
       return numericValue.toFixed(2).replace(/\.?0+$/, '');
     }
 
-    function buildGalaxyMapViewUrl(coords, radius) {
+    function buildGalaxyMapViewUrl(coords, radius, systemRef = null) {
       const url = new URL('/static/galaxymap.html', sameHostBaseUrl);
-      url.searchParams.set('x', coords?.x ?? 0);
-      url.searchParams.set('y', coords?.y ?? 0);
-      url.searchParams.set('z', coords?.z ?? 0);
+      const normalizedSystemRef = String(systemRef || '').trim();
+      if (normalizedSystemRef) {
+        url.searchParams.set('q', normalizedSystemRef);
+      } else {
+        url.searchParams.set('x', coords?.x ?? 0);
+        url.searchParams.set('y', coords?.y ?? 0);
+        url.searchParams.set('z', coords?.z ?? 0);
+      }
       url.searchParams.set('radius', radius ?? 0);
       if (isEmbeddedMode) {
-        url.searchParams.set('embed', embedVariant === 'light' ? 'light' : '1');
+        url.searchParams.set(
+          'embed',
+          embedVariant === 'light'
+            ? 'light'
+            : embedVariant === 'adventure'
+              ? 'adventure'
+              : '1'
+        );
       }
       return url.toString();
+    }
+
+    async function resolveSystemReference(reference) {
+      const normalizedReference = String(reference || '').trim();
+      if (!normalizedReference) {
+        return null;
+      }
+
+      const response = await fetch(
+        `${sameHostBaseUrl}/coords?q=${encodeURIComponent(normalizedReference)}`
+      );
+      if (!response.ok) {
+        throw new Error(`Failed to resolve system reference (${response.status})`);
+      }
+
+      const payload = await response.json();
+      const resolvedCoords = payload?.coords ?? payload;
+      const x = Number(resolvedCoords?.x);
+      const y = Number(resolvedCoords?.y);
+      const z = Number(resolvedCoords?.z);
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+        throw new Error('Resolved system reference did not include valid coordinates');
+      }
+
+      return {
+        x,
+        y,
+        z,
+        name: payload?.name ?? normalizedReference,
+        id64: payload?.id64 ?? null
+      };
+    }
+
+    function replaceUrlWithResolvedCenter(center, radius) {
+      if (!center || externalSolutionJson) {
+        return;
+      }
+
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.delete('q');
+      nextUrl.searchParams.delete('system');
+      nextUrl.searchParams.delete('name');
+      nextUrl.searchParams.delete('id');
+      nextUrl.searchParams.delete('id64');
+      nextUrl.searchParams.set('x', Number(center.x).toFixed(2));
+      nextUrl.searchParams.set('y', Number(center.y).toFixed(2));
+      nextUrl.searchParams.set('z', Number(center.z).toFixed(2));
+      nextUrl.searchParams.set('radius', formatRadiusValue(radius));
+      window.history.replaceState({}, '', nextUrl);
     }
 
     function normalizeBlankTargetLink(link) {
@@ -204,6 +271,168 @@
       root
         .querySelectorAll('a[target="_blank"]')
         .forEach((link) => normalizeBlankTargetLink(link));
+    }
+
+    function normalizeAdventureAnchorCandidate(candidate) {
+      if (!candidate?.coords) {
+        return null;
+      }
+      const x = Number(candidate.coords.x);
+      const y = Number(candidate.coords.y);
+      const z = Number(candidate.coords.z);
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+        return null;
+      }
+      return {
+        name: String(candidate.name || 'Adventure Anchor'),
+        coords: { x, y, z }
+      };
+    }
+
+    function findAdventureAnchorCandidate(solutionjson, fallbackCenter = null) {
+      const systems = Array.isArray(solutionjson?.systems) ? solutionjson.systems : [];
+      const zeroDistanceSystem = systems.find((systemObj) => {
+        if (!systemObj?.coords || systemObj.hidePoint === true) {
+          return false;
+        }
+        return typeof systemObj?.infos?.distance === 'number'
+          && Math.abs(systemObj.infos.distance) < 1e-4;
+      });
+      const normalizedZeroDistance = normalizeAdventureAnchorCandidate({
+        name: zeroDistanceSystem?.infos?.name ?? zeroDistanceSystem?.name,
+        coords: zeroDistanceSystem?.coords
+      });
+      if (normalizedZeroDistance) {
+        return normalizedZeroDistance;
+      }
+
+      const targetSystem = systems.find((systemObj) => (
+        Array.isArray(systemObj?.cat) && systemObj.cat.includes('Target') && systemObj?.coords
+      ));
+      const normalizedTarget = normalizeAdventureAnchorCandidate({
+        name: targetSystem?.infos?.name ?? targetSystem?.name ?? 'Target',
+        coords: targetSystem?.coords
+      });
+      if (normalizedTarget) {
+        return normalizedTarget;
+      }
+
+      return normalizeAdventureAnchorCandidate({
+        name: 'Target',
+        coords: fallbackCenter
+      });
+    }
+
+    function getAdventureAnchorScale() {
+      if (
+        typeof window.distanceFromTarget === 'function'
+        && typeof camera !== 'undefined'
+        && camera
+      ) {
+        return window.distanceFromTarget(camera) / 200;
+      }
+      if (window.Action && Number.isFinite(window.Action.cursorScale)) {
+        return window.Action.cursorScale;
+      }
+      return 1;
+    }
+
+    function ensureAdventureAnchorObject() {
+      if (adventureAnchorObject || typeof THREE === 'undefined' || !scene) {
+        return adventureAnchorObject;
+      }
+
+      const group = new THREE.Object3D();
+      group.name = 'EDGISAdventureAnchor';
+
+      const outerMaterial = new THREE.MeshBasicMaterial({
+        color: 0x32ffd2,
+        transparent: true,
+        opacity: 0.95
+      });
+      const innerMaterial = new THREE.MeshBasicMaterial({
+        color: 0x04131f,
+        transparent: true,
+        opacity: 0.92
+      });
+
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(8, 0.45, 6, 28),
+        outerMaterial
+      );
+      ring.rotation.x = Math.PI / 2;
+      group.add(ring);
+
+      const cone = new THREE.Mesh(
+        new THREE.CylinderGeometry(0, 5, 16, 4, 1, false),
+        outerMaterial
+      );
+      cone.position.set(0, 20, 0);
+      cone.rotation.x = Math.PI;
+      group.add(cone);
+
+      const coneInner = new THREE.Mesh(
+        new THREE.CylinderGeometry(0, 3.6, 16, 4, 1, false),
+        innerMaterial
+      );
+      coneInner.position.set(0, 20.2, 0);
+      coneInner.rotation.x = Math.PI;
+      group.add(coneInner);
+
+      const pulse = new THREE.Mesh(
+        new THREE.TorusGeometry(10.5, 0.18, 4, 24),
+        outerMaterial
+      );
+      pulse.rotation.x = Math.PI / 2;
+      pulse.position.set(0, 0.05, 0);
+      group.add(pulse);
+
+      group.visible = false;
+      scene.add(group);
+      adventureAnchorObject = group;
+      return adventureAnchorObject;
+    }
+
+    function updateAdventureAnchorVisual() {
+      if (!isAdventureEmbeddedMode || !adventureAnchorState) {
+        if (adventureAnchorObject) {
+          adventureAnchorObject.visible = false;
+        }
+        return;
+      }
+
+      const anchorObject = ensureAdventureAnchorObject();
+      if (!anchorObject) {
+        return;
+      }
+
+      anchorObject.visible = true;
+      anchorObject.position.set(
+        Number(adventureAnchorState.coords.x),
+        Number(adventureAnchorState.coords.y),
+        -Number(adventureAnchorState.coords.z)
+      );
+      const scale = getAdventureAnchorScale();
+      anchorObject.scale.set(scale, scale, scale);
+    }
+
+    function setAdventureAnchor(candidate, options = {}) {
+      if (!isAdventureEmbeddedMode) {
+        return;
+      }
+      const normalizedCandidate = normalizeAdventureAnchorCandidate(candidate);
+      if (!normalizedCandidate) {
+        return;
+      }
+
+      const shouldOverwrite = options.force === true || !adventureAnchorState;
+      if (!shouldOverwrite) {
+        updateAdventureAnchorVisual();
+        return;
+      }
+
+      adventureAnchorState = normalizedCandidate;
+      updateAdventureAnchorVisual();
     }
 
     function normalizeFilterMode(mode) {
@@ -2632,7 +2861,7 @@
           <header>
             <h2>SYSTEM INFORMATION</h2>
             <ul>
-              <li><span style="font-size: x-large;margin-top: -7px;">${systemName}</span> <span><a title="CENTER VIEW" href="${buildGalaxyMapViewUrl(coords, radius)}"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-border-center" viewBox="0 0 16 16">
+              <li><span style="font-size: x-large;margin-top: -7px;">${systemName}</span> <span><a title="CENTER VIEW" href="${buildGalaxyMapViewUrl(coords, radius, systemName)}"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-border-center" viewBox="0 0 16 16">
                 <path d="M.969 0H0v.969h.5V1h.469V.969H1V.5H.969zm.937 1h.938V0h-.938zm1.875 0h.938V0H3.78v1zm1.875 0h.938V0h-.938zM7.531.969V1h.938V.969H8.5V.5h-.031V0H7.53v.5H7.5v.469zM9.406 1h.938V0h-.938zm1.875 0h.938V0h-.938zm1.875 0h.938V0h-.938zm1.875 0h.469V.969h.5V0h-.969v.5H15v.469h.031zM1 2.844v-.938H0v.938zm6.5-.938v.938h1v-.938zm7.5 0v.938h1v-.938zM1 4.719V3.78H0v.938h1zm6.5-.938v.938h1V3.78h-1zm7.5 0v.938h1V3.78h-1zM1 6.594v-.938H0v.938zm6.5-.938v.938h1v-.938zm7.5 0v.938h1v-.938zM0 8.5v-1h16v1zm0 .906v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zm-16 .937v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zm-16 .937v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zM0 16h.969v-.5H1v-.469H.969V15H.5v.031H0zm1.906 0h.938v-1h-.938zm1.875 0h.938v-1H3.78v1zm1.875 0h.938v-1h-.938zm1.875-.5v.5h.938v-.5H8.5v-.469h-.031V15H7.53v.031H7.5v.469zm1.875.5h.938v-1h-.938zm1.875 0h.938v-1h-.938zm1.875 0h.938v-1h-.938zm1.875-.5v.5H16v-.969h-.5V15h-.469v.031H15v.469z"/>
               </svg></a></span></li>
             </ul>
@@ -2791,6 +3020,7 @@
       updateTrackedSolidSystemNames(solutionjson);
       refreshHudFilterCounts();
       restoreView(viewState);
+      updateAdventureAnchorVisual();
     }
 
     async function reloadSystemsAroundCurrentCamera(center, options = {}) {
@@ -2893,6 +3123,7 @@
       });
       controls.addEventListener('change', () => {
         controlsMovedDuringInteraction = true;
+        updateAdventureAnchorVisual();
         scheduleDynamicBaseGridRefresh(140);
         if (boxelOverlayEnabled) {
           scheduleBoxelLabelRefresh(110);
@@ -2916,6 +3147,7 @@
       });
       controls.addEventListener('end', () => {
         const center = getCurrentMapCenter();
+        updateAdventureAnchorVisual();
         if (!center) {
           return;
         }
@@ -3044,6 +3276,7 @@
           buildDynamicBaseGridOverlay();
           applyRegionNamesVisibility();
           applyUserStarVisualSettings();
+          updateAdventureAnchorVisual();
         }
       });
     }
@@ -3274,6 +3507,10 @@
 
       const { playerPos, cameraPos } = calculatePositionsFromSystems(systems);
       const densityProfile = computeDensityProfile(systems.length, activeNeighborhoodRadius);
+      setAdventureAnchor(
+        findAdventureAnchorCandidate(manualSolutionJson, systems[0]?.coords || null),
+        { force: true }
+      );
       startEd3dMap(manualSolutionJson, playerPos, cameraPos, densityProfile);
       updateTrackedSolidSystemNames(manualSolutionJson);
       autoSelectNearestVisibleSystem(manualSolutionJson);
@@ -3342,6 +3579,10 @@
         updateRadiusDisplay();
         updateBrowserUrlFromCurrentCenter({ x, y, z });
         suppressSelectionNeighborhoodJump();
+        setAdventureAnchor({
+          name: selectedInfo.name ?? 'Target',
+          coords: { x, y, z }
+        }, { force: true });
         const didSelectTarget = await queueAutoSelectByName(selectedInfo.name, selectedInfo);
         if (!didSelectTarget) {
           autoSelectNearestVisibleSystem(nextResult);
@@ -3367,6 +3608,10 @@
        lastCameraTarget = { x, y, z };
        updateEdgisLinks({ x, y, z });
        const densityProfile = computeDensityProfile(solutionjson['systems'].length, radius);
+       setAdventureAnchor(
+         findAdventureAnchorCandidate(solutionjson, { x, y, z }),
+         { force: true }
+       );
        const playerPos = [x, y, z];
        const cameraPos = [x, y + (1.5 * radius), z - (1.5 * radius)];
        startEd3dMap(solutionjson, playerPos, cameraPos, densityProfile);
@@ -3395,13 +3640,14 @@
        return dst.toString();
      }
 
-     (function() {
+     (async function() {
        const params = urlParams;
        const raw = {
          x: params.get('x'),
          y: params.get('y'),
          z: params.get('z'),
          radius: params.get('radius') ?? params.get('r'), // allow r alias
+         query: params.get('q') ?? params.get('system') ?? params.get('name') ?? params.get('id64') ?? params.get('id'),
          mode: params.get('mode'),
          filter_dimension: params.get('filter_dimension'),
          atmosphere_gas: params.get('atmosphere_gas'),
@@ -3441,13 +3687,6 @@
          radius: raw.radius === null ? null : Number(raw.radius)
        };
 
-       // Validation
-       const problems = [];
-       ['x','y','z','radius'].forEach(k => {
-         if (raw[k] === null) problems.push(`Missing parameter: ${k}`);
-         else if (!Number.isFinite(parsed[k])) problems.push(`Invalid number for ${k}: "${raw[k]}"`);
-       });
-       if (parsed.radius !== null && parsed.radius <= 0) problems.push('radius must be > 0');
        const edgisHref = document.getElementById('edgis');
        normalizeBlankTargetLinks();
 
@@ -3458,13 +3697,57 @@
          return;
        }
 
+       const problems = [];
+       let resolvedCenter = null;
+
+       if (raw.query) {
+         if (raw.radius === null) {
+           problems.push('Missing parameter: radius');
+         } else if (!Number.isFinite(parsed.radius)) {
+           problems.push(`Invalid number for radius: "${raw.radius}"`);
+         } else if (parsed.radius <= 0) {
+           problems.push('radius must be > 0');
+         }
+
+         if (!problems.length) {
+           try {
+             resolvedCenter = await resolveSystemReference(raw.query);
+             replaceUrlWithResolvedCenter(resolvedCenter, parsed.radius);
+           } catch (error) {
+             console.error('Failed to resolve galaxy map system reference', error);
+             problems.push(`Unable to resolve system reference: "${raw.query}"`);
+           }
+         }
+       } else {
+         ['x','y','z','radius'].forEach(k => {
+           if (raw[k] === null) problems.push(`Missing parameter: ${k}`);
+           else if (!Number.isFinite(parsed[k])) problems.push(`Invalid number for ${k}: "${raw[k]}"`);
+         });
+         if (parsed.radius !== null && parsed.radius <= 0) problems.push('radius must be > 0');
+         if (!problems.length) {
+           resolvedCenter = {
+             x: parsed.x,
+             y: parsed.y,
+             z: parsed.z
+           };
+         }
+       }
+
+       if (problems.length) {
+         console.error('Invalid galaxymap parameters:', problems.join('; '));
+         setEdgisHomeLoadingState(false);
+         return;
+       }
+
        edgisHref.href = convertEdUrl(window.location.href);
-       updateEdgisLinks({
-         x: parsed.x,
-         y: parsed.y,
-         z: parsed.z
-       });
-       drawSystems(parsed.x, parsed.y, parsed.z, parsed.radius, activeFilterMode);
+       updateEdgisLinks(resolvedCenter);
+       drawSystems(
+         resolvedCenter.x,
+         resolvedCenter.y,
+         resolvedCenter.z,
+         parsed.radius,
+         activeFilterMode
+       );
 
        // Optional: If someone changes params manually via form encoded hash, live-update
        window.addEventListener('popstate', () => location.reload());
@@ -3550,7 +3833,7 @@
            <header>
              <h2>SYSTEM INFORMATION</h2>
              <ul>
-             <li><span style="font-size: x-large;margin-top: -7px;">${systemName ?? 'Unknown'}</span> <span><a title="CENTER VIEW" href="${buildGalaxyMapViewUrl(coords, radius)}"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-border-center" viewBox="0 0 16 16">
+             <li><span style="font-size: x-large;margin-top: -7px;">${systemName ?? 'Unknown'}</span> <span><a title="CENTER VIEW" href="${buildGalaxyMapViewUrl(coords, radius, systemName)}"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-border-center" viewBox="0 0 16 16">
                 <path d="M.969 0H0v.969h.5V1h.469V.969H1V.5H.969zm.937 1h.938V0h-.938zm1.875 0h.938V0H3.78v1zm1.875 0h.938V0h-.938zM7.531.969V1h.938V.969H8.5V.5h-.031V0H7.53v.5H7.5v.469zM9.406 1h.938V0h-.938zm1.875 0h.938V0h-.938zm1.875 0h.938V0h-.938zm1.875 0h.469V.969h.5V0h-.969v.5H15v.469h.031zM1 2.844v-.938H0v.938zm6.5-.938v.938h1v-.938zm7.5 0v.938h1v-.938zM1 4.719V3.78H0v.938h1zm6.5-.938v.938h1V3.78h-1zm7.5 0v.938h1V3.78h-1zM1 6.594v-.938H0v.938zm6.5-.938v.938h1v-.938zm7.5 0v.938h1v-.938zM0 8.5v-1h16v1zm0 .906v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zm-16 .937v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zm-16 .937v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zM0 16h.969v-.5H1v-.469H.969V15H.5v.031H0zm1.906 0h.938v-1h-.938zm1.875 0h.938v-1H3.78v1zm1.875 0h.938v-1h-.938zm1.875-.5v.5h.938v-.5H8.5v-.469h-.031V15H7.53v.031H7.5v.469zm1.875.5h.938v-1h-.938zm1.875 0h.938v-1h-.938zm1.875 0h.938v-1h-.938zm1.875-.5v.5H16v-.969h-.5V15h-.469v.031H15v.469z"/>
                </svg></a></span></li>
              </ul>
