@@ -139,6 +139,10 @@
        fill: currentColor;
      }
 
+     html[data-embed-variant="light"] [data-embed-light-hidden="true"] {
+       display: none !important;
+     }
+
      .left-toolbar .filter-dimension-icon {
        width: 20px;
        height: 20px;
@@ -865,7 +869,7 @@
     </div>
     <!-- Toolbar -->
     <div class="toolbar">
-      <button title="Open in EDGIS" id="openEdgisButton" aria-label="Open in EDGIS">
+      <button title="Open in EDGIS" id="openEdgisButton" data-embed-light-hidden="true" aria-label="Open in EDGIS">
         <svg style="margin-left: 2px;padding-top: 6px" width="32" height="32" version="1.1" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <clipPath id="galaxymapClipPath1257">
@@ -906,7 +910,7 @@
           <path d="m13.292 6.0588a1.1804 1.1804 0 0 1-1.1804 1.1804 1.1804 1.1804 0 0 1-1.1804-1.1804 1.1804 1.1804 0 0 1 1.1804-1.1804 1.1804 1.1804 0 0 1 1.1804 1.1804zm-7.1622 13.76a2.2382 2.2382 0 0 1-2.2382 2.2382 2.2382 2.2382 0 0 1-2.2382-2.2382 2.2382 2.2382 0 0 1 2.2382-2.2382 2.2382 2.2382 0 0 1 2.2382 2.2382zm16.16-16.248a2.2382 2.2382 0 0 1-2.2382 2.2382 2.2382 2.2382 0 0 1-2.2382-2.2382 2.2382 2.2382 0 0 1 2.2382-2.2382 2.2382 2.2382 0 0 1 2.2382 2.2382z" fill="currentColor" style="paint-order:stroke markers fill"/>
         </svg>
       </button>
-      <button title="System Map">
+      <button id="systemMapButton" title="System Map" aria-label="System Map">
         <svg width="26" height="26" version="1.1" viewBox="0 0 24.77 24.77" xmlns="http://www.w3.org/2000/svg" style="padding-top: 6px;padding-left: 1px;">
           <path d="m18.976 12.385a6.5907 6.5907 0 0 1-6.5907 6.5907 6.5907 6.5907 0 0 1-6.5907-6.5907 6.5907 6.5907 0 0 1 6.5907-6.5907 6.5907 6.5907 0 0 1 6.5907 6.5907zm5.2941 0a11.885 11.885 0 0 1-11.885 11.885 11.885 11.885 0 0 1-11.885-11.885 11.885 11.885 0 0 1 11.885-11.885 11.885 11.885 0 0 1 11.885 11.885z" fill="none" stroke="currentColor" style="paint-order:stroke markers fill"/>
           <path d="m14.495 12.305a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm-10.089 6.7178a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm11.794-0.30414a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm-0.25378-12.724a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm7.9976-0.53351a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898z" fill="currentColor" style="paint-order:stroke markers fill"/>

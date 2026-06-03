@@ -65,6 +65,35 @@
      let cachedVisibleStarCount = null;
      let cachedVisibleStarCountUpdatedAt = 0;
 
+     function parseEmbedVariant(rawValue) {
+       const normalized = String(rawValue || '').trim().toLowerCase();
+       if (
+         normalized === 'light'
+         || normalized === 'lite'
+         || normalized === 'minimal'
+       ) {
+         return 'light';
+       }
+       if (
+         normalized === '1'
+         || normalized === 'true'
+         || normalized === 'yes'
+         || normalized === 'on'
+         || normalized === 'embed'
+         || normalized === 'full'
+       ) {
+         return 'default';
+       }
+       return null;
+     }
+
+     const embedVariant = parseEmbedVariant(
+       urlParams.get('embed') ?? urlParams.get('embedded')
+     );
+     const isEmbeddedMode = embedVariant !== null;
+     document.documentElement.dataset.embedMode = isEmbeddedMode ? 'true' : 'false';
+     document.documentElement.dataset.embedVariant = embedVariant || 'none';
+
      function loadStoredStarSettings() {
        try {
          const raw = window.localStorage?.getItem(STAR_SETTINGS_STORAGE_KEY);
@@ -144,6 +173,37 @@
         return String(numericValue);
       }
       return numericValue.toFixed(2).replace(/\.?0+$/, '');
+    }
+
+    function buildGalaxyMapViewUrl(coords, radius) {
+      const url = new URL('/static/galaxymap.html', sameHostBaseUrl);
+      url.searchParams.set('x', coords?.x ?? 0);
+      url.searchParams.set('y', coords?.y ?? 0);
+      url.searchParams.set('z', coords?.z ?? 0);
+      url.searchParams.set('radius', radius ?? 0);
+      if (isEmbeddedMode) {
+        url.searchParams.set('embed', embedVariant === 'light' ? 'light' : '1');
+      }
+      return url.toString();
+    }
+
+    function normalizeBlankTargetLink(link) {
+      if (!isEmbeddedMode || !link) {
+        return;
+      }
+      if (link.getAttribute('target') === '_blank') {
+        link.setAttribute('target', '_self');
+      }
+      link.removeAttribute('rel');
+    }
+
+    function normalizeBlankTargetLinks(root = document) {
+      if (!isEmbeddedMode || !root?.querySelectorAll) {
+        return;
+      }
+      root
+        .querySelectorAll('a[target="_blank"]')
+        .forEach((link) => normalizeBlankTargetLink(link));
     }
 
     function normalizeFilterMode(mode) {
@@ -964,6 +1024,7 @@
 
       if (jsonLink) {
         jsonLink.href = buildNeighborsJsonUrl(center);
+        normalizeBlankTargetLink(jsonLink);
       }
     }
 
@@ -2571,7 +2632,7 @@
           <header>
             <h2>SYSTEM INFORMATION</h2>
             <ul>
-              <li><span style="font-size: x-large;margin-top: -7px;">${systemName}</span> <span><a title="CENTER VIEW" href="/static/galaxymap.html?x=${coords.x ?? 0}&y=${coords.y ?? 0}&z=${coords.z ?? 0}&radius=${radius ?? 0}"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-border-center" viewBox="0 0 16 16">
+              <li><span style="font-size: x-large;margin-top: -7px;">${systemName}</span> <span><a title="CENTER VIEW" href="${buildGalaxyMapViewUrl(coords, radius)}"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-border-center" viewBox="0 0 16 16">
                 <path d="M.969 0H0v.969h.5V1h.469V.969H1V.5H.969zm.937 1h.938V0h-.938zm1.875 0h.938V0H3.78v1zm1.875 0h.938V0h-.938zM7.531.969V1h.938V.969H8.5V.5h-.031V0H7.53v.5H7.5v.469zM9.406 1h.938V0h-.938zm1.875 0h.938V0h-.938zm1.875 0h.938V0h-.938zm1.875 0h.469V.969h.5V0h-.969v.5H15v.469h.031zM1 2.844v-.938H0v.938zm6.5-.938v.938h1v-.938zm7.5 0v.938h1v-.938zM1 4.719V3.78H0v.938h1zm6.5-.938v.938h1V3.78h-1zm7.5 0v.938h1V3.78h-1zM1 6.594v-.938H0v.938zm6.5-.938v.938h1v-.938zm7.5 0v.938h1v-.938zM0 8.5v-1h16v1zm0 .906v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zm-16 .937v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zm-16 .937v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zM0 16h.969v-.5H1v-.469H.969V15H.5v.031H0zm1.906 0h.938v-1h-.938zm1.875 0h.938v-1H3.78v1zm1.875 0h.938v-1h-.938zm1.875-.5v.5h.938v-.5H8.5v-.469h-.031V15H7.53v.031H7.5v.469zm1.875.5h.938v-1h-.938zm1.875 0h.938v-1h-.938zm1.875 0h.938v-1h-.938zm1.875-.5v.5H16v-.969h-.5V15h-.469v.031H15v.469z"/>
               </svg></a></span></li>
             </ul>
@@ -3388,6 +3449,7 @@
        });
        if (parsed.radius !== null && parsed.radius <= 0) problems.push('radius must be > 0');
        const edgisHref = document.getElementById('edgis');
+       normalizeBlankTargetLinks();
 
        if (externalSolutionJson) {
          edgisHref.removeAttribute('href');
@@ -3488,7 +3550,7 @@
            <header>
              <h2>SYSTEM INFORMATION</h2>
              <ul>
-             <li><span style="font-size: x-large;margin-top: -7px;">${systemName ?? 'Unknown'}</span> <span><a title="CENTER VIEW" href="/static/galaxymap.html?x=${coords.x ?? 0}&y=${coords.y ?? 0}&z=${coords.z ?? 0}&radius=${radius ?? 0}"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-border-center" viewBox="0 0 16 16">
+             <li><span style="font-size: x-large;margin-top: -7px;">${systemName ?? 'Unknown'}</span> <span><a title="CENTER VIEW" href="${buildGalaxyMapViewUrl(coords, radius)}"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-border-center" viewBox="0 0 16 16">
                 <path d="M.969 0H0v.969h.5V1h.469V.969H1V.5H.969zm.937 1h.938V0h-.938zm1.875 0h.938V0H3.78v1zm1.875 0h.938V0h-.938zM7.531.969V1h.938V.969H8.5V.5h-.031V0H7.53v.5H7.5v.469zM9.406 1h.938V0h-.938zm1.875 0h.938V0h-.938zm1.875 0h.938V0h-.938zm1.875 0h.469V.969h.5V0h-.969v.5H15v.469h.031zM1 2.844v-.938H0v.938zm6.5-.938v.938h1v-.938zm7.5 0v.938h1v-.938zM1 4.719V3.78H0v.938h1zm6.5-.938v.938h1V3.78h-1zm7.5 0v.938h1V3.78h-1zM1 6.594v-.938H0v.938zm6.5-.938v.938h1v-.938zm7.5 0v.938h1v-.938zM0 8.5v-1h16v1zm0 .906v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zm-16 .937v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zm-16 .937v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zM0 16h.969v-.5H1v-.469H.969V15H.5v.031H0zm1.906 0h.938v-1h-.938zm1.875 0h.938v-1H3.78v1zm1.875 0h.938v-1h-.938zm1.875-.5v.5h.938v-.5H8.5v-.469h-.031V15H7.53v.031H7.5v.469zm1.875.5h.938v-1h-.938zm1.875 0h.938v-1h-.938zm1.875 0h.938v-1h-.938zm1.875-.5v.5H16v-.969h-.5V15h-.469v.031H15v.469z"/>
                </svg></a></span></li>
              </ul>
@@ -3539,7 +3601,7 @@
      });
 
       const systemInfoButton = document.querySelector('button[title="System Info"]');
-      const systemMapButton = document.querySelector('button[title="System Map"]');
+      const systemMapButton = document.getElementById('systemMapButton');
       const openEdgisButton = document.getElementById('openEdgisButton');
       const distanceHeatButton = document.getElementById('distanceHeatButton');
       const boxelOverlayButton = document.getElementById('boxelOverlayButton');
@@ -3583,15 +3645,27 @@
       }
       });
 
-      systemMapButton.addEventListener('click', () => {
-      const systemName = systemData?.name ?? lastClickedSystemName;
-      if (!systemName) {
-        console.warn('No system selected. Click a system first.');
-        return;
+      if (systemMapButton && !isEmbeddedMode) {
+        systemMapButton.addEventListener('click', () => {
+          const systemName = systemData?.name ?? lastClickedSystemName;
+          if (!systemName) {
+            console.warn('No system selected. Click a system first.');
+            return;
+          }
+          const url = `${sameHostBaseUrl}/static/sysmap.html?system=${encodeURIComponent(systemName)}`;
+          window.open(url, "_blank");
+        });
+      } else if (systemMapButton) {
+        systemMapButton.addEventListener('click', () => {
+          const systemName = systemData?.name ?? lastClickedSystemName;
+          if (!systemName) {
+            console.warn('No system selected. Click a system first.');
+            return;
+          }
+          const url = `${sameHostBaseUrl}/static/sysmap.html?system=${encodeURIComponent(systemName)}`;
+          window.location.href = url;
+        });
       }
-      const url = `${sameHostBaseUrl}/static/sysmap.html?system=${encodeURIComponent(systemName)}`;
-      window.open(url, "_blank");
-      });
 
       if (openEdgisButton) {
         openEdgisButton.addEventListener('click', () => {
