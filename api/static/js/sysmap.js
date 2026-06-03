@@ -8,6 +8,7 @@
     const controlsPanel = document.getElementById('controlsPanel');
     const controlsToggleButton = document.getElementById('controlsToggleButton');
     const downloadButton = document.getElementById('downloadSvgButton');
+    const openGalaxyMapButton = document.getElementById('openGalaxyMapButton');
     const openEdgisButton = document.getElementById('openEdgisButton');
     const copyEmbedButton = document.getElementById('copyEmbedButton');
     const embedPanel = document.getElementById('embedPanel');
@@ -58,7 +59,7 @@
     if (systemFromURL && systemInput) {
         systemInput.value = systemFromURL;
     }
-    updateEdgisButtonState();
+    updateNavigationButtonState();
     const downloadMode = (() => {
         const pngFlag = (urlParams.get('png') || urlParams.get('png_only') || urlParams.get('pngOnly') || '').toLowerCase();
         if(['1', 'true', 'yes', 'on', 'png'].includes(pngFlag)){
@@ -300,7 +301,19 @@
             if(isEmbedPanelVisible()){
                 updateEmbedLinkField();
             }
-            updateEdgisButtonState();
+            updateNavigationButtonState();
+        });
+    }
+    if(openGalaxyMapButton){
+        openGalaxyMapButton.addEventListener('click', () => {
+            const targetUrl = buildGalaxyMapUrl();
+            if(!targetUrl){
+                return;
+            }
+            const galaxyMapWindow = window.open(targetUrl, '_blank', 'noopener');
+            if(galaxyMapWindow){
+                galaxyMapWindow.opener = null;
+            }
         });
     }
     if(downloadButton){
@@ -827,7 +840,7 @@
         }
         if(systemInput && resolvedSystemName){
             systemInput.value = resolvedSystemName;
-            updateEdgisButtonState();
+            updateNavigationButtonState();
         }
         updateUrlState(resolvedSystemName, requestedBodyId);
 
@@ -3309,17 +3322,33 @@
         return `${sameHostBaseUrl}/?lookup=${encodeURIComponent(systemName)}`;
     }
 
-    function updateEdgisButtonState(){
-        if(!openEdgisButton){
-            return;
+    function buildGalaxyMapUrl(){
+        const systemName = resolveActiveSystemName();
+        if(!systemName){
+            return '';
         }
+        return `${sameHostBaseUrl}/static/galaxymap.html?q=${encodeURIComponent(systemName)}&radius=20`;
+    }
+
+    function updateNavigationButtonState(){
         const systemName = resolveActiveSystemName();
         const hasSystem = Boolean(systemName);
-        const label = hasSystem ? `Open ${systemName} in EDGIS` : 'Open in EDGIS';
-        openEdgisButton.disabled = !hasSystem;
-        openEdgisButton.setAttribute('aria-disabled', hasSystem ? 'false' : 'true');
-        openEdgisButton.setAttribute('title', label);
-        openEdgisButton.setAttribute('aria-label', label);
+
+        if(openGalaxyMapButton){
+            const galaxyMapLabel = hasSystem ? `Open ${systemName} in Galaxy Map` : 'Open in Galaxy Map';
+            openGalaxyMapButton.disabled = !hasSystem;
+            openGalaxyMapButton.setAttribute('aria-disabled', hasSystem ? 'false' : 'true');
+            openGalaxyMapButton.setAttribute('title', galaxyMapLabel);
+            openGalaxyMapButton.setAttribute('aria-label', galaxyMapLabel);
+        }
+
+        if(openEdgisButton){
+            const edgisLabel = hasSystem ? `Open ${systemName} in EDGIS` : 'Open in EDGIS';
+            openEdgisButton.disabled = !hasSystem;
+            openEdgisButton.setAttribute('aria-disabled', hasSystem ? 'false' : 'true');
+            openEdgisButton.setAttribute('title', edgisLabel);
+            openEdgisButton.setAttribute('aria-label', edgisLabel);
+        }
     }
 
     function buildEmbedUrl(){
