@@ -187,7 +187,6 @@ svg .bary-label { fill: #9aa3c7; font-size: .45rem; letter-spacing: .05em; text-
 svg .bary-label.visible { opacity: 1; }
 svg .bary-icon { cursor: pointer; pointer-events: all; }
 svg .bary-icon circle, svg .bary-icon line { transition: stroke 0.2s ease, fill 0.2s ease; }
-svg .bary-icon circle { fill: rgba(255,255,255,0.08); }
 svg .bary-icon:hover circle, svg .bary-icon.active circle { fill: rgba(250,109,0,0.25); stroke: #ffd2a1; }
 svg .bary-icon:hover line, svg .bary-icon.active line { stroke: #ffd2a1; }
 svg image.stellarring-icon { opacity: 0.92; filter: drop-shadow(0 0 4px rgba(0,0,0,0.45)); }

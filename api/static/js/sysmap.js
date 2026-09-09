@@ -46,6 +46,12 @@
     const RING_LABEL_OFFSET_X = 22;
     const RING_LABEL_OFFSET_Y = -12;
     const RING_LABEL_SEGMENT_LENGTH = 3;
+    const LANDABLE_RING_SMALL_RADIUS = 12;
+    const LANDABLE_RING_MEDIUM_RADIUS = 17;
+    const LANDABLE_RING_LARGE_RADIUS = 30;
+    // The in-game map uses a larger landable marker from roughly 18,225 km
+    // (scaled radius 15) upwards; Jirara A 1 is the first known example.
+    const LANDABLE_RING_LARGE_SCALE_THRESHOLD = 15;
     let selectedNodeGroup = null;
     let selectedBodyNode = null;
     let selectionMarkerEl = null;
@@ -1004,9 +1010,11 @@
     }
 
     function addLandable(n, group) {
-        let radius = 12;
-        if (n.radiusScaled > 10) {
-            radius = 17;
+        let radius = LANDABLE_RING_SMALL_RADIUS;
+        if (n.radiusScaled > LANDABLE_RING_LARGE_SCALE_THRESHOLD) {
+            radius = LANDABLE_RING_LARGE_RADIUS;
+        } else if (n.radiusScaled > 10) {
+            radius = LANDABLE_RING_MEDIUM_RADIUS;
         }
         const angleStart = 55 * Math.PI/180;
         const xStart = radius * Math.cos(angleStart);
@@ -1036,8 +1044,10 @@
 
         // vertical ticks
         const lineHeight = 2.5;
-        const spacing = .15;
-        let tickAngleStart = 105 * Math.PI/180;
+        // Keep the tick separation constant in SVG units. A fixed angular
+        // increment would spread them farther apart on larger markers.
+        const spacing = .15 * LANDABLE_RING_SMALL_RADIUS / radius;
+        const tickAngleStart = 117 * Math.PI/180;
 
         for (let i = 0; i < 3; i++) {
             const tickAngle = tickAngleStart + (spacing * i);
