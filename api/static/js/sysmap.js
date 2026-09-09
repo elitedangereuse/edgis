@@ -38,6 +38,7 @@
     const BARY_CLEARANCE = 16;
     const BARY_BRACKET_STROKE = '#333';
     const BARY_ICON_OFFSET_Y = 12;
+    const BARY_ICON_RADIUS = 6;
     const BARY_LABEL_OFFSET_Y = 22;
     const RING_ROTATION_DEG = -10;
     const RING_ROTATION_RAD = RING_ROTATION_DEG * (Math.PI / 180);
@@ -1994,12 +1995,21 @@
             });
 
             const childTopClearance = layoutKids.map((child, idx) => {
+                if(isBarycenter(child) && child.baryNodeTarget){
+                    // Clear the child's clickable icon, not just its bracket
+                    // bar: the parent's bracket then connects to it with a
+                    // clean vertical bar above the icon.
+                    return child.baryNodeTarget.y - BARY_ICON_RADIUS;
+                }
                 if(isBarycenter(child) && child.baryConnectorPoint){
                     return child.baryConnectorPoint.y;
                 }
                 return layoutStats[idx].y - layoutStats[idx].r;
             });
             const childLeftClearance = layoutKids.map((child, idx) => {
+                if(isBarycenter(child) && child.baryNodeTarget){
+                    return child.baryNodeTarget.x - BARY_ICON_RADIUS;
+                }
                 if(isBarycenter(child) && child.baryConnectorPoint){
                     return child.baryConnectorPoint.x;
                 }
@@ -2022,7 +2032,7 @@
                 layoutKids.forEach((child, idx) => {
                     const isChildBary = isBarycenter(child) && child.baryNodeTarget;
                     const pointerX = pointerAnchors[idx].pointerX;
-                    const targetY = isChildBary ? child.baryNodeTarget.y
+                    const targetY = isChildBary ? child.baryNodeTarget.y - BARY_ICON_RADIUS
                           : child.y - (child.radiusScaled || radius);
                     appendBracketPointer(pointerX, legY, pointerX, targetY, 'horizontal', debugLabel);
                 });
@@ -2042,7 +2052,7 @@
                 layoutKids.forEach((child, idx) => {
                     const isChildBary = isBarycenter(child) && child.baryNodeTarget;
                     const pointerY = pointerAnchors[idx].pointerY;
-                    const targetX = isChildBary ? child.baryNodeTarget.x
+                    const targetX = isChildBary ? child.baryNodeTarget.x - BARY_ICON_RADIUS
                           : child.x - (child.radiusScaled || radius);
                     appendBracketPointer(legX, pointerY, targetX, pointerY, 'vertical', debugLabel);
                 });
@@ -2062,7 +2072,7 @@
             group.setAttribute('role', 'button');
             group.setAttribute('aria-label', baryNode?.name ? `Barycenter ${baryNode.name}` : 'Barycenter');
 
-            const outerRadius = 6;
+            const outerRadius = BARY_ICON_RADIUS;
             const innerRadius = 3;
 
             const outerCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
