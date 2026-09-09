@@ -42,6 +42,7 @@ TMP_CHANGED_FILE_LIST=$(mktemp)
     echo static/tailwind.css
     echo static/milkyway.css
     echo static/js/panzoom.js
+    echo static/js/sysmap_roots.js
     echo static/js/sysmap.js
     for file in "${EXTRA_FILES[@]}"; do
         if [[ -n "$file" ]]; then
