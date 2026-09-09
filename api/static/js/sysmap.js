@@ -2062,6 +2062,7 @@
         const appendBaryIcon = (cx, cy, baryNode) => {
             const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
             group.setAttribute('transform', `translate(${cx}, ${cy})`);
+            group.setAttribute('class', 'bary-icon');
             if(baryNode?.id != null){
                 group.dataset.bodyId = String(baryNode.id);
             }
@@ -2144,6 +2145,9 @@
             label.setAttribute('y', y);
             label.setAttribute('class', 'bary-label hidden');
             label.setAttribute('text-anchor', anchor);
+            if(node?.id != null){
+                label.dataset.node = String(node.id);
+            }
             const targetLayer = baryIconLayer || baryLayerGroup || svg;
             targetLayer.appendChild(label);
             if(node){
@@ -2835,6 +2839,44 @@
         return sysmapCssCache;
     }
 
+    // Re-attach text labels to their body/barycenter groups inside an export
+    // clone, converting their coordinates to the group's frame. Combined with
+    // the embedded :hover rules, labels then reveal on hover in the exported
+    // file, exactly like in the live map.
+    function attachLabelsToGroupsForExport(clone){
+        const groupById = new Map();
+        const collectGroups = (el) => {
+            if(el.tagName === 'g' && el.dataset?.bodyId != null && !groupById.has(String(el.dataset.bodyId))){
+                groupById.set(String(el.dataset.bodyId), el);
+            }
+            Array.from(el.children ?? []).forEach(collectGroups);
+        };
+        collectGroups(clone);
+        const labels = [];
+        const collectLabels = (el) => {
+            const classAttr = (el.getAttribute?.('class') || el.attrs?._class || '');
+            const isBaryLabel = classAttr.includes('bary-label');
+            const isBodyLabel = classAttr.includes('label') && !classAttr.includes('ring-label');
+            if(el.tagName === 'text' && (isBaryLabel || isBodyLabel) && el.dataset?.node != null){
+                labels.push(el);
+            }
+            Array.from(el.children ?? []).forEach(collectLabels);
+        };
+        collectLabels(clone);
+        labels.forEach(label => {
+            const target = groupById.get(String(label.dataset.node));
+            if(!target || target === label.parentNode) return;
+            const match = /translate\(\s*(-?[\d.]+)\s*[,\s]+(-?[\d.]+)\s*\)/.exec(target.getAttribute('transform') || '');
+            if(!match) return;
+            const lx = Number(label.getAttribute('x') ?? 0);
+            const ly = Number(label.getAttribute('y') ?? 0);
+            label.setAttribute('x', lx - Number(match[1]));
+            label.setAttribute('y', ly - Number(match[2]));
+            label.parentNode?.removeChild(label);
+            target.appendChild(label);
+        });
+    }
+
     function getSerializedSvg(includeRasterDimensions = false, embeddedCss = ''){
         if(!svg){
             throw new Error('Missing SVG root');
@@ -2843,16 +2885,44 @@
         if(embeddedCss){
             // Make the export standalone: the page stylesheet would otherwise
             // be missing (invisible background, unstyled/visible labels).
+            // Strip :root custom-property blocks: some SVG viewers (Inkscape)
+            // abort the whole sheet on them; the svg rules use literal values.
+            const exportCss = embeddedCss.replace(/:root\s*\{[^}]*\}/g, '');
             const styleEl = document.createElementNS(svg.namespaceURI || 'http://www.w3.org/2000/svg', 'style');
-            styleEl.textContent = `${embeddedCss}\nsvg { font-family: system-ui, sans-serif; }`;
+            styleEl.textContent = [
+                exportCss,
+                'svg { font-family: system-ui, sans-serif; }',
+                'svg .node:hover > text.label { opacity: 1; }',
+                'svg .bary-icon:hover > text.bary-label { opacity: 1; }'
+            ].join('\n');
             clone.insertBefore(styleEl, clone.firstChild);
+            const gridDefs = document.createElementNS(svg.namespaceURI, 'defs');
+            const gridPattern = document.createElementNS(svg.namespaceURI, 'pattern');
+            gridPattern.setAttribute('id', 'sysmap-grid-pattern');
+            gridPattern.setAttribute('width', '30');
+            gridPattern.setAttribute('height', '30');
+            gridPattern.setAttribute('patternUnits', 'userSpaceOnUse');
+            const gridTileBg = document.createElementNS(svg.namespaceURI, 'rect');
+            gridTileBg.setAttribute('width', '30');
+            gridTileBg.setAttribute('height', '30');
+            gridTileBg.setAttribute('fill', '#000');
+            gridPattern.appendChild(gridTileBg);
+            const gridTile = document.createElementNS(svg.namespaceURI, 'path');
+            gridTile.setAttribute('d', 'M15 0V30 M0 15H30');
+            gridTile.setAttribute('fill', 'none');
+            gridTile.setAttribute('stroke', '#fff');
+            gridTile.setAttribute('stroke-opacity', '.1');
+            gridPattern.appendChild(gridTile);
+            gridDefs.appendChild(gridPattern);
+            clone.insertBefore(gridDefs, styleEl.nextSibling);
             const background = document.createElementNS(svg.namespaceURI, 'rect');
             background.setAttribute('x', '0');
             background.setAttribute('y', '0');
             background.setAttribute('width', '100%');
             background.setAttribute('height', '100%');
-            background.setAttribute('fill', '#000');
-            clone.insertBefore(background, styleEl.nextSibling);
+            background.setAttribute('fill', 'url(#sysmap-grid-pattern)');
+            clone.insertBefore(background, gridDefs.nextSibling);
+            attachLabelsToGroupsForExport(clone);
         }
         const viewBox = svg.viewBox?.baseVal;
         if(includeRasterDimensions && viewBox && viewBox.width && viewBox.height){

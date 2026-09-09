@@ -21,10 +21,11 @@ const SYSMAP_ROOTS_JS = path.join(REPO_ROOT, 'static', 'js', 'sysmap_roots.js');
 const SYSMAP_CSS = path.join(REPO_ROOT, 'static', 'sysmap.css');
 
 class El {
-    constructor(tag){
+    constructor(tag, svgNs = false){
         this.tagName = tag;
+        this._svg = svgNs;
         this.attrs = {};
-        this.children = [];
+        this._children = [];
         this.style = {};
         this.dataset = {};
         this._listeners = {};
@@ -35,21 +36,34 @@ class El {
             remove: () => {}
         };
     }
-    get firstChild(){ return this.children[0] || null; }
+    // Real DOM children is an HTMLCollection: iterable + length + index access,
+    // but no forEach/map/filter. Product code must use Array.from on it.
+    get children(){
+        const items = this._children;
+        const coll = { length: items.length, item: (i) => items[i] ?? null };
+        items.forEach((c, i) => { coll[i] = c; });
+        coll[Symbol.iterator] = function* (){ yield* items; };
+        return coll;
+    }
+    get firstChild(){ return this._children[0] || null; }
+    get nextSibling(){
+        const p = this.parentNode;
+        if(!p) return null;
+        return p._children[p._children.indexOf(this) + 1] ?? null;
+    }
     setAttribute(k, v){ this.attrs[k] = String(v); }
     setAttributeNS(ns, k, v){ this.attrs[k] = String(v); }
     getAttribute(k){ return this.attrs[k] ?? null; }
     getAttributeNS(k){ return this.attrs[k] ?? null; }
-    appendChild(c){ c.parentNode = this; this.children.push(c); return c; }
-    removeChild(c){ this.children = this.children.filter(x => x !== c); return c; }
+    appendChild(c){ c.parentNode = this; this._children.push(c); return c; }
+    removeChild(c){ this._children = this._children.filter(x => x !== c); return c; }
     insertBefore(c, ref){
         if(!c) return c;
         c.parentNode = this;
-        const idx = this.children.indexOf(c);
-        if(idx !== -1) this.children.splice(idx, 1);
-        if(arguments[2] == null){ this.children.push(c); return c; }
-        const i = this.children.indexOf(arguments[2]);
-        if(i === -1){ this.children.push(c); } else { this.children.splice(i, 0, c); }
+        const idx = this._children.indexOf(c);
+        if(idx !== -1) this._children.splice(idx, 1);
+        const i = ref ? this._children.indexOf(ref) : -1;
+        if(i === -1){ this._children.push(c); } else { this._children.splice(i, 0, c); }
         return c;
     }
     addEventListener(type, fn){ (this._listeners[type] ||= []).push(fn); }
@@ -61,33 +75,60 @@ class El {
     querySelectorAll(){ return []; }
     closest(){ return null; }
     cloneNode(deep = false){
-        const copy = new El(this.tagName);
+        const copy = new El(this.tagName, this._svg);
         copy.attrs = {...this.attrs};
         copy.dataset = {...this.dataset};
         copy.style = {...this.style};
         copy.textContent = this.textContent;
         if(deep){
-            copy.children = this.children.map(c => { const cc = c.cloneNode(true); cc.parentNode = copy; return cc; });
+            copy._children = this._children.map(c => { const cc = c.cloneNode(true); cc.parentNode = copy; return cc; });
         }
         return copy;
     }
     getBoundingClientRect(){ return { width: 0, height: 0, top: 0, left: 0 }; }
     getBBox(){ return { x: 0, y: 0, width: 0, height: 0 }; }
+    set innerHTML(html){
+        this._children = [];
+        const stack = [this];
+        const tagRe = /<(\/?)([A-Za-z][\w:-]*)((?:\s+[A-Za-z_:][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+))*)\s*(\/?)\s*>|([^<]+)/g;
+        const attrRe = /([A-Za-z_:][\w:-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
+        let m;
+        while((m = tagRe.exec(html)) !== null){
+            if(m[5] !== undefined){ continue; }
+            if(m[1] === '/'){
+                if(stack.length > 1) stack.pop();
+                continue;
+            }
+            const el = new El(m[2], this._svg);
+            let a;
+            while((a = attrRe.exec(m[3] || '')) !== null){
+                el.attrs[a[1]] = a[2] ?? a[3] ?? a[4] ?? '';
+            }
+            const parent = stack[stack.length - 1];
+            el.parentNode = parent;
+            parent._children.push(el);
+            if(m[4] !== '/'){ stack.push(el); }
+        }
+    }
     focus(){} blur(){} select(){} click(){} contains(){ return false; }
+}
+
+function xmlEscape(s){
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function serialize(el, depth = 0){
     const pad = '  '.repeat(depth);
-    const attrs = Object.entries(el.attrs)
-        .filter(([k]) => k !== '_class')
-        .map(([k, v]) => ` ${k}="${v}"`).join('');
-    const cls = el.attrs._class ? ` class="${el.attrs._class}"` : '';
-    const tag = el.tagName.toLowerCase().replace('svg:', '');
-    if(el.children.length === 0 && !el.textContent){
+    const entries = Object.entries(el.attrs).filter(([k]) => k !== '_class' && k !== 'class');
+    const classes = Array.from(new Set(`${el.attrs.class || ''} ${el.attrs._class || ''}`.trim().split(/\s+/).filter(Boolean)));
+    const cls = classes.length ? ` class="${xmlEscape(classes.join(' '))}"` : '';
+    const attrs = entries.map(([k, v]) => ` ${k}="${xmlEscape(v)}"`).join('');
+    const tag = (el._svg ? el.tagName : el.tagName.toLowerCase()).replace('svg:', '');
+    if(el._children.length === 0 && !el.textContent){
         return `${pad}<${tag}${cls}${attrs}/>`;
     }
-    const inner = el.children.map(c => serialize(c, depth + 1)).join('\n');
-    const text = el.textContent ? `\n${'  '.repeat(depth + 1)}${el.textContent}` : '';
+    const inner = el._children.map(c => serialize(c, depth + 1)).join('\n');
+    const text = el.textContent ? `\n${'  '.repeat(depth + 1)}${xmlEscape(el.textContent)}` : '';
     return `${pad}<${tag}${cls}${attrs}>${text}\n${inner}\n${pad}</${tag}>`;
 }
 
@@ -107,7 +148,7 @@ function makeDocument(){
         return registry[id];
     };
     doc.createElement = (t) => new El(t);
-    doc.createElementNS = (ns, t) => new El(t);
+    doc.createElementNS = (ns, t) => new El(t, ns === 'http://www.w3.org/2000/svg');
     doc.addEventListener = () => {};
     doc.removeEventListener = () => {};
     doc.body = new El('body');
@@ -158,7 +199,7 @@ async function run(systemName, fixturePath, outPath){
     let branchOriginStrokes = 0;
     const walk = (el) => {
         if(el.attrs.class === 'bary-branch-origin') branchOriginStrokes += 1;
-        el.children.forEach(walk);
+        el._children.forEach(walk);
     };
     walk(svgEl);
 
@@ -167,7 +208,7 @@ async function run(systemName, fixturePath, outPath){
         `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${svgEl.attrs.viewBox}" width="1600" height="1000">`,
         `<style>${css}</style>`,
         `<rect x="0" y="0" width="100%" height="100%" fill="#000"/>`,
-        ...svgEl.children.map(c => serialize(c, 1)),
+        ...svgEl._children.map(c => serialize(c, 1)),
         '</svg>'
     ].join('\n');
     fs.writeFileSync(outPath, svgText);
