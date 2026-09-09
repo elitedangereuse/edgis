@@ -183,7 +183,8 @@ svg .ring-layer.selected .ring-shadow {
 svg .link { stroke: #333; stroke-opacity: 1; }
 svg .debug { fill: none; stroke: rgba(255,255,255,.2); stroke-dasharray: 4 2; }
 svg .bary-bracket { stroke: #333; stroke-width: 1.5; stroke-opacity: 1; }
-svg .bary-label { fill: #9aa3c7; font-size: .45rem; letter-spacing: .05em; text-transform: uppercase; }
+svg .bary-label { fill: #9aa3c7; font-size: .45rem; letter-spacing: .05em; text-transform: uppercase; opacity: 0; transition: opacity .15s ease; pointer-events: none; }
+svg .bary-label.visible { opacity: 1; }
 svg .bary-icon { cursor: pointer; pointer-events: all; }
 svg .bary-icon circle, svg .bary-icon line { transition: stroke 0.2s ease, fill 0.2s ease; }
 svg .bary-icon circle { fill: rgba(255,255,255,0.08); }

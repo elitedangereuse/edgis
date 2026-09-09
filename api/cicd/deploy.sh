@@ -39,6 +39,7 @@ TMP_CHANGED_FILE_LIST=$(mktemp)
     echo systems.py
     echo static/index.html
     echo static/sysmap.html
+    echo static/sysmap.css
     echo static/tailwind.css
     echo static/milkyway.css
     echo static/js/panzoom.js
