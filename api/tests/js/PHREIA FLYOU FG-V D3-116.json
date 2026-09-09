@@ -1,0 +1,326 @@
+[
+  {
+    "body_id": 0,
+    "body_name": "Phreia Flyou FG-V d3-116",
+    "type": "Star",
+    "parents": [],
+    "mass": 1.757813
+  },
+  {
+    "body_id": 1,
+    "body_name": "Phreia Flyou FG-V d3-116 1",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.30293
+  },
+  {
+    "body_id": 2,
+    "body_name": "Phreia Flyou FG-V d3-116 2",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.79462
+  },
+  {
+    "body_id": 3,
+    "body_name": "Phreia Flyou FG-V d3-116 3",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.714319
+  },
+  {
+    "body_id": 4,
+    "body_name": "Phreia Flyou FG-V d3-116 4",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 1.205963
+  },
+  {
+    "body_id": 5,
+    "body_name": "Phreia Flyou FG-V d3-116 4 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 4
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.030575
+  },
+  {
+    "body_id": 6,
+    "body_name": "Phreia Flyou FG-V d3-116 5+6+7+8+9",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ]
+  },
+  {
+    "body_id": 7,
+    "body_name": "Phreia Flyou FG-V d3-116 5+6+7+8",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Null": 6
+      },
+      {
+        "Star": 0
+      }
+    ]
+  },
+  {
+    "body_id": 8,
+    "body_name": "Phreia Flyou FG-V d3-116 5+6+7",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Null": 7
+      },
+      {
+        "Null": 6
+      },
+      {
+        "Star": 0
+      }
+    ]
+  },
+  {
+    "body_id": 9,
+    "body_name": "Phreia Flyou FG-V d3-116 5+6",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Null": 8
+      },
+      {
+        "Null": 7
+      },
+      {
+        "Null": 6
+      },
+      {
+        "Star": 0
+      }
+    ]
+  },
+  {
+    "body_id": 10,
+    "body_name": "Phreia Flyou FG-V d3-116 5",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 9
+      },
+      {
+        "Null": 8
+      },
+      {
+        "Null": 7
+      },
+      {
+        "Null": 6
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.998228
+  },
+  {
+    "body_id": 11,
+    "body_name": "Phreia Flyou FG-V d3-116 6",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 9
+      },
+      {
+        "Null": 8
+      },
+      {
+        "Null": 7
+      },
+      {
+        "Null": 6
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.949147
+  },
+  {
+    "body_id": 12,
+    "body_name": "Phreia Flyou FG-V d3-116 7",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 8
+      },
+      {
+        "Null": 7
+      },
+      {
+        "Null": 6
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 1.323288
+  },
+  {
+    "body_id": 13,
+    "body_name": "Phreia Flyou FG-V d3-116 8",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 7
+      },
+      {
+        "Null": 6
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 2.368683
+  },
+  {
+    "body_id": 14,
+    "body_name": "Phreia Flyou FG-V d3-116 9",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 6
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 2.825508
+  },
+  {
+    "body_id": 15,
+    "body_name": "Phreia Flyou FG-V d3-116 10",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 6.994824
+  },
+  {
+    "body_id": 16,
+    "body_name": "Phreia Flyou FG-V d3-116 10 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 15
+      }
+    ]
+  },
+  {
+    "body_id": 17,
+    "body_name": "Phreia Flyou FG-V d3-116 10 B Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 15
+      }
+    ]
+  },
+  {
+    "body_id": 18,
+    "body_name": "Phreia Flyou FG-V d3-116 10 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 15
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.000224
+  },
+  {
+    "body_id": 19,
+    "body_name": "Phreia Flyou FG-V d3-116 10 b",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 15
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.00042
+  },
+  {
+    "body_id": 20,
+    "body_name": "Phreia Flyou FG-V d3-116 10 c",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 15
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.000534
+  },
+  {
+    "body_id": 21,
+    "body_name": "Phreia Flyou FG-V d3-116 11",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 4.7665
+  },
+  {
+    "body_id": 22,
+    "body_name": "Phreia Flyou FG-V d3-116 11 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 21
+      }
+    ]
+  },
+  {
+    "body_id": 23,
+    "body_name": "Phreia Flyou FG-V d3-116 11 B Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 21
+      }
+    ]
+  }
+]
