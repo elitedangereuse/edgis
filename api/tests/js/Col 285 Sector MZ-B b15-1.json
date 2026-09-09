@@ -1,0 +1,102 @@
+[
+  {
+    "body_id": 0,
+    "body_name": "Col 285 Sector MZ-B b15-1",
+    "type": "Star",
+    "parents": [],
+    "mass": 0.238281
+  },
+  {
+    "body_id": 1,
+    "body_name": "Col 285 Sector MZ-B b15-1 1",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.051052
+  },
+  {
+    "body_id": 2,
+    "body_name": "Col 285 Sector MZ-B b15-1 2",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.087067
+  },
+  {
+    "body_id": 3,
+    "body_name": "Col 285 Sector MZ-B b15-1 3",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.05225
+  },
+  {
+    "body_id": 4,
+    "body_name": "Col 285 Sector MZ-B b15-1 4+5",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ]
+  },
+  {
+    "body_id": 5,
+    "body_name": "Col 285 Sector MZ-B b15-1 4",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 4
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.071681
+  },
+  {
+    "body_id": 6,
+    "body_name": "Col 285 Sector MZ-B b15-1 5",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 4
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.0499
+  },
+  {
+    "body_id": 7,
+    "body_name": "Col 285 Sector MZ-B b15-1 6",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.054854
+  },
+  {
+    "body_id": 8,
+    "body_name": "Col 285 Sector MZ-B b15-1 7",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.040858
+  }
+]

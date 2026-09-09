@@ -1,0 +1,572 @@
+[
+  {
+    "body_id": 0,
+    "body_name": "Smaideae FH-J d10-5 ABCD",
+    "type": "Barycenter",
+    "parents": []
+  },
+  {
+    "body_id": 1,
+    "body_name": "Smaideae FH-J d10-5 A",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.789063
+  },
+  {
+    "body_id": 2,
+    "body_name": "Smaideae FH-J d10-5 BCD",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 3,
+    "body_name": "Smaideae FH-J d10-5 B",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.558594
+  },
+  {
+    "body_id": 4,
+    "body_name": "Smaideae FH-J d10-5 CD",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 5,
+    "body_name": "Smaideae FH-J d10-5 C",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 4
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.167969
+  },
+  {
+    "body_id": 6,
+    "body_name": "Smaideae FH-J d10-5 D",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 4
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.113281
+  },
+  {
+    "body_id": 7,
+    "body_name": "Smaideae FH-J d10-5 A 1",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 46.483593
+  },
+  {
+    "body_id": 8,
+    "body_name": "Smaideae FH-J d10-5 A 1 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 7
+      }
+    ]
+  },
+  {
+    "body_id": 9,
+    "body_name": "Smaideae FH-J d10-5 A 1 B Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 7
+      }
+    ]
+  },
+  {
+    "body_id": 10,
+    "body_name": "Smaideae FH-J d10-5 A 1 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 7
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000887
+  },
+  {
+    "body_id": 11,
+    "body_name": "Smaideae FH-J d10-5 A 1 b",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 7
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001703
+  },
+  {
+    "body_id": 12,
+    "body_name": "Smaideae FH-J d10-5 A 1 c",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 7
+      },
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.002221
+  },
+  {
+    "body_id": 13,
+    "body_name": "Smaideae FH-J d10-5 A 2",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 1.588308
+  },
+  {
+    "body_id": 14,
+    "body_name": "Smaideae FH-J d10-5 A 3",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 11.259825
+  },
+  {
+    "body_id": 15,
+    "body_name": "Smaideae FH-J d10-5 A 3 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 14
+      }
+    ]
+  },
+  {
+    "body_id": 16,
+    "body_name": "Smaideae FH-J d10-5 A 4",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 12.305303
+  },
+  {
+    "body_id": 17,
+    "body_name": "Smaideae FH-J d10-5 A 4 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 16
+      }
+    ]
+  },
+  {
+    "body_id": 18,
+    "body_name": "Smaideae FH-J d10-5 B 1",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 3
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.168439
+  },
+  {
+    "body_id": 19,
+    "body_name": "Smaideae FH-J d10-5 B 2",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 3
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.141788
+  },
+  {
+    "body_id": 20,
+    "body_name": "Smaideae FH-J d10-5 B 3",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 3
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.185492
+  },
+  {
+    "body_id": 21,
+    "body_name": "Smaideae FH-J d10-5 B 4",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 3
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.134359
+  },
+  {
+    "body_id": 22,
+    "body_name": "Smaideae FH-J d10-5 B 5",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 3
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.109037
+  },
+  {
+    "body_id": 23,
+    "body_name": "Smaideae FH-J d10-5 C A Belt",
+    "type": "StellarRing",
+    "parents": [
+      {
+        "Star": 5
+      },
+      {
+        "Null": 4
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 24,
+    "body_name": "Smaideae FH-J d10-5 C A Belt Cluster 1",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 23
+      },
+      {
+        "Star": 5
+      },
+      {
+        "Null": 4
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 25,
+    "body_name": "Smaideae FH-J d10-5 C A Belt Cluster 2",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 23
+      },
+      {
+        "Star": 5
+      },
+      {
+        "Null": 4
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 26,
+    "body_name": "Smaideae FH-J d10-5 C A Belt Cluster 3",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 23
+      },
+      {
+        "Star": 5
+      },
+      {
+        "Null": 4
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 27,
+    "body_name": "Smaideae FH-J d10-5 C 1+2",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Star": 5
+      },
+      {
+        "Null": 4
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 28,
+    "body_name": "Smaideae FH-J d10-5 C 1",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 27
+      },
+      {
+        "Star": 5
+      },
+      {
+        "Null": 4
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001304
+  },
+  {
+    "body_id": 29,
+    "body_name": "Smaideae FH-J d10-5 C 2",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 27
+      },
+      {
+        "Star": 5
+      },
+      {
+        "Null": 4
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.000959
+  },
+  {
+    "body_id": 30,
+    "body_name": "Smaideae FH-J d10-5 C 3",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 5
+      },
+      {
+        "Null": 4
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001202
+  },
+  {
+    "body_id": 31,
+    "body_name": "Smaideae FH-J d10-5 C 4",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 5
+      },
+      {
+        "Null": 4
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.002758
+  },
+  {
+    "body_id": 32,
+    "body_name": "Smaideae FH-J d10-5 C 5",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 5
+      },
+      {
+        "Null": 4
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.001596
+  },
+  {
+    "body_id": 33,
+    "body_name": "Smaideae FH-J d10-5 C 6",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 5
+      },
+      {
+        "Null": 4
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.002306
+  },
+  {
+    "body_id": 34,
+    "body_name": "Smaideae FH-J d10-5 C 7",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 5
+      },
+      {
+        "Null": 4
+      },
+      {
+        "Null": 2
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.003111
+  }
+]

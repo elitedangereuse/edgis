@@ -1,0 +1,700 @@
+[
+  {
+    "body_id": 0,
+    "body_name": "HIP 86672",
+    "type": "Star",
+    "parents": [],
+    "mass": 1.109375
+  },
+  {
+    "body_id": 1,
+    "body_name": "HIP 86672 A Belt",
+    "type": "StellarRing",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ]
+  },
+  {
+    "body_id": 2,
+    "body_name": "HIP 86672 A Belt Cluster 1",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 1
+      },
+      {
+        "Star": 0
+      }
+    ]
+  },
+  {
+    "body_id": 3,
+    "body_name": "HIP 86672 A Belt Cluster 2",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 1
+      },
+      {
+        "Star": 0
+      }
+    ]
+  },
+  {
+    "body_id": 4,
+    "body_name": "HIP 86672 A Belt Cluster 3",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 1
+      },
+      {
+        "Star": 0
+      }
+    ]
+  },
+  {
+    "body_id": 5,
+    "body_name": "HIP 86672 A Belt Cluster 4",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 1
+      },
+      {
+        "Star": 0
+      }
+    ]
+  },
+  {
+    "body_id": 6,
+    "body_name": "HIP 86672 A Belt Cluster 5",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 1
+      },
+      {
+        "Star": 0
+      }
+    ]
+  },
+  {
+    "body_id": 7,
+    "body_name": "HIP 86672 A Belt Cluster 6",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 1
+      },
+      {
+        "Star": 0
+      }
+    ]
+  },
+  {
+    "body_id": 8,
+    "body_name": "HIP 86672 A Belt Cluster 7",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 1
+      },
+      {
+        "Star": 0
+      }
+    ]
+  },
+  {
+    "body_id": 9,
+    "body_name": "HIP 86672 A Belt Cluster 8",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 1
+      },
+      {
+        "Star": 0
+      }
+    ]
+  },
+  {
+    "body_id": 10,
+    "body_name": "HIP 86672 A Belt Cluster 9",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 1
+      },
+      {
+        "Star": 0
+      }
+    ]
+  },
+  {
+    "body_id": 11,
+    "body_name": "HIP 86672 A Belt Cluster 10",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 1
+      },
+      {
+        "Star": 0
+      }
+    ]
+  },
+  {
+    "body_id": 12,
+    "body_name": "HIP 86672 A Belt Cluster 11",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 1
+      },
+      {
+        "Star": 0
+      }
+    ]
+  },
+  {
+    "body_id": 13,
+    "body_name": "HIP 86672 1",
+    "type": "Planet",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 3413.776855
+  },
+  {
+    "body_id": 14,
+    "body_name": "HIP 86672 1 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 13
+      }
+    ]
+  },
+  {
+    "body_id": 15,
+    "body_name": "HIP 86672 1 B Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 13
+      }
+    ]
+  },
+  {
+    "body_id": 16,
+    "body_name": "HIP 86672 1 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 13
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.020306
+  },
+  {
+    "body_id": 17,
+    "body_name": "HIP 86672 1 b+c",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Planet": 13
+      },
+      {
+        "Star": 0
+      }
+    ]
+  },
+  {
+    "body_id": 18,
+    "body_name": "HIP 86672 1 b",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 17
+      },
+      {
+        "Planet": 13
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.007808
+  },
+  {
+    "body_id": 19,
+    "body_name": "HIP 86672 1 c",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 17
+      },
+      {
+        "Planet": 13
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.006243
+  },
+  {
+    "body_id": 20,
+    "body_name": "HIP 86672 1 d",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 13
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.013865
+  },
+  {
+    "body_id": 21,
+    "body_name": "HIP 86672 1 d a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 20
+      },
+      {
+        "Planet": 13
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.001296
+  },
+  {
+    "body_id": 22,
+    "body_name": "HIP 86672 1 e",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 13
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.010281
+  },
+  {
+    "body_id": 26,
+    "body_name": "HIP 86672 2+3",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ]
+  },
+  {
+    "body_id": 27,
+    "body_name": "HIP 86672 2",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 26
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 3400.905518
+  },
+  {
+    "body_id": 28,
+    "body_name": "HIP 86672 2 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 27
+      }
+    ]
+  },
+  {
+    "body_id": 29,
+    "body_name": "HIP 86672 2 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 27
+      },
+      {
+        "Null": 26
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.021408
+  },
+  {
+    "body_id": 30,
+    "body_name": "HIP 86672 2 b",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 27
+      },
+      {
+        "Null": 26
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.026939
+  },
+  {
+    "body_id": 31,
+    "body_name": "HIP 86672 2 b a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 30
+      },
+      {
+        "Planet": 27
+      },
+      {
+        "Null": 26
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.000544
+  },
+  {
+    "body_id": 32,
+    "body_name": "HIP 86672 3",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 26
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 15.130548
+  },
+  {
+    "body_id": 33,
+    "body_name": "HIP 86672 3 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 32
+      }
+    ]
+  },
+  {
+    "body_id": 34,
+    "body_name": "HIP 86672 3 B Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 32
+      }
+    ]
+  },
+  {
+    "body_id": 35,
+    "body_name": "HIP 86672 3 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 32
+      },
+      {
+        "Null": 26
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.000867
+  },
+  {
+    "body_id": 36,
+    "body_name": "HIP 86672 4+5",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ]
+  },
+  {
+    "body_id": 37,
+    "body_name": "HIP 86672 4",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 36
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 2752.516357
+  },
+  {
+    "body_id": 38,
+    "body_name": "HIP 86672 4 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 37
+      }
+    ]
+  },
+  {
+    "body_id": 39,
+    "body_name": "HIP 86672 4 B Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 37
+      }
+    ]
+  },
+  {
+    "body_id": 40,
+    "body_name": "HIP 86672 4 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 37
+      },
+      {
+        "Null": 36
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.027024
+  },
+  {
+    "body_id": 41,
+    "body_name": "HIP 86672 4 b",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 37
+      },
+      {
+        "Null": 36
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.016889
+  },
+  {
+    "body_id": 42,
+    "body_name": "HIP 86672 4 c",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 37
+      },
+      {
+        "Null": 36
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.014841
+  },
+  {
+    "body_id": 43,
+    "body_name": "HIP 86672 5",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 36
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 165.773773
+  },
+  {
+    "body_id": 44,
+    "body_name": "HIP 86672 5 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 43
+      }
+    ]
+  },
+  {
+    "body_id": 45,
+    "body_name": "HIP 86672 5 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 43
+      },
+      {
+        "Null": 36
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.002603
+  },
+  {
+    "body_id": 46,
+    "body_name": "HIP 86672 6+7",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Star": 0
+      }
+    ]
+  },
+  {
+    "body_id": 47,
+    "body_name": "HIP 86672 6",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 46
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 2737.822021
+  },
+  {
+    "body_id": 48,
+    "body_name": "HIP 86672 6 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 47
+      }
+    ]
+  },
+  {
+    "body_id": 49,
+    "body_name": "HIP 86672 6 B Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "parent_id": 47
+      }
+    ]
+  },
+  {
+    "body_id": 50,
+    "body_name": "HIP 86672 6 a",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 47
+      },
+      {
+        "Null": 46
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.000666
+  },
+  {
+    "body_id": 51,
+    "body_name": "HIP 86672 6 b",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 47
+      },
+      {
+        "Null": 46
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.000677
+  },
+  {
+    "body_id": 52,
+    "body_name": "HIP 86672 6 c",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 47
+      },
+      {
+        "Null": 46
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.000546
+  },
+  {
+    "body_id": 53,
+    "body_name": "HIP 86672 6 d",
+    "type": "Planet",
+    "parents": [
+      {
+        "Planet": 47
+      },
+      {
+        "Null": 46
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 0.003053
+  },
+  {
+    "body_id": 54,
+    "body_name": "HIP 86672 7",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 46
+      },
+      {
+        "Star": 0
+      }
+    ],
+    "mass": 5.081511
+  }
+]
