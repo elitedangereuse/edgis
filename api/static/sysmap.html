@@ -171,7 +171,7 @@
       </div>
       <p class="small">Use this URL to embed the currently viewed system map.</p>
       <div class="embed-panel__row">
-        <input type="text" id="embedLinkInput" readonly>
+        <input type="text" id="embedLinkInput" readonly aria-label="Embed link URL">
         <button type="button" class="icon-button" id="embedLinkCopyButton" aria-label="Copy embed link">
           <svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
             <path d="M8 8V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -182,7 +182,7 @@
       </div>
       <p class="small">Or drop this iframe snippet into your page:</p>
       <div class="embed-panel__row embed-panel__row--textarea">
-        <textarea id="embedCodeOutput" rows="3" readonly></textarea>
+        <textarea id="embedCodeOutput" rows="3" readonly aria-label="Embed iframe code"></textarea>
         <button type="button" class="icon-button" id="embedCodeCopyButton" aria-label="Copy iframe embed code">
           <svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
             <path d="M8 8V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -218,6 +218,7 @@
         }
       })();
     </script>
+    <script src="/static/js/sysmap_roots.js" defer></script>
     <script src="/static/js/sysmap.js" defer></script>
   </body>
 </html>
