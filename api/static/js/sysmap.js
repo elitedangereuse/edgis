@@ -39,6 +39,7 @@
     const BARY_BRACKET_STROKE = '#333';
     const BARY_ICON_OFFSET_Y = 12;
     const BARY_ICON_RADIUS = 6;
+    const BARY_ICON_CONNECTOR = 6;
     const BARY_LABEL_OFFSET_Y = 22;
     const RING_ROTATION_DEG = -10;
     const RING_ROTATION_RAD = RING_ROTATION_DEG * (Math.PI / 180);
@@ -1963,7 +1964,10 @@
             const debugLabel = node.name || `barycenter_${node.id || '??'}`;
             if(kids.length < 2){
                 if(showLabel){
-                    appendBaryLabel(node, node.x + 6, node.y - 6);
+                    // No bracket or icon to hover: keep the name visible so the
+                    // barycenter stays identifiable (e.g. incomplete data).
+                    const label = appendBaryLabel(node, node.x + 6, node.y - 6);
+                    showLabel(label);
                 }
                 return;
             }
@@ -1994,38 +1998,24 @@
                 };
             });
 
-            const childTopClearance = layoutKids.map((child, idx) => {
-                if(isBarycenter(child) && child.baryNodeTarget){
-                    // Clear the child's clickable icon, not just its bracket
-                    // bar: the parent's bracket then connects to it with a
-                    // clean vertical bar above the icon.
-                    return child.baryNodeTarget.y - BARY_ICON_RADIUS;
-                }
-                if(isBarycenter(child) && child.baryConnectorPoint){
-                    return child.baryConnectorPoint.y;
-                }
-                return layoutStats[idx].y - layoutStats[idx].r;
-            });
-            const childLeftClearance = layoutKids.map((child, idx) => {
-                if(isBarycenter(child) && child.baryNodeTarget){
-                    return child.baryNodeTarget.x - BARY_ICON_RADIUS;
-                }
-                if(isBarycenter(child) && child.baryConnectorPoint){
-                    return child.baryConnectorPoint.x;
-                }
-                return layoutStats[idx].x - layoutStats[idx].r;
-            });
-
             const pointerXs = pointerAnchors.map(p => p.pointerX);
             const pointerYs = pointerAnchors.map(p => p.pointerY);
 
             if(horizontal){
-                const clearanceY = Math.min(...childTopClearance);
-                const legY = clearanceY - BARY_CLEARANCE;
+                const legY = Math.min(...layoutKids.map((child, idx) => {
+                    if(isBarycenter(child) && child.baryNodeTarget){
+                        // The bracket bar sits just above the child's icon: a
+                        // short vertical bar connects the icon to the parent's
+                        // bracket, matching the connector below the icon.
+                        return child.baryNodeTarget.y - BARY_ICON_RADIUS - BARY_ICON_CONNECTOR;
+                    }
+                    return layoutStats[idx].y - layoutStats[idx].r - BARY_CLEARANCE;
+                }));
                 const startX = Math.min(...pointerXs);
                 const endX = Math.max(...pointerXs);
                 const midX = (startX + endX) / 2;
                 appendBracketLine(startX, legY, endX, legY, debugLabel, node);
+                appendBracketLine(midX, legY, midX, legY - BARY_ICON_OFFSET_Y + BARY_ICON_RADIUS, debugLabel, node);
                 appendBaryIcon(midX, legY - BARY_ICON_OFFSET_Y, node);
                 node.baryConnectorPoint = { x: midX, y: legY };
                 node.baryNodeTarget = { x: midX, y: legY - BARY_ICON_OFFSET_Y };
@@ -2037,18 +2027,23 @@
                     appendBracketPointer(pointerX, legY, pointerX, targetY, 'horizontal', debugLabel);
                 });
                 if(showLabel){
-                    appendBaryLabel(node, midX, legY - BARY_LABEL_OFFSET_Y, 'middle');
+                    appendBaryLabel(node, midX - 10, legY - BARY_ICON_OFFSET_Y + 3, 'end');
                 }
             } else {
-                const clearanceX = Math.min(...childLeftClearance);
-                const legX = clearanceX - BARY_CLEARANCE;
+                const legX = Math.min(...layoutKids.map((child, idx) => {
+                    if(isBarycenter(child) && child.baryNodeTarget){
+                        return child.baryNodeTarget.x - BARY_ICON_RADIUS - BARY_ICON_CONNECTOR;
+                    }
+                    return layoutStats[idx].x - layoutStats[idx].r - BARY_CLEARANCE;
+                }));
                 const startY = Math.min(...pointerYs);
                 const endY = Math.max(...pointerYs);
                 const midY = (startY + endY) / 2;
                 appendBracketLine(legX, startY, legX, endY, debugLabel, node);
-                appendBaryIcon(legX - 8, midY, node);
+                appendBracketLine(legX, midY, legX - BARY_ICON_OFFSET_Y + BARY_ICON_RADIUS, midY, debugLabel, node);
+                appendBaryIcon(legX - BARY_ICON_OFFSET_Y, midY, node);
                 node.baryConnectorPoint = { x: legX, y: midY };
-                node.baryNodeTarget = { x: legX - 8, y: midY };
+                node.baryNodeTarget = { x: legX - BARY_ICON_OFFSET_Y, y: midY };
                 layoutKids.forEach((child, idx) => {
                     const isChildBary = isBarycenter(child) && child.baryNodeTarget;
                     const pointerY = pointerAnchors[idx].pointerY;
@@ -2057,7 +2052,7 @@
                     appendBracketPointer(legX, pointerY, targetX, pointerY, 'vertical', debugLabel);
                 });
                 if(showLabel){
-                    appendBaryLabel(node, legX - 8, midY - 10, 'middle');
+                    appendBaryLabel(node, legX - BARY_ICON_OFFSET_Y - 10, midY + 3, 'end');
                 }
             }
         };
@@ -2121,9 +2116,17 @@
             }, { passive: true });
             group.addEventListener('mouseenter', () => {
                 group.classList.add('active');
+                const entry = baryNode?.id != null ? nodeElementsById?.get(baryNode.id) : null;
+                if(entry?.label){
+                    showLabel(entry.label);
+                }
             });
             group.addEventListener('mouseleave', () => {
                 group.classList.remove('active');
+                const entry = baryNode?.id != null ? nodeElementsById?.get(baryNode.id) : null;
+                if(entry?.label){
+                    hideLabel(entry.label);
+                }
             });
             const targetLayer = baryIconLayer || baryLayerGroup || svg;
             targetLayer.appendChild(group);
@@ -2137,7 +2140,7 @@
             label.textContent = node.name || 'Barycenter';
             label.setAttribute('x', x);
             label.setAttribute('y', y);
-            label.setAttribute('class', 'bary-label');
+            label.setAttribute('class', 'bary-label hidden');
             label.setAttribute('text-anchor', anchor);
             const targetLayer = baryIconLayer || baryLayerGroup || svg;
             targetLayer.appendChild(label);
@@ -2158,6 +2161,7 @@
                 existing.label = label;
                 registerSelectableNode(node.id, existing, node);
             }
+            return label;
         };
 
         baryLayerGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
