@@ -49,6 +49,7 @@
     let selectedNodeGroup = null;
     let selectedBodyNode = null;
     let selectionMarkerEl = null;
+    let sysmapCssCache = null;
     let baryLayerGroup = null;
     let baryBracketLayer = null;
     let baryIconLayer = null;
@@ -649,6 +650,7 @@
     const initialSystem = resolveActiveSystemName();
     if (initialSystem) {
         const initialRender = renderSystem(initialSystem, { bodyId: bodyIdFromURL });
+        loadSysmapCssForExport();
         if (downloadMode === 'svg') {
             initialRender.then((success) => {
                 if (success) {
@@ -2817,11 +2819,41 @@
         return str.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c));
     }
 
-    function getSerializedSvg(includeRasterDimensions = false){
+    async function loadSysmapCssForExport(){
+        if(sysmapCssCache !== null){
+            return sysmapCssCache;
+        }
+        try {
+            const link = document.querySelector('link[rel="stylesheet"][href*="sysmap.css"]');
+            const url = link?.href || `${sameHostBaseUrl}/static/sysmap.css`;
+            const res = await fetch(url);
+            sysmapCssCache = res.ok ? (await res.text()) : '';
+        } catch(err){
+            console.warn('Unable to load sysmap.css for export', err);
+            sysmapCssCache = '';
+        }
+        return sysmapCssCache;
+    }
+
+    function getSerializedSvg(includeRasterDimensions = false, embeddedCss = ''){
         if(!svg){
             throw new Error('Missing SVG root');
         }
         const clone = svg.cloneNode(true);
+        if(embeddedCss){
+            // Make the export standalone: the page stylesheet would otherwise
+            // be missing (invisible background, unstyled/visible labels).
+            const styleEl = document.createElementNS(svg.namespaceURI || 'http://www.w3.org/2000/svg', 'style');
+            styleEl.textContent = `${embeddedCss}\nsvg { font-family: system-ui, sans-serif; }`;
+            clone.insertBefore(styleEl, clone.firstChild);
+            const background = document.createElementNS(svg.namespaceURI, 'rect');
+            background.setAttribute('x', '0');
+            background.setAttribute('y', '0');
+            background.setAttribute('width', '100%');
+            background.setAttribute('height', '100%');
+            background.setAttribute('fill', '#000');
+            clone.insertBefore(background, styleEl.nextSibling);
+        }
         const viewBox = svg.viewBox?.baseVal;
         if(includeRasterDimensions && viewBox && viewBox.width && viewBox.height){
             clone.setAttribute('width', viewBox.width);
@@ -2869,12 +2901,13 @@
         };
     }
 
-    function downloadSVG(){
+    async function downloadSVG(){
         try {
-            const source = getSerializedSvg(false);
+            const css = await loadSysmapCssForExport();
+            const source = getSerializedSvg(false, css);
             const blob = new Blob([source], {type: 'image/svg+xml;charset=utf-8'});
             const sys = resolveActiveSystemName() || 'System';
-            triggerBlobDownload(blob, `${sys.replace(/\\s+/g,'_')}.svg`);
+            triggerBlobDownload(blob, `${sys.replace(/\s+/g,'_')}.svg`);
         } catch(err) {
             console.error('Unable to export SVG', err);
         }
@@ -2907,7 +2940,8 @@
         if(!svg){
             return;
         }
-        const source = getSerializedSvg(true);
+        const css = await loadSysmapCssForExport();
+        const source = getSerializedSvg(true, css);
         const svgBlob = new Blob([source], {type: 'image/svg+xml;charset=utf-8'});
         const svgUrl = URL.createObjectURL(svgBlob);
         try {

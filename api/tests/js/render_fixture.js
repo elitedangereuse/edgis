@@ -42,15 +42,38 @@ class El {
     getAttributeNS(k){ return this.attrs[k] ?? null; }
     appendChild(c){ c.parentNode = this; this.children.push(c); return c; }
     removeChild(c){ this.children = this.children.filter(x => x !== c); return c; }
+    insertBefore(c, ref){
+        if(!c) return c;
+        c.parentNode = this;
+        const idx = this.children.indexOf(c);
+        if(idx !== -1) this.children.splice(idx, 1);
+        if(arguments[2] == null){ this.children.push(c); return c; }
+        const i = this.children.indexOf(arguments[2]);
+        if(i === -1){ this.children.push(c); } else { this.children.splice(i, 0, c); }
+        return c;
+    }
     addEventListener(type, fn){ (this._listeners[type] ||= []).push(fn); }
     removeEventListener(){}
+    dispatch(type){
+        (this._listeners[type] || []).forEach(fn => fn({ stopPropagation: () => {} }));
+    }
     querySelector(){ return null; }
     querySelectorAll(){ return []; }
     closest(){ return null; }
-    cloneNode(){ return new El(this.tagName); }
+    cloneNode(deep = false){
+        const copy = new El(this.tagName);
+        copy.attrs = {...this.attrs};
+        copy.dataset = {...this.dataset};
+        copy.style = {...this.style};
+        copy.textContent = this.textContent;
+        if(deep){
+            copy.children = this.children.map(c => { const cc = c.cloneNode(true); cc.parentNode = copy; return cc; });
+        }
+        return copy;
+    }
     getBoundingClientRect(){ return { width: 0, height: 0, top: 0, left: 0 }; }
     getBBox(){ return { x: 0, y: 0, width: 0, height: 0 }; }
-    focus(){} blur(){} select(){} contains(){ return false; }
+    focus(){} blur(){} select(){} click(){} contains(){ return false; }
 }
 
 function serialize(el, depth = 0){
@@ -104,14 +127,32 @@ async function run(systemName, fixturePath, outPath){
     globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
     globalThis.fetch = async (url) => {
         const u = String(url);
-        const respond = (payload) => ({ ok: true, status: 200, json: async () => payload });
+        const respond = (payload) => ({ ok: true, status: 200, json: async () => payload, text: async () => String(payload) });
         if(u.includes('/bodies?')) return respond(bodies);
         if(u.includes('/systems/autocomplete')) return respond([]);
+        if(u.includes('.css')) return respond(fs.readFileSync(SYSMAP_CSS, 'utf8'));
         return respond(null);
     };
+    globalThis.XMLSerializer = class { serializeToString(el){ return serialize(el); } };
 
     (0, eval)(fs.readFileSync(SYSMAP_JS, 'utf8'));
     await new Promise(r => setTimeout(r, 150));
+
+    // Optionally exercise the real SVG download path and capture the blob.
+    const exportPath = process.env.EXPORT_SVG;
+    if(exportPath){
+        const blobs = [];
+        const originalCreateObjectURL = globalThis.URL.createObjectURL;
+        globalThis.URL.createObjectURL = (blob) => { blobs.push(blob); return `blob:fake-${blobs.length}`; };
+        globalThis.URL.revokeObjectURL = () => {};
+        globalThis.document.registry.downloadSvgButton.dispatch('click');
+        await new Promise(r => setTimeout(r, 250));
+        globalThis.URL.createObjectURL = originalCreateObjectURL;
+        if(blobs.length){
+            fs.writeFileSync(exportPath, await blobs[0].text());
+        }
+        console.log(`  export captured: ${exportPath} (${blobs.length} blob(s))`);
+    }
 
     const svgEl = globalThis.document.registry.svg;
     let branchOriginStrokes = 0;
