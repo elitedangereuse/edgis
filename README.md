@@ -49,7 +49,10 @@ edgis/api$ uvicorn systems:app --reload --host 0.0.0.0 --port $UVICORN_PORT
 ## Frontend
 ### Tests
 
-To add a now test system:
+JS tests live in `api/tests/js` and run with `npm run test:js` (Node's built-in
+test runner). Each `<System>.json` fixture is a snapshot of the `/bodies` API
+response, and its `<System>.roots.json` golden file pins the expected top-level
+layout order. To add a new test system:
 ```
 curl -s "https://edgis.elitedangereuse.fr/bodies?name_or_id=HIP%2086672" | jq '[.[] | {body_id, body_name, type, parents }  + (
     if .type == "Star" and .stellar_mass != null then {mass: .stellar_mass}
@@ -58,3 +61,6 @@ curl -s "https://edgis.elitedangereuse.fr/bodies?name_or_id=HIP%2086672" | jq '[
     end
   )]
 ```
+Save it as `api/tests/js/<System>.json`, then generate the matching golden file
+with `npm run roots:print` (or `node api/tests/js/print_sysmap_roots.js`) and
+review the produced ordering against the in-game system map.

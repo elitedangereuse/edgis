@@ -1,4 +1,10 @@
 (async function(){
+    const SysmapRoots = globalThis.SysmapRoots;
+    if(!SysmapRoots){
+        throw new Error('sysmap_roots.js must be loaded before sysmap.js');
+    }
+    const { isBarycenter, isPlanetaryRingNode, isStellarRingNode, isAsteroidClusterNode,
+            hasStarDescendant, getNodeMass, computeBarycenterSkipPairs, pairKey } = SysmapRoots;
     const svg = document.getElementById('svg');
     const config = globalThis.EDGIS_SYSMAP_CONFIG || {};
     const svgOnlyMode = Boolean(config.svgOnly);
@@ -24,8 +30,11 @@
     const hGap = 30;      // horizontal spacing unit
     const rootX = 60;
     const SOL_RADIUS_KM = 696340; // actual km radius
-    const EARTH_MASS_TO_SOLAR = 1 / 332946.0487; // 1 earth mass in solar masses
     const AU_IN_METERS = 149597870700;
+    // Query values flow from the URL/inputs into client-side request URLs:
+    // validate them against allowlists before building any URL.
+    const SYSTEM_NAME_MAX_LENGTH = 80;
+    const SYSTEM_NAME_PATTERN = /^[\p{L}\p{N} \t\-_'+.*()]+$/u;
     const BARY_CLEARANCE = 16;
     const BARY_BRACKET_STROKE = '#333';
     const BARY_ICON_OFFSET_Y = 12;
@@ -187,8 +196,8 @@
         });
     };
     const fetchSystemSuggestions = async (prefix) => {
-        const trimmed = (prefix || '').trim();
-        if(trimmed.length < 2){
+        const trimmed = sanitizeSystemName(prefix);
+        if(!trimmed || trimmed.length < 2){
             renderSystemSuggestions([]);
             return;
         }
@@ -552,11 +561,6 @@
         "White Dwarf (DAZ) Star": { color: "#ffffff" },
         "White Dwarf (DAB) Star": { color: "#fffafa" },
         "White Dwarf (DAV) Star": { color: "#e6e6fa" },
-        "White Dwarf (DB) Star": { color: "#f5f5f5" },
-        "White Dwarf (DBZ) Star": { color: "#f0f8ff" },
-        "White Dwarf (DBV) Star": { color: "#f5f5dc" },
-        "White Dwarf (DC) Star": { color: "#f0fff0" },
-        "White Dwarf (DCV) Star": { color: "#fafad2" },
         "White Dwarf (DQ) Star": { color: "#f5f5f5" },
         "White Dwarf (D) Star": { color: "#f8f8ff" },
 
@@ -569,11 +573,6 @@
         // Fallback
         "Unknown Star": { color: "#ffffff" }
     };
-
-    function isBarycenter(node){
-        if(!node || typeof node.type !== 'string') return false;
-        return node.type.toLowerCase().includes('bary');
-    }
 
     function buildMaskId(node){
         const base = node && (node.id ?? node.name ?? 'mask');
@@ -791,15 +790,31 @@
         return scaled;
     }
 
-    const numericIdRegex = /^-?\d+$/;
+    // Query values flow from the URL/inputs into client-side request URLs:
+    // validate them against allowlists before building any URL.
+    function sanitizeSystemName(value){
+        const name = (value ?? '').toString().trim();
+        if(!name || name.length > SYSTEM_NAME_MAX_LENGTH){
+            return null;
+        }
+        return SYSTEM_NAME_PATTERN.test(name) ? name : null;
+    }
+
+    function parseSystemId64(value){
+        const id64Number = Number((value ?? '').toString().trim());
+        if(!Number.isSafeInteger(id64Number) || id64Number <= 0){
+            return null;
+        }
+        return id64Number;
+    }
 
     async function fetchSystemNameById64(id64){
-        const normalizedId64 = (id64 ?? '').toString().trim();
-        if(!numericIdRegex.test(normalizedId64)){
+        const id64Number = parseSystemId64(id64);
+        if(id64Number === null){
             return null;
         }
         try {
-            const res = await fetch(`${sameHostBaseUrl}/coords?q=${encodeURIComponent(normalizedId64)}`);
+            const res = await fetch(`${sameHostBaseUrl}/coords?q=${id64Number}`);
             if(!res.ok){
                 return null;
             }
@@ -812,7 +827,7 @@
     }
 
     async function renderSystem(systemName, { bodyId = null } = {}){
-        const normalizedSystemName = (systemName ?? '').toString().trim();
+        const normalizedSystemName = sanitizeSystemName(systemName);
         if (!normalizedSystemName) {
             return false;
         }
@@ -832,7 +847,7 @@
         }
         const trimmedInputName = normalizedSystemName;
         let resolvedSystemName = trimmedInputName || systemName;
-        if(trimmedInputName && numericIdRegex.test(trimmedInputName)){
+        if(trimmedInputName && parseSystemId64(trimmedInputName) !== null){
             const fetchedName = await fetchSystemNameById64(trimmedInputName);
             if(fetchedName){
                 resolvedSystemName = fetchedName;
@@ -844,128 +859,7 @@
         }
         updateUrlState(resolvedSystemName, requestedBodyId);
 
-        const nodes = new Map();
-        function resolveParentIds(parents){
-            let primaryId = null;
-            let baryId = null;
-            let directBaryParentId = null;
-            if(Array.isArray(parents)){
-                let encounteredNonBary = false;
-                parents.forEach(entry => {
-                    const [[type, value]] = Object.entries(entry);
-                    if(type === 'Null') return;
-                    const typeLower = type.toLowerCase();
-                    const isBaryEntry = typeLower.includes('barycentre') || typeLower.includes('barycenter');
-                    if(isBaryEntry){
-                        if(baryId == null) baryId = value;
-                        if(!encounteredNonBary){
-                            directBaryParentId = value;
-                        }
-                        return;
-                    }
-                    if(primaryId == null) primaryId = value;
-                    encounteredNonBary = true;
-                });
-            }
-            return { parentId: primaryId, baryParentId: baryId, directBaryParentId };
-        }
-
-        const pendingRings = new Map();
-
-        function processRingBody(body){
-            if(!isPlanetaryRingNode(body)) return false;
-            const hostId = resolveRingHostId(body);
-            if(hostId == null) return true;
-            if(!pendingRings.has(hostId)) pendingRings.set(hostId, []);
-            pendingRings.get(hostId).push(normalizeRingRecord(body));
-            return true;
-        }
-
-        function determineBodySubType(body){
-            if(body.type === 'Star') return body.star_type;
-            if(isStellarRingNode(body) || isPlanetaryRingNode(body)){
-                return body.ring_class || body.type;
-            }
-            if(isAsteroidClusterNode(body)){
-                return body.subType || body.type;
-            }
-            return body.planet_class;
-        }
-
-        function buildNodeRecord(body, parentsMeta){
-            return {
-                id64: body.system_id64,
-                id: body.body_id,
-                name: body.body_name,
-                type: body.type,
-                subType: determineBodySubType(body),
-                temperature: body.surface_temperature,
-                parentId: parentsMeta.parentId,
-                children: [],
-                x: 0, y: 0,
-                width: 0, height: 0,
-                radius: body.radius,
-                radiusScaled: 0,
-                axialTilt: body.axial_tilt,
-                rotationalPeriod: body.rotation_period,
-                orbitalPeriod: body.orbital_period,
-                semiMajorAxis: body.semi_major_axis ?? body.semiMajorAxis ?? null,
-                orbitalEccentricity: body.orbital_eccentricity ?? body.eccentricity ?? null,
-                orbitalInclination: body.orbital_inclination ?? body.orbitalInclination ?? null,
-                rings: Array.isArray(body.rings) ? body.rings.map(normalizeInlineRing).filter(Boolean) : [],
-                isLandable: body.landable,
-                tidallyLocked: body.tidally_locked ?? body.is_tidally_locked ?? body.tidallyLocked ?? null,
-                atmosphereType: body.atmosphere_type,
-                atmosphereComposition: body.atmosphere_composition,
-                surfacePressure: body.surface_pressure,
-                distanceToArrival: body.distance_from_arrival_ls ?? null,
-                earthMasses: body.mass_em ?? body.null,
-                gravity: body.gravity ?? body.surface_gravity ?? null,
-                terraformingState: body.terraforming_state ?? body.terraformingState ?? null,
-                volcanism: body.volcanism_type ?? body.volcanism ?? null,
-                materials: body.materials ?? null,
-                baryParentId: parentsMeta.baryParentId,
-                directBaryParentId: parentsMeta.directBaryParentId,
-                baryChildren: [],
-                baryNodeTarget: null,
-                baryConnectorPoint: null,
-                massValue: resolveBodyMassValue(body),
-                discovery: body.discovery ?? null,
-                wasMapped: body.was_mapped ?? body.mapped ?? null,
-                raw: body
-                // isMainStar: body.isMainStar
-            };
-        }
-
-        data.forEach(body => {
-            if(processRingBody(body)) return;
-            const parentsMeta = resolveParentIds(body.parents || []);
-            nodes.set(body.body_id, buildNodeRecord(body, parentsMeta));
-        });
-
-        for(const node of nodes.values()){
-            if(node.parentId != null && nodes.has(node.parentId)){
-                nodes.get(node.parentId).children.push(node);
-            }
-        }
-        pendingRings.forEach((ringList, parentId) => {
-            if(nodes.has(parentId)){
-                const host = nodes.get(parentId);
-                if(!Array.isArray(host.rings)) host.rings = [];
-                host.rings.push(...ringList);
-            }
-        });
-
-        ensureBarycenterChildren(nodes);
-        computeBarycenterMasses([...nodes.values()]);
-        sortBarycenterChildrenByMass([...nodes.values()]);
-        logBarycenterChildren([...nodes.values()]);
-        const skipSiblingPairs = computeBarycenterSkipPairs([...nodes.values()]);
-        const baryRootOrderMap = buildBaryRootOrderMap([...nodes.values()]);
-        for(const node of nodes.values()) node.children.sort((a,b)=>a.id-b.id);
-
-        const roots = [...nodes.values()].filter(n => n.parentId == null || !nodes.has(n.parentId))
-              .sort((a, b) => compareRootNodes(a, b, baryRootOrderMap));
+        const { nodes, roots } = SysmapRoots.buildSystemTree(data);
 
         // First pass: compute subtree sizes
         roots.forEach(r => computeSize(r, 1));
@@ -975,6 +869,7 @@
             const margin = 50; // or dynamically use max root radius
             r.x = rootX * 3;
             r.y = yCursor + r.radiusScaled;
+            r.layoutPositioned = true;
             placeChildren(r, 1);
             yCursor += r.height + vGap * 3.5;
         }
@@ -987,233 +882,8 @@
         return true;
     }
 
-    function resolveParentIds(parents){
-        let primaryId = null;
-        let baryId = null;
-        if(Array.isArray(parents)){
-            parents.forEach(entry => {
-                const [[type, value]] = Object.entries(entry);
-                if(type === 'Null') return;
-                const typeLower = type.toLowerCase();
-                if(typeLower.includes('barycentre') || typeLower.includes('barycenter')){
-                    if(baryId == null) baryId = value;
-                    return;
-                }
-                if(primaryId == null) primaryId = value;
-            });
-        }
-        return { parentId: primaryId, baryParentId: baryId };
-    }
-
-    function isPlanetaryRingNode(body){
-        const type = (body?.type || '').toLowerCase();
-        return type.includes('planetaryring');
-    }
-
-    function isStellarRingNode(body){
-        const type = (body?.type || '').toLowerCase();
-        return type.includes('stellarring');
-    }
-
-    function isAsteroidClusterNode(body){
-        const type = (body?.type || '').toLowerCase();
-        if(!type) return false;
-        return type.replace(/\s+/g, '').includes('asteroidcluster');
-    }
-
     function isRingNode(body){
         return isPlanetaryRingNode(body) || isStellarRingNode(body);
-    }
-
-    function normalizeInlineRing(ring){
-        if(!ring) return null;
-        const bodyId = parseBodyIdParam(ring.bodyId ?? ring.body_id ?? ring.id);
-        return {
-            name: ring.name || ring.body_name || ring.label || 'Ring',
-            type: ring.type || ring.ring_class || ring.class || 'Ring',
-            innerRadius: ring.innerRadius ?? ring.ring_inner_rad ?? ring.inner_radius ?? null,
-            outerRadius: ring.outerRadius ?? ring.ring_outer_rad ?? ring.outer_radius ?? null,
-            mass: ring.mass ?? ring.ring_mass_mt ?? ring.mass_mt ?? null,
-            bodyId
-        };
-    }
-
-    function normalizeRingRecord(body){
-        const bodyId = parseBodyIdParam(body.body_id ?? body.bodyId ?? body.id);
-        return {
-            name: body.body_name || body.name || 'Ring',
-            type: body.ring_class || body.type || 'Ring',
-            innerRadius: body.ring_inner_rad ?? body.ring_inner_radius ?? body.inner_radius ?? body.innerRadius ?? null,
-            outerRadius: body.ring_outer_rad ?? body.ring_outer_radius ?? body.outer_radius ?? body.outerRadius ?? null,
-            mass: body.ring_mass_mt ?? body.mass_em ?? body.mass ?? null,
-            bodyId
-        };
-    }
-
-    function resolveRingHostId(body){
-        if(body.parent_body_id != null) return body.parent_body_id;
-        if(body.parentbody_id != null) return body.parentbody_id;
-        if(body.parentBodyId != null) return body.parentBodyId;
-        const { parentId, baryParentId } = resolveParentIds(body.parents || []);
-        return parentId ?? baryParentId ?? null;
-    }
-
-    function resolveBodyMassValue(body){
-        if(!body) return null;
-        const castNumber = (value) => {
-            const num = Number(value);
-            return Number.isFinite(num) ? num : null;
-        };
-        if(body.type === 'Star' || body.stellar_mass != null || body.star_type){
-            return castNumber(body.stellar_mass ?? body.mass_em ?? body.mass ?? body.mass_mt ?? body.massMT);
-        }
-        return castNumber(body.mass_em ?? body.mass ?? body.mass_mt ?? body.massMT);
-    }
-
-    function guessBarycenterChildNames(name, nameIndex){
-        if(!name) return [];
-        const plusIndex = name.indexOf('+');
-        if(plusIndex !== -1){
-            let prefixEnd = name.lastIndexOf(' ', plusIndex);
-            if(prefixEnd === -1) prefixEnd = -1;
-            const prefix = prefixEnd >= 0 ? name.slice(0, prefixEnd + 1) : '';
-            const suffix = name.slice(prefixEnd + 1);
-            return suffix.split('+')
-                .map(part => (prefix + part.trim()).replace(/\s+/g, ' ').trim())
-                .filter(Boolean);
-        }
-
-        const segments = name.trim().split(/\s+/);
-        if(segments.length >= 2){
-            const suffix = segments[segments.length - 1];
-            if(/^[A-Za-z]{2,}$/.test(suffix)){
-                const prefix = segments.slice(0, -1).join(' ');
-                if(nameIndex instanceof Map){
-                    for(let split = 1; split < suffix.length; split++){
-                        const left = `${prefix} ${suffix.slice(0, split)}`.trim();
-                        const right = `${prefix} ${suffix.slice(split)}`.trim();
-                        if(nameIndex.has(left) && nameIndex.has(right)){
-                            return [left, right];
-                        }
-                    }
-                }
-                return suffix.split('')
-                    .map(ch => `${prefix} ${ch}`.trim())
-                    .filter(Boolean);
-            }
-        }
-        return [];
-    }
-
-    function ensureBarycenterChildren(nodes){
-        const nameIndex = new Map();
-        const arrayNodes = [...nodes.values()];
-        arrayNodes.forEach(n => {
-            if(n.name) nameIndex.set(n.name.trim(), n);
-            n.baryChildren = [];
-            n.baryNodeTarget = null;
-            n.baryConnectorPoint = null;
-        });
-
-        const addUniqueChild = (bary, child) => {
-            if(!child) return;
-            if(!bary.baryChildren.some(c => c.id === child.id)){
-                bary.baryChildren.push(child);
-            }
-        };
-
-        const baryMap = new Map();
-        arrayNodes.forEach(n => {
-            if(isBarycenter(n)) baryMap.set(n.id, n);
-        });
-
-        arrayNodes.forEach(node => {
-            const baryId = node.directBaryParentId;
-            if(baryId != null && baryMap.has(baryId)){
-                addUniqueChild(baryMap.get(baryId), node);
-            }
-        });
-
-        arrayNodes.forEach(node => {
-            if(!isBarycenter(node)) return;
-            if(node.baryChildren.length >= 2) return;
-            const targets = guessBarycenterChildNames(node.name, nameIndex);
-            if(targets.length === 0) return;
-            const matches = targets.map(name => nameIndex.get(name)).filter(Boolean);
-            for(const child of matches){
-                addUniqueChild(node, child);
-                if(node.baryChildren.length >= 2) break;
-            }
-        });
-    }
-
-    function usesSolarMassUnits(node){
-        if(!node) return false;
-        const type = (node.type || '').toLowerCase();
-        if(type === 'star') return true;
-        if(type === 'planet') return false;
-        if(isBarycenter(node)) return hasStarDescendant(node);
-        return false;
-    }
-
-    function normalizeMassToUnit(massValue, fromSolarUnits, toSolarUnits){
-        if(!Number.isFinite(massValue)) return 0;
-        if(fromSolarUnits === toSolarUnits) return massValue;
-        return toSolarUnits ? massValue * EARTH_MASS_TO_SOLAR : massValue / EARTH_MASS_TO_SOLAR;
-    }
-
-    function computeBarycenterMasses(nodes){
-        const arrayNodes = Array.isArray(nodes) ? nodes : [...nodes.values()];
-        const massCache = new Map();
-        const resolveMass = (node) => {
-            if(!node) return 0;
-            if(massCache.has(node)) return massCache.get(node);
-            const base = Number(node.massValue);
-            if(!isBarycenter(node)){
-                const mass = Number.isFinite(base) ? base : 0;
-                massCache.set(node, mass);
-                return mass;
-            }
-            const children = (node.baryChildren || []).filter(Boolean);
-            if(children.length === 0){
-                node.massValue = Number.isFinite(base) ? base : 0;
-                massCache.set(node, node.massValue);
-                return node.massValue;
-            }
-            const baryUsesSolarMass = usesSolarMassUnits(node);
-            const total = children.reduce((sum, child) => {
-                const childMass = resolveMass(child);
-                const childUsesSolarMass = usesSolarMassUnits(child);
-                return sum + normalizeMassToUnit(childMass, childUsesSolarMass, baryUsesSolarMass);
-            }, 0);
-            node.massValue = total;
-            massCache.set(node, total);
-            return total;
-        };
-        arrayNodes.forEach(node => {
-            if(isBarycenter(node)) resolveMass(node);
-        });
-    }
-
-    function getNodeMass(node){
-        const value = Number(node?.massValue);
-        return Number.isFinite(value) ? value : 0;
-    }
-
-    function sortBarycenterChildrenByMass(nodes){
-        const arrayNodes = Array.isArray(nodes) ? nodes : [...nodes.values()];
-        arrayNodes.forEach(node => {
-            if(!isBarycenter(node) || !Array.isArray(node.baryChildren)) return;
-            node.baryChildren.sort((a, b) => getNodeMass(b) - getNodeMass(a));
-        });
-    }
-
-    function hasStarDescendant(node, seen = new Set()){
-        if(!node || seen.has(node)) return false;
-        seen.add(node);
-        if((node.type || '').toLowerCase() === 'star') return true;
-        if(!isBarycenter(node)) return false;
-        return (node.baryChildren || []).some(child => hasStarDescendant(child, seen));
     }
 
     function resolveMassUnitForNode(node){
@@ -1234,105 +904,8 @@
         return formatNumber(value, { unit, fractionDigits: 3 });
     }
 
-    function logBarycenterChildren(nodes){
-        const baryNodes = nodes.filter(isBarycenter);
-        if(baryNodes.length === 0) return;
-        console.groupCollapsed('Barycenter masses');
-        baryNodes.forEach(bary => {
-            const masses = (bary.baryChildren || []).map(child => {
-                const childName = child?.name || `#${child?.id ?? '??'}`;
-                const childType = child?.type || 'unknown';
-                return `${childName} (${childType})`;
-            });
-            const label = `${bary.name || 'Unnamed barycenter'} (#${bary.id ?? '??'})`;
-            const baryMass = formatMassDisplay(bary);
-            if(masses.length === 0){
-                console.log(`${label}: no bary masses detected [mass=${baryMass}]`);
-            } else {
-                console.log(`${label}: ${masses.join('  |  ')} [mass=${baryMass}]`);
-            }
-        });
-        console.groupEnd();
-    }
-
-    function computeBarycenterSkipPairs(arrayNodes){
-        const skip = new Set();
-        arrayNodes.forEach(bary => {
-            if(!isBarycenter(bary)) return;
-            const kids = (bary.baryChildren || []).filter(Boolean);
-            if(kids.length < 2) return;
-            for(let i = 0; i < kids.length; i++){
-                for(let j = i+1; j < kids.length; j++){
-                    skip.add(pairKey(kids[i].id, kids[j].id));
-                }
-            }
-        });
-        return skip;
-    }
-
-    function buildBaryRootOrderMap(arrayNodes){
-        const nodes = Array.isArray(arrayNodes) ? arrayNodes : [...arrayNodes.values()];
-        const baryNodes = nodes.filter(isBarycenter);
-        if(baryNodes.length === 0){
-            return new Map();
-        }
-        const childToBary = new Map();
-        baryNodes.forEach(bary => {
-            (bary.baryChildren || []).forEach(child => {
-                if(child && child.id != null && !childToBary.has(child.id)){
-                    childToBary.set(child.id, bary);
-                }
-            });
-        });
-        let baryRoots = baryNodes.filter(bary => !childToBary.has(bary.id));
-        if(baryRoots.length === 0){
-            baryRoots = baryNodes;
-        }
-        baryRoots.sort((a, b) => getNodeMass(b) - getNodeMass(a));
-        const orderMap = new Map();
-        const visitedBary = new Set();
-        const visitedNodes = new Set();
-
-        const assignFromBary = (bary) => {
-            if(!bary || visitedBary.has(bary.id)) return;
-            visitedBary.add(bary.id);
-            const kids = (bary.baryChildren || []).filter(Boolean);
-            kids.sort((a, b) => getNodeMass(b) - getNodeMass(a));
-            kids.forEach(child => {
-                if(isBarycenter(child)){
-                    assignFromBary(child);
-                } else if(child.id != null && !visitedNodes.has(child.id)){
-                    orderMap.set(child.id, orderMap.size);
-                    visitedNodes.add(child.id);
-                }
-            });
-        };
-
-        baryRoots.forEach(assignFromBary);
-        return orderMap;
-    }
-
-    function compareRootNodes(a, b, orderMap){
-        const orderA = orderMap.get(a?.id);
-        const orderB = orderMap.get(b?.id);
-        if(orderA != null || orderB != null){
-            if(orderA == null) return 1;
-            if(orderB == null) return -1;
-            if(orderA !== orderB) return orderA - orderB;
-        }
-        if (a.isMainStar && !b.isMainStar) return -1;
-        if (b.isMainStar && !a.isMainStar) return 1;
-        return (a.id ?? 0) - (b.id ?? 0);
-    }
-
-    function pairKey(aId, bId){
-        if(aId == null || bId == null) return '';
-        return (aId < bId) ? `${aId}|${bId}` : `${bId}|${aId}`;
-    }
-
     // Recursively compute subtree size (width, height)
     function computeSize(node, depth){
-        const nodeLabel = `${node.name || 'unnamed'} (#${node.id || '??'})`;
         node.radiusScaled = scaleRadius(node.radius, node.type, node.subType);
         node.layoutRadius = node.radiusScaled;
         if(isStellarRingNode(node)){
@@ -1351,7 +924,6 @@
         if(depth % 2 === 1){  // horizontal layout
             let maxH = 0;
             node.children.forEach(c => {
-                const childLabel = `${c.name || 'unnamed'} (#${c.id || '??'})`;
                 const sz = computeSize(c, depth+1);
                 totalW += sz.width + hGap;
                 if(sz.height > maxH) maxH = sz.height;
@@ -1361,7 +933,6 @@
         } else {  // vertical layout
             let maxW = 0;
             node.children.forEach(c => {
-                const childLabel = `${c.name || 'unnamed'} (#${c.id || '??'})`;
                 const sz = computeSize(c, depth+1);
                 totalH += sz.height + vGap;
                 if(sz.width > maxW) maxW = sz.width;
@@ -1385,7 +956,6 @@
             kids.forEach(c => {
                 c.y = parent.y;
                 c.x = xCursor + c.radiusScaled;
-                console.log(c.name, c.x, c.radiusScaled);
                 placeChildren(c, depth+1);
                 if (c.rings) {
                     xCursor += c.width * 1.3 + hGap;
@@ -2281,7 +1851,17 @@
             const kids = (parent.children || []).filter(child => child && index.has(child.id) && !isBarycenter(child));
             if(kids.length === 0) return;
 
-            if(!isBarycenter(parent)){
+            if(isBarycenter(parent)){
+                // Branch of a (root) barycenter: its non-mass children form a
+                // horizontal branch originating at the barycenter, marked by a
+                // small cross as in the in-game system map. Nested barycenters
+                // are not positioned themselves, so only anchored ones get the
+                // branch spine.
+                if(parent.layoutPositioned){
+                    drawLink(parent, kids[kids.length - 1]);
+                    appendBranchOriginMark(parent.x, parent.y);
+                }
+            } else {
                 drawLink(parent, kids[0]);
             }
 
@@ -2291,6 +1871,21 @@
                 }
             }
         });
+
+        function appendBranchOriginMark(x, y){
+            const arm = 4;
+            [[-1, -1], [1, 1], [-1, 1], [1, -1]].forEach(([dx, dy]) => {
+                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                line.setAttribute('x1', x);
+                line.setAttribute('y1', y);
+                line.setAttribute('x2', x + arm * dx);
+                line.setAttribute('y2', y + arm * dy);
+                line.setAttribute('stroke', BARY_BRACKET_STROKE);
+                line.setAttribute('stroke-width', '1.4');
+                line.setAttribute('class', 'bary-branch-origin');
+                svg.appendChild(line);
+            });
+        }
 
         function drawLink(a, b){
             const key = pairKey(a.id, b.id);
