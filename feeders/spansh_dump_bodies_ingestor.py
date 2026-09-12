@@ -69,7 +69,13 @@ UPSERT_BODY = """
               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
               %s)
     ON CONFLICT (system_id64, body_id) DO UPDATE SET
-        body_type_id            = EXCLUDED.body_type_id,
+        -- EDDN ScanBaryCentre is the only source of barycenter rows; dumps
+        -- model the system primary as a plain star and must not downgrade it.
+        body_type_id            = CASE
+                                      WHEN bodies.body_type_id = (SELECT id FROM body_types WHERE name = 'Barycenter')
+                                      THEN bodies.body_type_id
+                                      ELSE EXCLUDED.body_type_id
+                                  END,
         planet_class_id         = COALESCE(EXCLUDED.planet_class_id, bodies.planet_class_id),
         terraform_state_id      = COALESCE(EXCLUDED.terraform_state_id, bodies.terraform_state_id),
         atmosphere_type_id      = COALESCE(EXCLUDED.atmosphere_type_id, bodies.atmosphere_type_id),
