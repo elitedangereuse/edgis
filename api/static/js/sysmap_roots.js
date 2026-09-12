@@ -155,7 +155,11 @@ function buildNodeRecord(body, parentsMeta){
 // partial matches like "AB" + "C" preferred when both split bodies exist).
 function guessBarycenterChildNames(name, nameIndex){
     if(!name) return [];
-    const plusIndex = name.indexOf('+');
+    // Only treat "+" as a member separator when it sits in the final segment
+    // ("X AB 2+3"): designations like "2MASS J02351897+6131236 ABC" carry a
+    // "+" inside the system prefix and must fall through to the letter logic.
+    const lastSpace = name.lastIndexOf(' ');
+    const plusIndex = name.indexOf('+', lastSpace + 1);
     if(plusIndex !== -1){
         return guessBarycenterPlusNames(name, plusIndex);
     }
@@ -246,14 +250,20 @@ function associateBarycenterMembers(nodes){
         if(massCache.has(node)) return massCache.get(node);
         let mass;
         if(isBarycenter(node)){
+            // Never cache a barycenter sum before its members are associated:
+            // the fallback pass below sorts by mass and would otherwise freeze
+            // a zero sum for nested barycenters into the cache.
             const solar = usesSolarMassUnits(node);
             mass = (node.baryChildren || []).reduce((sum, child) => {
                 return sum + normalizeMassToUnit(massOf(child), usesSolarMassUnits(child), solar);
             }, 0);
+            if((node.baryChildren || []).length > 0){
+                massCache.set(node, mass);
+            }
         } else {
             mass = getNodeMass(node);
+            massCache.set(node, mass);
         }
-        massCache.set(node, mass);
         return mass;
     };
 
