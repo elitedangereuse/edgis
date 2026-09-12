@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
-const { buildRootIds } = require('../../static/js/sysmap_roots');
+const { buildRootIds, buildSystemTree, isBarycenter } = require('../../static/js/sysmap_roots');
 
 const fixtureDir = __dirname;
 const fixtureFiles = fs.readdirSync(fixtureDir)
@@ -30,4 +30,26 @@ fixtureFiles.forEach((filename) => {
         const rootIds = buildRootIds(bodies);
         assert.deepStrictEqual(rootIds, expected);
     });
+});
+
+// Barycenter member sums drive layout ordering; they must aggregate nested
+// barycenter masses instead of collapsing to zero (2MASS designations carry a
+// "+" inside the system prefix, which used to break the member-name guesses).
+test('barycenter masses: 2MASS J02351897+6131236', () => {
+    const bodies = loadBodies(path.join(fixtureDir, '2MASS J02351897+6131236.json'));
+    const { nodes } = buildSystemTree(bodies);
+    const expectedMasses = {
+        0: 132.226563, // ABCD = ABC + D
+        1: 100.84375,  // ABC = A + BC
+        3: 25.152344,  // BC = B + C
+        38: 1.046875   // 6+7
+    };
+    for(const [id, expected] of Object.entries(expectedMasses)){
+        const node = nodes.get(Number(id));
+        assert.ok(node && isBarycenter(node), `missing barycenter ${id}`);
+        assert.ok(
+            Math.abs(node.massValue - expected) < 1e-6,
+            `barycenter ${id} (${node.name}) mass ${node.massValue} != ${expected}`
+        );
+    }
 });
