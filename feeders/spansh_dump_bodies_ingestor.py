@@ -31,25 +31,34 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 
 RECONNECT_MAX_ATTEMPTS = int(os.getenv("DB_RECONNECT_MAX_ATTEMPTS", "5"))
 # Set DB_RECONNECT_MAX_ATTEMPTS=0 to retry indefinitely.
-RECONNECT_BACKOFF_SECONDS = float(os.getenv("DB_RECONNECT_BACKOFF_SECONDS", "5"))
+RECONNECT_BACKOFF_SECONDS = float(
+    os.getenv("DB_RECONNECT_BACKOFF_SECONDS", "5")
+)
 
 
 def create_connection() -> PGConnection:
     return psycopg.connect(
-        host=DB_HOST, port=5432, dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD
+        host=DB_HOST,
+        port=5432,
+        dbname=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD,
     )
 
 
 conn = create_connection()
 
 
-def execute_batch(cursor: PGCursor, sql: str, argslist: Sequence[Sequence], page_size: int) -> None:
+def execute_batch(
+    cursor: PGCursor, sql: str, argslist: Sequence[Sequence], page_size: int
+) -> None:
     """Execute statements in batches using psycopg3's executemany."""
     if not argslist:
         return
     for start in range(0, len(argslist), page_size):
         chunk = argslist[start : start + page_size]
         cursor.executemany(sql, chunk)
+
 
 # === UPSERT Query for bodies (41 fields) ===
 UPSERT_BODY = """
@@ -106,9 +115,13 @@ UPSERT_BODY = """
         composition_metal       = COALESCE(EXCLUDED.composition_metal, bodies.composition_metal),
         composition_rock        = COALESCE(EXCLUDED.composition_rock, bodies.composition_rock),
         parents                 = CASE
-                                    WHEN EXCLUDED.parents IS NOT NULL THEN EXCLUDED.parents
+                                    WHEN EXCLUDED.parents IS NULL THEN bodies.parents
+                                    WHEN bodies.parents IS NULL THEN EXCLUDED.parents
+                                    WHEN jsonb_array_length(EXCLUDED.parents)
+                                         >= jsonb_array_length(bodies.parents)
+                                      THEN EXCLUDED.parents
                                     ELSE bodies.parents
-                                  END,
+                                  END
         tidally_locked          = EXCLUDED.tidally_locked,
         landable                = EXCLUDED.landable,
         updatetime              = EXCLUDED.updatetime,
@@ -187,7 +200,6 @@ def get_lookup_cursor(table: str, connection: PGConnection) -> PGCursor:
         cursor = connection.cursor()
         lookup_cursors[table] = cursor
     return cursor
-
 
 
 def parse_timestamp(ts_str):
@@ -295,7 +307,11 @@ def _map_star_type_value(raw_value: str | None) -> str | None:
         return "N"
 
     if "black hole" in lower_candidate:
-        return "SupermassiveBlackHole" if "supermassive" in lower_candidate else "H"
+        return (
+            "SupermassiveBlackHole"
+            if "supermassive" in lower_candidate
+            else "H"
+        )
 
     if "herbig" in lower_candidate or "ae" in lower_candidate:
         return "AeBe"
@@ -493,7 +509,9 @@ class SpanshBodyIngestSession:
         self.material_cursor = self.conn.cursor()
         self.gas_cursor = self.conn.cursor()
 
-    def _run_with_retry(self, action: Callable[[], object], label: str) -> object:
+    def _run_with_retry(
+        self, action: Callable[[], object], label: str
+    ) -> object:
         last_exc: Exception | None = None
         attempt = 0
         while RECONNECT_MAX_ATTEMPTS <= 0 or attempt < RECONNECT_MAX_ATTEMPTS:
@@ -527,7 +545,8 @@ class SpanshBodyIngestSession:
                 return row[0]
 
             cur.execute(
-                f"INSERT INTO {table} (name) VALUES (%s) RETURNING id;", (name,)
+                f"INSERT INTO {table} (name) VALUES (%s) RETURNING id;",
+                (name,),
             )
             new_id = cur.fetchone()[0]
             cache[name] = new_id
@@ -537,17 +556,21 @@ class SpanshBodyIngestSession:
 
     def flush_batches(self) -> None:
         if self.material_batch:
+
             def _flush_materials() -> None:
                 execute_batch(
                     self.material_cursor,
                     UPSERT_MATERIAL,
                     self.material_batch,
-                    page_size=min(len(self.material_batch), MATERIAL_BATCH_SIZE),
+                    page_size=min(
+                        len(self.material_batch), MATERIAL_BATCH_SIZE
+                    ),
                 )
 
             self._run_with_retry(_flush_materials, "Flush materials")
             self.material_batch.clear()
         if self.gas_batch:
+
             def _flush_gases() -> None:
                 execute_batch(
                     self.gas_cursor,
@@ -638,9 +661,11 @@ class SpanshBodyIngestSession:
                 if body.get("type") == "Barycentre"
                 else body.get("name")
             ),
-            "body_type_id": self.get_lookup_id("body_types", "Barycenter")
-            if body.get("type") == "Barycentre"
-            else self.get_lookup_id("body_types", body.get("type")),
+            "body_type_id": (
+                self.get_lookup_id("body_types", "Barycenter")
+                if body.get("type") == "Barycentre"
+                else self.get_lookup_id("body_types", body.get("type"))
+            ),
             "planet_class_id": (
                 self.get_lookup_id("planet_classes", "Earthlike body")
                 if body.get("type") == "Planet"
@@ -648,11 +673,13 @@ class SpanshBodyIngestSession:
                 else (
                     self.get_lookup_id(
                         "planet_classes",
-                        body.get("subType").replace(
-                            "ammonia-based", "ammonia based"
-                        )
-                        if body.get("subType")
-                        else None,
+                        (
+                            body.get("subType").replace(
+                                "ammonia-based", "ammonia based"
+                            )
+                            if body.get("subType")
+                            else None
+                        ),
                     )
                     if body.get("type") == "Planet"
                     else None
@@ -661,27 +688,31 @@ class SpanshBodyIngestSession:
             "terraform_state_id": self.get_lookup_id(
                 "terraform_states", body.get("terraformingState")
             ),
-            "atmosphere_type_id": self.get_lookup_id(
-                "atmosphere_types",
-                convert_atmosphere_type(
-                    body.get("atmosphereType"),
-                    body.get("subType"),
-                    body.get("name"),
-                ),
-            )
-            if body.get("type") == "Planet"
-            else None,
-            "atmosphere_id": self.get_lookup_id(
-                "atmospheres",
-                body.get("atmosphereType")
-                .lower()
-                .replace("sulphur", "sulfur")
-                .replace("-rich", " rich")
-                .replace("no atmosphere", "no")
-                + " atmosphere",
-            )
-            if body.get("atmosphereType")
-            else None,
+            "atmosphere_type_id": (
+                self.get_lookup_id(
+                    "atmosphere_types",
+                    convert_atmosphere_type(
+                        body.get("atmosphereType"),
+                        body.get("subType"),
+                        body.get("name"),
+                    ),
+                )
+                if body.get("type") == "Planet"
+                else None
+            ),
+            "atmosphere_id": (
+                self.get_lookup_id(
+                    "atmospheres",
+                    body.get("atmosphereType")
+                    .lower()
+                    .replace("sulphur", "sulfur")
+                    .replace("-rich", " rich")
+                    .replace("no atmosphere", "no")
+                    + " atmosphere",
+                )
+                if body.get("atmosphereType")
+                else None
+            ),
             "volcanism_id": (
                 self.get_lookup_id(
                     "volcanisms",
@@ -710,24 +741,29 @@ class SpanshBodyIngestSession:
             "luminosity_id": self.get_lookup_id(
                 "luminosities", body.get("luminosity")
             ),
-            "star_type_id": self.get_lookup_id(
-                "star_types", star_type_name
-            )
-            if star_type_name
-            else None,
-            "subclass": parse_subclass(body.get("spectralClass"))
-            if body.get("type") == "Star"
-            else None,
+            "star_type_id": (
+                self.get_lookup_id("star_types", star_type_name)
+                if star_type_name
+                else None
+            ),
+            "subclass": (
+                parse_subclass(body.get("spectralClass"))
+                if body.get("type") == "Star"
+                else None
+            ),
             "stellar_mass": body.get("solarMasses"),
             "composition_ice": _normalize_fraction(composition_ice),
             "composition_metal": _normalize_fraction(composition_metal),
             "composition_rock": _normalize_fraction(composition_rock),
-            "parents": json.dumps(body.get("parents"))
-            if body.get("parents")
-            else None,
+            "parents": (
+                json.dumps(body.get("parents"))
+                if body.get("parents")
+                else None
+            ),
             "tidally_locked": body.get("rotationalPeriodTidallyLocked"),
             "landable": body.get("isLandable"),
-            "updatetime": parse_timestamp(body.get("updateTime")) or updatetime,
+            "updatetime": parse_timestamp(body.get("updateTime"))
+            or updatetime,
             "ring_class_id": None,
             "ring_inner_rad": None,
             "ring_outer_rad": None,
@@ -736,7 +772,9 @@ class SpanshBodyIngestSession:
 
         try:
             self._run_with_retry(
-                lambda: self.body_cursor.execute(UPSERT_BODY, list(row.values())),
+                lambda: self.body_cursor.execute(
+                    UPSERT_BODY, list(row.values())
+                ),
                 "UPSERT_BODY",
             )
         except Exception as exc:
@@ -770,13 +808,17 @@ class SpanshBodyIngestSession:
         atmosphere_composition = body.get("atmosphereComposition", {})
         if atmosphere_composition:
             for raw_name, percent in sorted(
-                atmosphere_composition.items(), key=lambda kv: kv[1], reverse=True
+                atmosphere_composition.items(),
+                key=lambda kv: kv[1],
+                reverse=True,
             ):
                 try:
                     formatted_name = "".join(
                         word.capitalize() for word in raw_name.split()
                     )
-                    gas_id = self.get_lookup_id("atmosphere_gases", formatted_name)
+                    gas_id = self.get_lookup_id(
+                        "atmosphere_gases", formatted_name
+                    )
                 except Exception as exc:
                     self._log(
                         f"Error inserting gas {raw_name} for body {body.get('name')}: {exc}"
@@ -796,7 +838,9 @@ class SpanshBodyIngestSession:
                 "system_id64": sys_id,
                 "body_id": body.get("bodyId") + i,
                 "body_name": ring.get("name"),
-                "body_type_id": self.get_lookup_id("body_types", "PlanetaryRing"),
+                "body_type_id": self.get_lookup_id(
+                    "body_types", "PlanetaryRing"
+                ),
                 "planet_class_id": None,
                 "terraform_state_id": None,
                 "atmosphere_type_id": None,
@@ -831,12 +875,14 @@ class SpanshBodyIngestSession:
                 "landable": None,
                 "updatetime": parse_timestamp(ring.get("updateTime"))
                 or updatetime,
-                "ring_class_id": self.get_lookup_id(
-                    "ring_classes",
-                    "eRingClass_" + ring.get("type", "").replace(" ", ""),
-                )
-                if ring.get("type")
-                else None,
+                "ring_class_id": (
+                    self.get_lookup_id(
+                        "ring_classes",
+                        "eRingClass_" + ring.get("type", "").replace(" ", ""),
+                    )
+                    if ring.get("type")
+                    else None
+                ),
                 "ring_inner_rad": ring.get("innerRadius"),
                 "ring_outer_rad": ring.get("outerRadius"),
                 "ring_mass_mt": ring.get("mass"),
@@ -849,11 +895,10 @@ class SpanshBodyIngestSession:
                     "UPSERT_BODY ring",
                 )
             except Exception as exc:
-                self._log(
-                    f"Error processing ring {ring.get('name')}: {exc}"
-                )
+                self._log(f"Error processing ring {ring.get('name')}: {exc}")
                 self.conn.rollback()
                 self.reset_cursors()
+
 
 def ingest_streaming(path):
     total_bytes = os.path.getsize(path)
