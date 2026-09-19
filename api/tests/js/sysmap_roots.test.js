@@ -4,7 +4,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
-const { buildRootIds, buildSystemTree, isBarycenter } = require('../../static/js/sysmap_roots');
+const {
+    buildRootIds,
+    buildSystemTree,
+    computeBarycenterSkipPairs,
+    isBarycenter,
+    pairKey
+} = require('../../static/js/sysmap_roots');
 
 const fixtureDir = __dirname;
 const fixtureFiles = fs.readdirSync(fixtureDir)
@@ -50,6 +56,19 @@ test('barycenter masses: 2MASS J02351897+6131236', () => {
         assert.ok(
             Math.abs(node.massValue - expected) < 1e-6,
             `barycenter ${id} (${node.name}) mass ${node.massValue} != ${expected}`
+        );
+    }
+});
+
+test('nested barycenters suppress visible member links at every bracket boundary', () => {
+    const bodies = loadBodies(path.join(fixtureDir, 'PHREIA FLYOU FG-V D3-116.json'));
+    const { nodes } = buildSystemTree(bodies);
+    const skipped = computeBarycenterSkipPairs(nodes);
+
+    for(const [left, right] of [[10, 11], [11, 12], [12, 13], [13, 14]]){
+        assert.ok(
+            skipped.has(pairKey(left, right)),
+            `expected nested barycenter boundary ${left}|${right} to be suppressed`
         );
     }
 });

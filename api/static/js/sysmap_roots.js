@@ -412,13 +412,25 @@ function pairKey(aId, bId){
     return (aId < bId) ? `${aId}|${bId}` : `${bId}|${aId}`;
 }
 
-// Sibling links that must not be drawn because the barycenter bracket
-// replaces them.
+// Sibling links that must not be drawn because barycenter brackets replace
+// them. Nested barycenters are flattened to their visible, non-barycenter
+// members so the outer bracket also suppresses the link at each nested-group
+// boundary (for example: A+B, then C must not draw B--C).
 function computeBarycenterSkipPairs(nodes){
     const skip = new Set();
+    const collectVisibleMembers = (node, ancestors = new Set()) => {
+        if(!isBarycenter(node)) return [node];
+        if(ancestors.has(node)) return [];
+        const members = (node.baryChildren || []).filter(Boolean);
+        if(members.length === 0) return [];
+        const nextAncestors = new Set(ancestors);
+        nextAncestors.add(node);
+        return members.flatMap(member => collectVisibleMembers(member, nextAncestors));
+    };
+
     (Array.isArray(nodes) ? nodes : [...nodes.values()]).forEach(bary => {
         if(!isBarycenter(bary)) return;
-        const members = (bary.baryChildren || []).filter(Boolean);
+        const members = collectVisibleMembers(bary);
         if(members.length < 2) return;
         for(let i = 0; i < members.length; i++){
             for(let j = i + 1; j < members.length; j++){
