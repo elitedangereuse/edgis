@@ -1872,7 +1872,11 @@
                 // are not positioned themselves, so only anchored ones get the
                 // branch spine.
                 if(parent.layoutPositioned){
-                    drawLink(parent, kids[kids.length - 1]);
+                    // The branch begins at its first displayed child. Linking
+                    // to the last child creates a misleading cross-system
+                    // span for long barycenter branches (for example BC 9 in
+                    // Hajanheimr instead of BC 1).
+                    drawLink(parent, kids[0]);
                     appendBranchOriginMark(parent.x, parent.y);
                 }
             } else {
