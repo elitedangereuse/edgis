@@ -169,12 +169,6 @@ UPSERT_BODY = """
     RETURNING (xmax = 0) AS is_new;
 """
 
-# EDDN Scan.Rings entries have no authoritative BodyID. Preserve an existing
-# source body when its ID collides with this historical inferred ring ID.
-INSERT_INFERRED_RING = UPSERT_BODY.rsplit("ON CONFLICT", 1)[0] + """
-    ON CONFLICT (system_id64, body_id) DO NOTHING
-"""
-
 # === New UPSERTs for normalized tables ===
 UPSERT_MATERIAL = """
     INSERT INTO body_materials (system_id64, body_id, material_id, percent)
@@ -271,6 +265,34 @@ def parse_timestamp(ts_str):
         return datetime.fromisoformat(ts_str.replace("Z", TIMEZONE))
     except (ValueError, TypeError):
         return None
+
+
+def inferred_ring_body_id(parent_body_id: int, ring_number: int) -> int:
+    """Return a deterministic negative ID for one of at most four rings."""
+    return -(parent_body_id * 4 + ring_number)
+
+
+def has_positive_ring_body(
+    db_conn: psycopg.Connection,
+    system_id64: int,
+    ring_name: str,
+    ring_type_id: int,
+) -> bool:
+    """Whether a source or legacy positive ring already represents this ring."""
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT 1
+            FROM bodies
+            WHERE system_id64 = %s
+              AND body_name = %s
+              AND body_type_id = %s
+              AND body_id > 0
+            LIMIT 1;
+            """,
+            (system_id64, ring_name, ring_type_id),
+        )
+        return cur.fetchone() is not None
 
 
 # === Infer canonical body type ===
@@ -544,16 +566,28 @@ def process_message(
         # --- Auto-create PlanetaryRings from Rings array ---
         if body["type"] == "Planet" and "Rings" in msg_data:
             parent_body_id = body_id
-            for i, ring in enumerate(msg_data["Rings"]):
+            for ring_number, ring in enumerate(msg_data["Rings"], start=1):
                 ring_name = ring["Name"]
-                ring_body_id = parent_body_id + (i + 1)
+                ring_type_id = get_lookup_id(
+                    "body_types", "PlanetaryRing", db_conn
+                )
+                if has_positive_ring_body(
+                    db_conn, system_address, ring_name, ring_type_id
+                ):
+                    if verbose:
+                        print(
+                            f"Skipped inferred ring {ring_name}: "
+                            "a positive ring body already exists"
+                        )
+                    continue
+                ring_body_id = inferred_ring_body_id(
+                    parent_body_id, ring_number
+                )
                 ring_body = {
                     "system_id64": system_address,
                     "body_id": ring_body_id,
                     "body_name": ring_name,
-                    "body_type_id": get_lookup_id(
-                        "body_types", "PlanetaryRing", db_conn
-                    ),
+                    "body_type_id": ring_type_id,
                     "planet_class_id": None,
                     "terraform_state_id": None,
                     "atmosphere_type_id": None,
@@ -599,7 +633,7 @@ def process_message(
 
                 with db_conn.cursor() as cur:
                     cur.execute(
-                        INSERT_INFERRED_RING,
+                        UPSERT_BODY,
                         [
                             ring_body["system_id64"],
                             ring_body["body_id"],
@@ -646,12 +680,6 @@ def process_message(
                             ring_body["ring_mass_mt"],
                         ],
                     )
-                    if verbose and getattr(cur, "rowcount", 1) == 0:
-                        print(
-                            "Skipped inferred ring "
-                            f"{ring_name} at body ID {ring_body_id}: "
-                            "an existing source body owns that ID"
-                        )
                 db_conn.commit()
                 if verbose:
                     print(

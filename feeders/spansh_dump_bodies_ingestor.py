@@ -21,6 +21,11 @@ def json_default(obj):
     raise TypeError
 
 
+def inferred_ring_body_id(parent_body_id: int, ring_number: int) -> int:
+    """Return a deterministic negative ID for one of at most four rings."""
+    return -(parent_body_id * 4 + ring_number)
+
+
 # === Database Connection ===
 load_dotenv()
 
@@ -88,8 +93,31 @@ UPSERT_BODY = """
         body_name                = EXCLUDED.body_name,
         planet_class_id         = COALESCE(EXCLUDED.planet_class_id, bodies.planet_class_id),
         terraform_state_id      = COALESCE(EXCLUDED.terraform_state_id, bodies.terraform_state_id),
-        atmosphere_type_id      = COALESCE(EXCLUDED.atmosphere_type_id, bodies.atmosphere_type_id),
-        atmosphere_id           = COALESCE(EXCLUDED.atmosphere_id, bodies.atmosphere_id),
+        -- Spansh can report "No atmosphere" alongside a non-empty atmospheric
+        -- composition. Do not let that contradictory refresh erase a value
+        -- previously supplied by a player Scan.
+        atmosphere_type_id      = CASE
+                                      WHEN bodies.atmosphere_id IS NOT NULL
+                                       AND EXISTS (
+                                           SELECT 1
+                                           FROM atmospheres
+                                           WHERE id = EXCLUDED.atmosphere_id
+                                             AND name = 'no atmosphere'
+                                       )
+                                      THEN bodies.atmosphere_type_id
+                                      ELSE COALESCE(EXCLUDED.atmosphere_type_id, bodies.atmosphere_type_id)
+                                  END,
+        atmosphere_id           = CASE
+                                      WHEN bodies.atmosphere_id IS NOT NULL
+                                       AND EXISTS (
+                                           SELECT 1
+                                           FROM atmospheres
+                                           WHERE id = EXCLUDED.atmosphere_id
+                                             AND name = 'no atmosphere'
+                                       )
+                                      THEN bodies.atmosphere_id
+                                      ELSE COALESCE(EXCLUDED.atmosphere_id, bodies.atmosphere_id)
+                                  END,
         volcanism_id            = COALESCE(EXCLUDED.volcanism_id, bodies.volcanism_id),
         radius                  = COALESCE(EXCLUDED.radius, bodies.radius),
         mass_em                 = COALESCE(EXCLUDED.mass_em, bodies.mass_em),
@@ -131,13 +159,6 @@ UPSERT_BODY = """
         ring_outer_rad          = EXCLUDED.ring_outer_rad,
         ring_mass_mt            = EXCLUDED.ring_mass_mt
     -- Removed RETURNING clause entirely
-"""
-
-# Rings embedded in Spansh body records have no authoritative body ID. They
-# are retained only when their historical inferred ID is not already occupied
-# by a source body; never let that inference overwrite source data.
-INSERT_INFERRED_RING = UPSERT_BODY.rsplit("ON CONFLICT", 1)[0] + """
-    ON CONFLICT (system_id64, body_id) DO NOTHING
 """
 
 UPSERT_MATERIAL = """
@@ -562,6 +583,30 @@ class SpanshBodyIngestSession:
 
         return self._run_with_retry(_fetch_lookup_id, f"Lookup {table}")  # type: ignore[return-value]
 
+    def has_positive_ring_body(
+        self, system_id64: int, ring_name: str, ring_type_id: int
+    ) -> bool:
+        """Whether a source or legacy positive ring already represents this ring."""
+
+        def _find() -> bool:
+            self.body_cursor.execute(
+                """
+                SELECT 1
+                FROM bodies
+                WHERE system_id64 = %s
+                  AND body_name = %s
+                  AND body_type_id = %s
+                  AND body_id > 0
+                LIMIT 1;
+                """,
+                (system_id64, ring_name, ring_type_id),
+            )
+            return self.body_cursor.fetchone() is not None
+
+        return bool(
+            self._run_with_retry(_find, "Find existing positive ring")
+        )
+
     def flush_batches(self) -> None:
         if self.material_batch:
 
@@ -841,14 +886,24 @@ class SpanshBodyIngestSession:
                 if len(self.gas_batch) >= GAS_BATCH_SIZE:
                     self.flush_batches()
 
-        for i, ring in enumerate(body.get("rings", []), start=1):
+        for ring_number, ring in enumerate(body.get("rings", []), start=1):
+            ring_type_id = self.get_lookup_id("body_types", "PlanetaryRing")
+            if self.has_positive_ring_body(
+                sys_id, ring.get("name"), ring_type_id
+            ):
+                self._log(
+                    f"Skipped inferred ring {ring.get('name')}: "
+                    "a positive ring body already exists"
+                )
+                continue
+            ring_body_id = inferred_ring_body_id(
+                body.get("bodyId"), ring_number
+            )
             ring_row = {
                 "system_id64": sys_id,
-                "body_id": body.get("bodyId") + i,
+                "body_id": ring_body_id,
                 "body_name": ring.get("name"),
-                "body_type_id": self.get_lookup_id(
-                    "body_types", "PlanetaryRing"
-                ),
+                "body_type_id": ring_type_id,
                 "planet_class_id": None,
                 "terraform_state_id": None,
                 "atmosphere_type_id": None,
@@ -898,16 +953,10 @@ class SpanshBodyIngestSession:
             try:
                 self._run_with_retry(
                     lambda: self.body_cursor.execute(
-                        INSERT_INFERRED_RING, list(ring_row.values())
+                        UPSERT_BODY, list(ring_row.values())
                     ),
-                    "INSERT_INFERRED_RING",
+                    "UPSERT_BODY ring",
                 )
-                if getattr(self.body_cursor, "rowcount", 1) == 0:
-                    self._log(
-                        "Skipped inferred ring "
-                        f"{ring.get('name')} at body ID {ring_row['body_id']}: "
-                        "an existing source body owns that ID"
-                    )
             except Exception as exc:
                 self._log(f"Error processing ring {ring.get('name')}: {exc}")
                 self.conn.rollback()
