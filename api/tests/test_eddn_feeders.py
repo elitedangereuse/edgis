@@ -236,12 +236,8 @@ def test_bodies_recv_with_watchdog_success(bodies_module):
     assert payload == b"payload"
 
 
-def test_bodies_assigns_non_game_ids_to_inferred_rings(monkeypatch, bodies_module):
-    monkeypatch.setattr(
-        bodies_module, "get_lookup_id", lambda *_args, **_kwargs: 1
-    )
-
-    message = {
+def peacock_ring_scan_message():
+    return {
         "header": {"softwareName": "EDDiscovery"},
         "message": {
             "timestamp": "2026-09-21T01:26:03Z",
@@ -260,7 +256,13 @@ def test_bodies_assigns_non_game_ids_to_inferred_rings(monkeypatch, bodies_modul
         },
     }
 
-    result = bodies_module.process_message(message, verbose=False)
+
+def test_bodies_assigns_negative_ids_to_inferred_rings(monkeypatch, bodies_module):
+    monkeypatch.setattr(
+        bodies_module, "get_lookup_id", lambda *_args, **_kwargs: 1
+    )
+
+    result = bodies_module.process_message(peacock_ring_scan_message(), verbose=False)
 
     assert result.status == "success"
     body_inserts = [
@@ -269,10 +271,27 @@ def test_bodies_assigns_non_game_ids_to_inferred_rings(monkeypatch, bodies_modul
         for query, params in cursor.statements
         if "INSERT INTO bodies" in query
     ]
-    assert [params[1] for params in body_inserts] == [30, 29]
-    assert "DO NOTHING" in next(
-        query
+    assert [params[1] for params in body_inserts] == [-117, 29]
+    assert bodies_module.inferred_ring_body_id(29, 2) == -118
+
+
+def test_bodies_does_not_duplicate_existing_positive_ring(
+    monkeypatch, bodies_module
+):
+    monkeypatch.setattr(
+        bodies_module, "get_lookup_id", lambda *_args, **_kwargs: 1
+    )
+    monkeypatch.setattr(
+        bodies_module, "has_positive_ring_body", lambda *_args, **_kwargs: True
+    )
+
+    result = bodies_module.process_message(peacock_ring_scan_message(), verbose=False)
+
+    assert result.status == "success"
+    body_inserts = [
+        params
         for cursor in bodies_module.conn.cursors
         for query, params in cursor.statements
-        if "INSERT INTO bodies" in query and params[1] == 30
-    )
+        if "INSERT INTO bodies" in query
+    ]
+    assert [params[1] for params in body_inserts] == [29]
