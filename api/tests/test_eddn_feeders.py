@@ -234,3 +234,45 @@ def test_bodies_recv_with_watchdog_success(bodies_module):
     bodies_module.zmq.Poller.emit_next = True
     payload = bodies_module.recv_with_watchdog(sock, timeout_seconds=5)
     assert payload == b"payload"
+
+
+def test_bodies_assigns_non_game_ids_to_inferred_rings(monkeypatch, bodies_module):
+    monkeypatch.setattr(
+        bodies_module, "get_lookup_id", lambda *_args, **_kwargs: 1
+    )
+
+    message = {
+        "header": {"softwareName": "EDDiscovery"},
+        "message": {
+            "timestamp": "2026-09-21T01:26:03Z",
+            "event": "Scan",
+            "BodyName": "Peacock 5",
+            "BodyID": 29,
+            "StarSystem": "Peacock",
+            "SystemAddress": 4459065949,
+            "PlanetClass": "Rocky body",
+            "Rings": [
+                {
+                    "Name": "Peacock 5 A Ring",
+                    "RingClass": "eRingClass_Rocky",
+                }
+            ],
+        },
+    }
+
+    result = bodies_module.process_message(message, verbose=False)
+
+    assert result.status == "success"
+    body_inserts = [
+        params
+        for cursor in bodies_module.conn.cursors
+        for query, params in cursor.statements
+        if "INSERT INTO bodies" in query
+    ]
+    assert [params[1] for params in body_inserts] == [30, 29]
+    assert "DO NOTHING" in next(
+        query
+        for cursor in bodies_module.conn.cursors
+        for query, params in cursor.statements
+        if "INSERT INTO bodies" in query and params[1] == 30
+    )

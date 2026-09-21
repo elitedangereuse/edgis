@@ -85,6 +85,7 @@ UPSERT_BODY = """
                                       THEN bodies.body_type_id
                                       ELSE EXCLUDED.body_type_id
                                   END,
+        body_name                = EXCLUDED.body_name,
         planet_class_id         = COALESCE(EXCLUDED.planet_class_id, bodies.planet_class_id),
         terraform_state_id      = COALESCE(EXCLUDED.terraform_state_id, bodies.terraform_state_id),
         atmosphere_type_id      = COALESCE(EXCLUDED.atmosphere_type_id, bodies.atmosphere_type_id),
@@ -130,6 +131,13 @@ UPSERT_BODY = """
         ring_outer_rad          = EXCLUDED.ring_outer_rad,
         ring_mass_mt            = EXCLUDED.ring_mass_mt
     -- Removed RETURNING clause entirely
+"""
+
+# Rings embedded in Spansh body records have no authoritative body ID. They
+# are retained only when their historical inferred ID is not already occupied
+# by a source body; never let that inference overwrite source data.
+INSERT_INFERRED_RING = UPSERT_BODY.rsplit("ON CONFLICT", 1)[0] + """
+    ON CONFLICT (system_id64, body_id) DO NOTHING
 """
 
 UPSERT_MATERIAL = """
@@ -890,10 +898,16 @@ class SpanshBodyIngestSession:
             try:
                 self._run_with_retry(
                     lambda: self.body_cursor.execute(
-                        UPSERT_BODY, list(ring_row.values())
+                        INSERT_INFERRED_RING, list(ring_row.values())
                     ),
-                    "UPSERT_BODY ring",
+                    "INSERT_INFERRED_RING",
                 )
+                if getattr(self.body_cursor, "rowcount", 1) == 0:
+                    self._log(
+                        "Skipped inferred ring "
+                        f"{ring.get('name')} at body ID {ring_row['body_id']}: "
+                        "an existing source body owns that ID"
+                    )
             except Exception as exc:
                 self._log(f"Error processing ring {ring.get('name')}: {exc}")
                 self.conn.rollback()

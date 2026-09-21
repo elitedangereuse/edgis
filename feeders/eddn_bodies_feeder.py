@@ -125,6 +125,7 @@ UPSERT_BODY = """
                                       THEN bodies.body_type_id
                                       ELSE EXCLUDED.body_type_id
                                   END,
+        body_name                = EXCLUDED.body_name,
         planet_class_id         = COALESCE(EXCLUDED.planet_class_id, bodies.planet_class_id),
         terraform_state_id      = EXCLUDED.terraform_state_id,
         atmosphere_type_id      = COALESCE(EXCLUDED.atmosphere_type_id, bodies.atmosphere_type_id),
@@ -166,6 +167,12 @@ UPSERT_BODY = """
         ring_outer_rad          = EXCLUDED.ring_outer_rad,
         ring_mass_mt            = EXCLUDED.ring_mass_mt
     RETURNING (xmax = 0) AS is_new;
+"""
+
+# EDDN Scan.Rings entries have no authoritative BodyID. Preserve an existing
+# source body when its ID collides with this historical inferred ring ID.
+INSERT_INFERRED_RING = UPSERT_BODY.rsplit("ON CONFLICT", 1)[0] + """
+    ON CONFLICT (system_id64, body_id) DO NOTHING
 """
 
 # === New UPSERTs for normalized tables ===
@@ -592,7 +599,7 @@ def process_message(
 
                 with db_conn.cursor() as cur:
                     cur.execute(
-                        UPSERT_BODY,
+                        INSERT_INFERRED_RING,
                         [
                             ring_body["system_id64"],
                             ring_body["body_id"],
@@ -639,6 +646,12 @@ def process_message(
                             ring_body["ring_mass_mt"],
                         ],
                     )
+                    if verbose and getattr(cur, "rowcount", 1) == 0:
+                        print(
+                            "Skipped inferred ring "
+                            f"{ring_name} at body ID {ring_body_id}: "
+                            "an existing source body owns that ID"
+                        )
                 db_conn.commit()
                 if verbose:
                     print(
