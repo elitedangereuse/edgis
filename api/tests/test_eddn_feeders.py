@@ -295,3 +295,40 @@ def test_bodies_does_not_duplicate_existing_positive_ring(
         if "INSERT INTO bodies" in query
     ]
     assert [params[1] for params in body_inserts] == [29]
+
+
+def test_bodies_preserves_and_reads_direct_ring_metadata(
+    monkeypatch, bodies_module
+):
+    monkeypatch.setattr(
+        bodies_module, "get_lookup_id", lambda *_args, **_kwargs: 1
+    )
+    message = peacock_ring_scan_message()
+    message["message"].update(
+        {
+            "BodyName": "Peacock 5 A Ring",
+            "BodyID": 32,
+            "RingClass": "eRingClass_Rocky",
+            "InnerRad": 2725800000.0,
+            "OuterRad": 6868500000.0,
+            "MassMT": 221260000000000.0,
+        }
+    )
+
+    result = bodies_module.process_message(message, verbose=False)
+
+    assert result.status == "success"
+    direct_ring_insert = next(
+        params
+        for cursor in bodies_module.conn.cursors
+        for query, params in cursor.statements
+        if "INSERT INTO bodies" in query and params[1] == 32
+    )
+    assert direct_ring_insert[37:] == [
+        1,
+        2725800000.0,
+        6868500000.0,
+        221260000000000.0,
+    ]
+    assert "ring_class_id           = COALESCE" in bodies_module.UPSERT_BODY
+    assert "jsonb_array_length(EXCLUDED.parents) = 0" in bodies_module.UPSERT_BODY
