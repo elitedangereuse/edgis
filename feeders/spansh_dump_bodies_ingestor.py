@@ -122,7 +122,7 @@ UPSERT_BODY = """
                                          >= jsonb_array_length(bodies.parents)
                                       THEN EXCLUDED.parents
                                     ELSE bodies.parents
-                                  END
+                                  END,
         tidally_locked          = EXCLUDED.tidally_locked,
         landable                = EXCLUDED.landable,
         updatetime              = EXCLUDED.updatetime,

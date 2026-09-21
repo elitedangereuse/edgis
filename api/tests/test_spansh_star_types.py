@@ -111,6 +111,10 @@ def test_resolve_star_type_prefers_secondary_fields(spansh_module):
     assert spansh_module.resolve_star_type(body) == "N"
 
 
+def test_spansh_upsert_separates_parent_and_lock_assignments(spansh_module):
+    assert "END,\n        tidally_locked" in spansh_module.UPSERT_BODY
+
+
 def test_resolve_star_type_handles_missing_data(spansh_module):
     assert spansh_module.resolve_star_type({}) is None
 
