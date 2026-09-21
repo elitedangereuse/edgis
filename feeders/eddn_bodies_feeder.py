@@ -155,17 +155,24 @@ UPSERT_BODY = """
         composition_ice         = COALESCE(EXCLUDED.composition_ice, bodies.composition_ice),
         composition_metal       = COALESCE(EXCLUDED.composition_metal, bodies.composition_metal),
         composition_rock        = COALESCE(EXCLUDED.composition_rock, bodies.composition_rock),
+        -- Direct scans of game-addressable rings can omit Parents. Their
+        -- empty array must not detach an already-associated ring from its
+        -- host body in the system map.
         parents                 = CASE
-                                    WHEN EXCLUDED.parents IS NOT NULL THEN EXCLUDED.parents
-                                    ELSE bodies.parents
+                                    WHEN EXCLUDED.parents IS NULL
+                                      OR jsonb_array_length(EXCLUDED.parents) = 0
+                                    THEN bodies.parents
+                                    ELSE EXCLUDED.parents
                                   END,
         tidally_locked          = EXCLUDED.tidally_locked,
         landable                = EXCLUDED.landable,
         updatetime              = EXCLUDED.updatetime,
-        ring_class_id           = EXCLUDED.ring_class_id,
-        ring_inner_rad          = EXCLUDED.ring_inner_rad,
-        ring_outer_rad          = EXCLUDED.ring_outer_rad,
-        ring_mass_mt            = EXCLUDED.ring_mass_mt
+        -- Direct PlanetaryRing scans often omit these fields. Retain ring
+        -- metadata obtained from the parent Scan or a prior direct scan.
+        ring_class_id           = COALESCE(EXCLUDED.ring_class_id, bodies.ring_class_id),
+        ring_inner_rad          = COALESCE(EXCLUDED.ring_inner_rad, bodies.ring_inner_rad),
+        ring_outer_rad          = COALESCE(EXCLUDED.ring_outer_rad, bodies.ring_outer_rad),
+        ring_mass_mt            = COALESCE(EXCLUDED.ring_mass_mt, bodies.ring_mass_mt)
     RETURNING (xmax = 0) AS is_new;
 """
 
@@ -437,6 +444,18 @@ def process_message(
         body["composition_rock"] = comp.get("Rock")
 
         body["parents"] = msg_data.get("Parents", [])
+
+        # FDev can expose a ring as a directly scannable body. Preserve any
+        # ring metadata present in that event; most such events omit it.
+        if body["type"] == "PlanetaryRing":
+            body["ring_class_id"] = get_lookup_id(
+                "ring_classes",
+                normalize_ring_class(msg_data.get("RingClass")),
+                db_conn,
+            )
+            body["ring_inner_rad"] = msg_data.get("InnerRad")
+            body["ring_outer_rad"] = msg_data.get("OuterRad")
+            body["ring_mass_mt"] = msg_data.get("MassMT")
 
         # Star-specific
         if body["type"] == "Star":
