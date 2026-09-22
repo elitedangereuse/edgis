@@ -79,12 +79,18 @@
         };
 
         const svgOnly = parseBoolQueryParam(getQueryParam(['svgOnly', 'svg_only']));
+        const fixture = getQueryParam(['fixture']);
         const defaultSystemName = 'Maia';
         document.documentElement.dataset.svgOnly = svgOnly ? 'true' : 'false';
         window.EDGIS_SYSMAP_CONFIG = {
           svgOnly,
           defaultSystemName,
         };
+        if (fixture === 'body-palette') {
+          window.EDGIS_SYSMAP_CONFIG.defaultSystemName = 'System Map Body Palette';
+          window.EDGIS_SYSMAP_CONFIG.fixtureUrl = '/static/fixtures/sysmap-body-palette.json';
+          window.EDGIS_SYSMAP_CONFIG.showAllLabels = true;
+        }
         if (!svgOnly) {
           const panzoomScript = document.createElement('script');
           panzoomScript.src = '/static/js/panzoom.js';
