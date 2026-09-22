@@ -11,6 +11,9 @@
     const defaultSystemName = config.defaultSystemName || 'Maia';
     const fixtureUrl = typeof config.fixtureUrl === 'string' ? config.fixtureUrl : null;
     const showAllLabels = Boolean(config.showAllLabels);
+    const rootColumns = Number.isInteger(config.rootColumns) && config.rootColumns > 1
+        ? config.rootColumns
+        : null;
     const infoPanel = document.getElementById('InfoPanel');
     const bodyInfoButton = document.getElementById('bodyInfoButton');
     const controlsPanel = document.getElementById('controlsPanel');
@@ -880,15 +883,34 @@
 
         // First pass: compute subtree sizes
         roots.forEach(r => computeSize(r, 1));
-        // Second pass: place nodes
-        let yCursor = 80;
-        for(const r of roots){
-            const margin = 50; // or dynamically use max root radius
-            r.x = rootX * 3;
-            r.y = yCursor + r.radiusScaled;
-            r.layoutPositioned = true;
-            placeChildren(r, 1);
-            yCursor += r.height + vGap * 3.5;
+        // Second pass: place nodes. Normal maps retain the conventional
+        // vertical root layout; fixture pages may opt into a compact grid.
+        if(rootColumns){
+            let xCursor = rootX * 3;
+            let yCursor = 80;
+            let rowHeight = 0;
+            roots.forEach((r, index) => {
+                r.x = xCursor + r.radiusScaled;
+                r.y = yCursor + r.radiusScaled;
+                r.layoutPositioned = true;
+                placeChildren(r, 1);
+                xCursor += r.width + hGap * 3;
+                rowHeight = Math.max(rowHeight, r.height);
+                if((index + 1) % rootColumns === 0){
+                    xCursor = rootX * 3;
+                    yCursor += rowHeight + vGap * 3;
+                    rowHeight = 0;
+                }
+            });
+        } else {
+            let yCursor = 80;
+            for(const r of roots){
+                r.x = rootX * 3;
+                r.y = yCursor + r.radiusScaled;
+                r.layoutPositioned = true;
+                placeChildren(r, 1);
+                yCursor += r.height + vGap * 3.5;
+            }
         }
 
         const bounds = computeBounds([...nodes.values()]);
