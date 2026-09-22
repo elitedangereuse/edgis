@@ -39,12 +39,14 @@ TMP_CHANGED_FILE_LIST=$(mktemp)
     echo systems.py
     echo static/index.html
     echo static/sysmap.html
+    echo static/sysmap-body-palette.html
     echo static/sysmap.css
     echo static/tailwind.css
     echo static/milkyway.css
     echo static/js/panzoom.js
     echo static/js/sysmap_roots.js
     echo static/js/sysmap.js
+    echo static/fixtures/sysmap-body-palette.json
     for file in "${EXTRA_FILES[@]}"; do
         if [[ -n "$file" ]]; then
             echo "$file"
