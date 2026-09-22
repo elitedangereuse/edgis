@@ -14,6 +14,7 @@ const fixturePath = path.join(
     'fixtures',
     'sysmap-body-palette.json'
 );
+const sysmapHtmlPath = path.join(__dirname, '..', '..', 'static', 'sysmap.html');
 const bodies = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
 
 test('body palette covers system-map render categories and interpolators', () => {
@@ -53,4 +54,10 @@ test('body palette contains mass-ordered and nested barycenter cases', () => {
         nodes.get(211).baryChildren.map(body => body.id),
         [212, 213]
     );
+});
+
+test('body palette requests its compact fixture-only grid', () => {
+    const page = fs.readFileSync(sysmapHtmlPath, 'utf8');
+    assert.match(page, /fixtureUrl = '\/static\/fixtures\/sysmap-body-palette\.json'/);
+    assert.match(page, /rootColumns = 6/);
 });
