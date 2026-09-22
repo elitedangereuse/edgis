@@ -9,6 +9,8 @@
     const config = globalThis.EDGIS_SYSMAP_CONFIG || {};
     const svgOnlyMode = Boolean(config.svgOnly);
     const defaultSystemName = config.defaultSystemName || 'Maia';
+    const fixtureUrl = typeof config.fixtureUrl === 'string' ? config.fixtureUrl : null;
+    const showAllLabels = Boolean(config.showAllLabels);
     const infoPanel = document.getElementById('InfoPanel');
     const bodyInfoButton = document.getElementById('bodyInfoButton');
     const controlsPanel = document.getElementById('controlsPanel');
@@ -843,7 +845,12 @@
         }
         let data;
         try {
-            const res = await fetch(`${sameHostBaseUrl}/bodies?name_or_id=${encodeURIComponent(normalizedSystemName)}&mode=edsm`);
+            const sourceUrl = fixtureUrl
+                || `${sameHostBaseUrl}/bodies?name_or_id=${encodeURIComponent(normalizedSystemName)}&mode=edsm`;
+            const res = await fetch(sourceUrl);
+            if(!res.ok){
+                return false;
+            }
             data = await res.json();
         } catch(err){
             console.error(err);
@@ -1987,11 +1994,21 @@
                 }
                 return;
             }
-            const childStats = kids.map(child => ({
-                x: child.x,
-                y: child.y,
-                r: child.radiusScaled || radius
-            }));
+            // A nested barycenter has no body position of its own: it is
+            // represented by the icon produced for its bracket. Use that
+            // resolved anchor for both the orientation calculation and the
+            // bracket bounds. Otherwise its placeholder (0, 0) can make the
+            // parent bracket appear beside, rather than above, the child.
+            const childStats = kids.map(child => {
+                const target = isBarycenter(child) && child.baryNodeTarget
+                    ? child.baryNodeTarget
+                    : null;
+                return {
+                    x: target ? target.x : child.x,
+                    y: target ? target.y : child.y,
+                    r: target ? BARY_ICON_RADIUS : (child.radiusScaled || radius)
+                };
+            });
 
             const minXEdge = Math.min(...childStats.map(c => c.x - c.r));
             const maxXEdge = Math.max(...childStats.map(c => c.x + c.r));
@@ -2247,7 +2264,7 @@
             const labelYOffset = n.radiusScaled + 26;
             label.setAttribute('y', n.y - labelYOffset);
             label.setAttribute('dominant-baseline', 'bottom');
-            label.setAttribute('class', 'label hidden');
+            label.setAttribute('class', showAllLabels ? 'label' : 'label hidden');
             label.dataset.node = String(n.id);
             label.id = `${n.name} (#${n.id})`;
             labelsGroup.appendChild(label);
