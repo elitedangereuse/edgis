@@ -8,9 +8,37 @@ const {
     buildRootIds,
     buildSystemTree,
     computeBarycenterSkipPairs,
+    inferStationHostByArrivalDistance,
     isBarycenter,
     pairKey
 } = require('../../static/js/sysmap_roots');
+
+test('station attachment: infers Earth from a root station arrival distance', () => {
+    const earth = {
+        id: 3, name: 'Earth', type: 'Planet', radius: 6371000,
+        distanceToArrival: 502.233897
+    };
+    const host = inferStationHostByArrivalDistance(
+        { distance_from_arrival_ls: 502.254085 },
+        [
+            { id: 2, name: 'Venus', type: 'Planet', radius: 6051800, distanceToArrival: 362.282323 },
+            earth,
+            { id: 4, name: 'Mars', type: 'Planet', radius: 3389500, distanceToArrival: 811.214371 }
+        ]
+    );
+    assert.equal(host, earth);
+});
+
+test('station attachment: leaves ambiguous radial matches unattached', () => {
+    const host = inferStationHostByArrivalDistance(
+        { distance_from_arrival_ls: 100 },
+        [
+            { id: 1, name: 'A', type: 'Planet', radius: 6371000, distanceToArrival: 99.99 },
+            { id: 2, name: 'B', type: 'Planet', radius: 6371000, distanceToArrival: 100.01 }
+        ]
+    );
+    assert.equal(host, null);
+});
 
 const fixtureDir = __dirname;
 const fixtureFiles = fs.readdirSync(fixtureDir)

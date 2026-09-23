@@ -6,6 +6,9 @@
 // directly by the Node test suite (api/tests/js).
 
 const EARTH_MASS_TO_SOLAR = 1 / 332946.0487; // 1 earth mass in solar masses
+const SPEED_OF_LIGHT_METRES_PER_SECOND = 299792458;
+const MIN_STATION_ATTACHMENT_TOLERANCE_LS = 0.1;
+const MAX_STATION_ATTACHMENT_TOLERANCE_LS = 1;
 
 function toId(value){
     if(value === null || value === undefined || value === '') return null;
@@ -28,6 +31,43 @@ function isStellarRingNode(body){
 function isAsteroidClusterNode(body){
     const type = (body?.type || '').toLowerCase();
     return Boolean(type) && type.replace(/\s+/g, '').includes('asteroidcluster');
+}
+
+// EDDN and some Spansh root-level stations do not name their host body. Their
+// distance from the arrival star can still identify a nearby planet or star,
+// but only as a display-time inference: it must never replace a game body ID.
+function inferStationHostByArrivalDistance(station, nodes){
+    const stationDistance = Number(station?.distance_from_arrival_ls);
+    if(!Number.isFinite(stationDistance)) return null;
+    const candidates = (Array.isArray(nodes) ? nodes : [...(nodes?.values?.() || [])])
+        .filter(node => ['planet', 'star'].includes(String(node?.type || '').toLowerCase()))
+        .map(node => {
+            const bodyDistance = Number(node.distanceToArrival);
+            if(!Number.isFinite(bodyDistance)) return null;
+            const radius = Number(node.radius);
+            const radiusTolerance = Number.isFinite(radius) && radius > 0
+                ? (radius / SPEED_OF_LIGHT_METRES_PER_SECOND) * 8
+                : 0;
+            return {
+                node,
+                difference: Math.abs(stationDistance - bodyDistance),
+                tolerance: Math.max(
+                    MIN_STATION_ATTACHMENT_TOLERANCE_LS,
+                    Math.min(MAX_STATION_ATTACHMENT_TOLERANCE_LS, radiusTolerance)
+                )
+            };
+        })
+        .filter(Boolean)
+        .filter(candidate => candidate.difference <= candidate.tolerance)
+        .sort((left, right) => left.difference - right.difference);
+    if(candidates.length === 0) return null;
+
+    // Two hosts at virtually the same radial distance cannot be disambiguated
+    // from a one-dimensional arrival distance alone.
+    if(candidates.length > 1 && candidates[1].difference - candidates[0].difference < 0.05){
+        return null;
+    }
+    return candidates[0].node;
 }
 
 // The parents array is ordered nearest ancestor first. Barycenter links are the
@@ -449,11 +489,13 @@ const api = {
     isPlanetaryRingNode,
     isStellarRingNode,
     isAsteroidClusterNode,
+    inferStationHostByArrivalDistance,
     hasStarDescendant,
     getNodeMass,
     normalizeMassToUnit,
     pairKey,
-    EARTH_MASS_TO_SOLAR
+    EARTH_MASS_TO_SOLAR,
+    SPEED_OF_LIGHT_METRES_PER_SECOND
 };
 
 if(typeof module === 'object' && module.exports){
