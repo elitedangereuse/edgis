@@ -2321,23 +2321,33 @@
                 ? null : nodesById.get(Number(station.body_id));
             const byName = station.body_name
                 ? nodesByName.get(station.body_name.trim().toLowerCase()) : null;
-            const host = byId || byName;
+            const inferredHost = byId || byName
+                ? null : SysmapRoots.inferStationHostByArrivalDistance(station, nodes);
+            const host = byId || byName || inferredHost;
             const x = host ? host.x + host.radiusScaled + 8 : 165 + (index % 5) * 108;
             const y = host ? host.y - host.radiusScaled - 8 : 58 + Math.floor(index / 5) * 18;
             const marker = document.createElementNS(ns, 'path');
             marker.setAttribute('d', 'M 0,-4 L 4,0 L 0,4 L -4,0 Z');
             marker.setAttribute('transform', `translate(${x}, ${y})`);
-            marker.setAttribute('class', station.is_carrier ? 'station-marker carrier' : 'station-marker');
+            marker.setAttribute(
+                'class', `${station.is_carrier ? 'station-marker carrier' : 'station-marker'}${inferredHost ? ' inferred' : ''}`
+            );
             marker.setAttribute('tabindex', '0');
             marker.setAttribute('aria-label', station.name || 'Station');
             marker.addEventListener('click', event => {
                 event.stopPropagation();
-                renderStationInfo(station);
+                renderStationInfo({
+                    ...station,
+                    inferred_body_name: inferredHost ? inferredHost.name : undefined
+                });
             });
             marker.addEventListener('keydown', event => {
                 if(event.key === 'Enter' || event.key === ' '){
                     event.preventDefault();
-                    renderStationInfo(station);
+                    renderStationInfo({
+                        ...station,
+                        inferred_body_name: inferredHost ? inferredHost.name : undefined
+                    });
                 }
             });
             stationLayer.appendChild(marker);
@@ -2533,6 +2543,7 @@
             <li><span class="label">Type:</span> ${escapeHtml(station.station_type || 'Unknown')}</li>
             <li><span class="label">Market ID:</span> ${escapeHtml(String(station.market_id ?? 'Unknown'))}</li>
             <li><span class="label">Distance:</span> ${formatLightSeconds(station.distance_from_arrival_ls)}</li>
+            ${station.inferred_body_name ? `<li><span class="label">Position:</span> inferred near ${escapeHtml(station.inferred_body_name)}</li>` : ''}
             ${pads ? `<li><span class="label">Pads:</span> ${escapeHtml(pads)}</li>` : ''}
             ${station.primary_economy ? `<li><span class="label">Economy:</span> ${escapeHtml(station.primary_economy)}</li>` : ''}
             ${station.allegiance ? `<li><span class="label">Allegiance:</span> ${escapeHtml(station.allegiance)}</li>` : ''}
