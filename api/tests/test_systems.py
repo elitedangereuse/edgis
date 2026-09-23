@@ -87,6 +87,29 @@ def test_get_neighbors_negative_radius():
     assert response.json() == {"error": "Radius must be positive"}
 
 
+def test_system_map_returns_sparse_stations_and_allegiance(monkeypatch):
+    expected = {
+        "system": {"id64": 42, "name": "Example", "allegiance": "Alliance"},
+        "bodies": [{"system_id64": 42, "body_id": 1, "body_name": "Example A"}],
+        "stations": [
+            {
+                "market_id": 3700005632,
+                "name": "FC Example",
+                "station_type": "FleetCarrier",
+                "body_id": 1,
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        systems, "fetch_system_map_from_db", lambda *_args, **_kwargs: expected
+    )
+
+    response = client.get("/system-map", params={"name_or_id": "Example"})
+
+    assert response.status_code == 200
+    assert response.json() == expected
+
+
 def test_get_neighbors_radius_too_large():
     response = client.get(
         "/neighbors",

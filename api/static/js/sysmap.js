@@ -849,7 +849,7 @@
         let data;
         try {
             const sourceUrl = fixtureUrl
-                || `${sameHostBaseUrl}/bodies?name_or_id=${encodeURIComponent(normalizedSystemName)}&mode=edsm`;
+                || `${sameHostBaseUrl}/system-map?name_or_id=${encodeURIComponent(normalizedSystemName)}&mode=edsm`;
             const res = await fetch(sourceUrl);
             if(!res.ok){
                 return false;
@@ -859,14 +859,17 @@
             console.error(err);
             return false;
         }
-        if(!data || !Array.isArray(data)) return false;
+        const bodyData = Array.isArray(data) ? data : data?.bodies;
+        const stations = Array.isArray(data?.stations) ? data.stations : [];
+        const systemMetadata = data?.system || {};
+        if(!bodyData || !Array.isArray(bodyData)) return false;
         let requestedBodyId = null;
         if(bodyId !== null && bodyId !== undefined){
             const bodyIdNumber = Number(bodyId);
             requestedBodyId = Number.isFinite(bodyIdNumber) ? bodyIdNumber : null;
         }
         const trimmedInputName = normalizedSystemName;
-        let resolvedSystemName = trimmedInputName || systemName;
+        let resolvedSystemName = systemMetadata.name || trimmedInputName || systemName;
         if(trimmedInputName && parseSystemId64(trimmedInputName) !== null){
             const fetchedName = await fetchSystemNameById64(trimmedInputName);
             if(fetchedName){
@@ -879,7 +882,7 @@
         }
         updateUrlState(resolvedSystemName, requestedBodyId);
 
-        const { nodes, roots } = SysmapRoots.buildSystemTree(data);
+        const { nodes, roots } = SysmapRoots.buildSystemTree(bodyData);
 
         // First pass: compute subtree sizes
         roots.forEach(r => computeSize(r, 1));
@@ -914,7 +917,7 @@
         }
 
         const bounds = computeBounds([...nodes.values()]);
-        draw([...nodes.values()], bounds, resolvedSystemName, requestedBodyId);
+        draw([...nodes.values()], bounds, resolvedSystemName, requestedBodyId, systemMetadata, stations);
         if(isEmbedPanelVisible()){
             updateEmbedLinkField();
         }
@@ -1758,7 +1761,7 @@
         svg.appendChild(defs);
     }
 
-    function draw(nodes, bounds, title, preselectBodyId = null){
+    function draw(nodes, bounds, title, preselectBodyId = null, systemMetadata = {}, stations = []){
         const skipSiblingPairs = computeBarycenterSkipPairs(nodes);
         const drawnLinks = new Set();
         while(svg.firstChild) svg.removeChild(svg.firstChild);
@@ -2304,6 +2307,50 @@
             }
         });
 
+        const nodesById = new Map(nodes.map(node => [Number(node.id), node]));
+        const nodesByName = new Map(
+            nodes.filter(node => node.name).map(
+                node => [node.name.trim().toLowerCase(), node]
+            )
+        );
+        const stationLayer = document.createElementNS(ns, 'g');
+        stationLayer.setAttribute('class', 'station-layer');
+        svg.appendChild(stationLayer);
+        stations.forEach((station, index) => {
+            const byId = station.body_id == null
+                ? null : nodesById.get(Number(station.body_id));
+            const byName = station.body_name
+                ? nodesByName.get(station.body_name.trim().toLowerCase()) : null;
+            const host = byId || byName;
+            const x = host ? host.x + host.radiusScaled + 8 : 165 + (index % 5) * 108;
+            const y = host ? host.y - host.radiusScaled - 8 : 58 + Math.floor(index / 5) * 18;
+            const marker = document.createElementNS(ns, 'path');
+            marker.setAttribute('d', 'M 0,-4 L 4,0 L 0,4 L -4,0 Z');
+            marker.setAttribute('transform', `translate(${x}, ${y})`);
+            marker.setAttribute('class', station.is_carrier ? 'station-marker carrier' : 'station-marker');
+            marker.setAttribute('tabindex', '0');
+            marker.setAttribute('aria-label', station.name || 'Station');
+            marker.addEventListener('click', event => {
+                event.stopPropagation();
+                renderStationInfo(station);
+            });
+            marker.addEventListener('keydown', event => {
+                if(event.key === 'Enter' || event.key === ' '){
+                    event.preventDefault();
+                    renderStationInfo(station);
+                }
+            });
+            stationLayer.appendChild(marker);
+            if(showAllLabels || !host){
+                const label = document.createElementNS(ns, 'text');
+                label.textContent = station.name || 'Station';
+                label.setAttribute('x', x + 6);
+                label.setAttribute('y', y + 3);
+                label.setAttribute('class', 'station-label');
+                stationLayer.appendChild(label);
+            }
+        });
+
         const normalizedPreselectId = preselectBodyId != null ? Number(preselectBodyId) : NaN;
         if(Number.isFinite(normalizedPreselectId)){
             const matched = selectBodyById(normalizedPreselectId);
@@ -2320,20 +2367,22 @@
         titleText.setAttribute('opacity', '.8');
         svg.appendChild(titleText);
         const titleBox = titleText.getBBox();
-        const titlePowerSeparator = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        titlePowerSeparator.textContent = "|";
-        titlePowerSeparator.setAttribute('x', titleBox.x + titleBox.width + 2);
-        titlePowerSeparator.setAttribute('y', 32.2);
-        titlePowerSeparator.setAttribute('class', 'titlePowerSeparator');
-        titlePowerSeparator.setAttribute('opacity', '.8');
-        svg.appendChild(titlePowerSeparator);
-        const powerplayText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        powerplayText.textContent = "NONE";
-        powerplayText.setAttribute('x', titleBox.x + titleBox.width + 10);
-        powerplayText.setAttribute('y', 34);
-        powerplayText.setAttribute('class', 'powerName');
-        powerplayText.setAttribute('opacity', '.8');
-        svg.appendChild(powerplayText);
+        if(systemMetadata.allegiance){
+            const titlePowerSeparator = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            titlePowerSeparator.textContent = "|";
+            titlePowerSeparator.setAttribute('x', titleBox.x + titleBox.width + 2);
+            titlePowerSeparator.setAttribute('y', 32.2);
+            titlePowerSeparator.setAttribute('class', 'titlePowerSeparator');
+            titlePowerSeparator.setAttribute('opacity', '.8');
+            svg.appendChild(titlePowerSeparator);
+            const allegianceText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            allegianceText.textContent = String(systemMetadata.allegiance).toUpperCase();
+            allegianceText.setAttribute('x', titleBox.x + titleBox.width + 10);
+            allegianceText.setAttribute('y', 34);
+            allegianceText.setAttribute('class', 'powerName');
+            allegianceText.setAttribute('opacity', '.8');
+            svg.appendChild(allegianceText);
+        }
 
         const brandingPanel = buildBrandingPanel(title);
         svg.appendChild(brandingPanel);
@@ -2465,6 +2514,31 @@
         }
         infoPanel.innerHTML = '';
         infoPanel.appendChild(buildBodyCard(node));
+        infoPanel.style.display = 'block';
+    }
+
+    function renderStationInfo(station){
+        if(!infoPanel || !station) return;
+        const card = document.createElement('article');
+        card.className = 'card';
+        const pads = [
+            ['Large', station.large_pads], ['Medium', station.medium_pads], ['Small', station.small_pads]
+        ].filter(([, value]) => value !== undefined && value !== null)
+            .map(([name, value]) => `${name}: ${value}`).join(' · ');
+        const services = Array.isArray(station.services)
+            ? station.services.map(value => typeof value === 'string' ? value : value?.name).filter(Boolean).join(', ')
+            : '';
+        card.innerHTML = `<h1>${escapeHtml(station.name || 'Station')}</h1>
+          <section><h2>STATION</h2><ul>
+            <li><span class="label">Type:</span> ${escapeHtml(station.station_type || 'Unknown')}</li>
+            <li><span class="label">Market ID:</span> ${escapeHtml(String(station.market_id ?? 'Unknown'))}</li>
+            <li><span class="label">Distance:</span> ${formatLightSeconds(station.distance_from_arrival_ls)}</li>
+            ${pads ? `<li><span class="label">Pads:</span> ${escapeHtml(pads)}</li>` : ''}
+            ${station.primary_economy ? `<li><span class="label">Economy:</span> ${escapeHtml(station.primary_economy)}</li>` : ''}
+            ${station.allegiance ? `<li><span class="label">Allegiance:</span> ${escapeHtml(station.allegiance)}</li>` : ''}
+          </ul></section>${services ? `<section><h2>SERVICES</h2><p>${escapeHtml(services)}</p></section>` : ''}`;
+        infoPanel.innerHTML = '';
+        infoPanel.appendChild(card);
         infoPanel.style.display = 'block';
     }
 
