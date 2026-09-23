@@ -2284,6 +2284,66 @@ def fetch_bodies_from_db(
     return _apply_mode_scaling(results, mode)
 
 
+def fetch_system_map_from_db(
+    name_or_id: str, mode: Optional[str] = None
+) -> dict[str, Any] | None:
+    """Return map-only system metadata, bodies and sparse station records."""
+    body_records = fetch_bodies_from_db(name_or_id, mode=mode)
+    if not body_records:
+        return None
+    system_id64 = int(body_records[0]["system_id64"])
+    with _db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT s.id64, s.name, sa.allegiance
+                FROM systems_big s
+                LEFT JOIN system_allegiances sa ON sa.system_id64 = s.id64
+                WHERE s.id64 = %s
+                """,
+                (system_id64,),
+            )
+            system_row = cursor.fetchone()
+            if system_row is None:
+                return None
+            cursor.execute(
+                """
+                SELECT market_id, system_id64, body_id, body_name, name,
+                       station_type, is_carrier, is_planetary,
+                       distance_from_arrival_ls, latitude, longitude,
+                       large_pads, medium_pads, small_pads, services, economies,
+                       primary_economy, government, allegiance,
+                       controlling_faction, controlling_faction_state,
+                       station_state, last_seen_at
+                FROM stations
+                WHERE system_id64 = %s
+                ORDER BY is_carrier, name, market_id
+                """,
+                (system_id64,),
+            )
+            station_rows = cursor.fetchall()
+            station_columns = [entry[0] for entry in cursor.description]
+        finally:
+            cursor.close()
+    return {
+        "system": {
+            "id64": system_row[0],
+            "name": system_row[1],
+            "allegiance": system_row[2],
+        },
+        "bodies": body_records,
+        "stations": [
+            {
+                column: value
+                for column, value in zip(station_columns, row)
+                if value is not None
+            }
+            for row in station_rows
+        ],
+    }
+
+
 # @cached(
 #     cache=RedisCache,
 #     endpoint="localhost",
@@ -2306,6 +2366,22 @@ def bodies(
         result = fetch_bodies_from_db(name_or_id, mode=mode)
     else:
         result = fetch_bodies_from_db(name_or_id, mode=mode, body_id=body_id)
+    if result is None:
+        return JSONResponse(
+            content={"error": SYSTEM_NOT_FOUND}, status_code=404
+        )
+    return result
+
+
+@app.get("/system-map", include_in_schema=True)
+def system_map(
+    name_or_id: str = Query(..., description="The name or id64 of the system"),
+    mode: Optional[str] = Query(
+        None, description="Optional response mode adjustments for bodies"
+    ),
+):
+    """Return the system-map data without changing the established /bodies API."""
+    result = fetch_system_map_from_db(name_or_id, mode=mode)
     if result is None:
         return JSONResponse(
             content={"error": SYSTEM_NOT_FOUND}, status_code=404

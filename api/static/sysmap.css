@@ -127,6 +127,18 @@ svg .powerName{
     font-size: 1rem;
     fill: #d4d4d4;
 }
+svg .station-marker {
+    fill: #6ef2ed;
+    stroke: #061d26;
+    stroke-width: 1;
+    cursor: pointer;
+}
+svg .station-marker.carrier { fill: #d6a65c; }
+svg .station-label {
+    font-size: .52rem;
+    fill: #c8e7ea;
+    pointer-events: none;
+}
 svg .titlePowerSeparator{
     font-size: .7rem;
     fill: #d4d4d4;
