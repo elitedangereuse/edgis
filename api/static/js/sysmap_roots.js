@@ -77,6 +77,13 @@ function isSpaceStation(station){
         && station.station_type !== 'FleetCarrier';
 }
 
+// In the stations table, body_id deliberately keeps the in-game ID of the
+// celestial body that hosts the station. MarketID is the station's own stable
+// identity, so it must not be used for this relationship.
+function resolveStationHostId(station){
+    return toId(station?.body_id);
+}
+
 function stationIconAsset(stationType){
     const type = String(stationType || '').toLowerCase();
     if(type.includes('asteroid')) return 'asteroidstation.svg';
@@ -91,23 +98,6 @@ function stationIconAsset(stationType){
     if(type.includes('disabledfleetfixme')) return 'disabledfleetcarrierstation.svg';
     if(type.includes('fleet')) return 'fleetcarrierstation.svg';
     return null;
-}
-
-// A station's BodyID identifies the station, not its celestial host. The
-// reconstructed parent chain begins with the body the station is attached to.
-function resolveStationHostId(station){
-    let parents = station?.parents;
-    if(typeof parents === 'string'){
-        try {
-            parents = JSON.parse(parents);
-        } catch(_error) {
-            return null;
-        }
-    }
-    if(!Array.isArray(parents) || parents.length === 0) return null;
-    const directParent = parents[0];
-    if(!directParent || typeof directParent !== 'object') return null;
-    return toId(Object.values(directParent)[0]);
 }
 
 // The parents array is ordered nearest ancestor first. Barycenter links are the
@@ -486,15 +476,15 @@ function buildSystemTree(bodies, stations = []){
         nodes.set(id, buildNodeRecord(body, parentsMeta));
     });
 
-    const primaryStarId = [...nodes.values()].find(node => node.type === 'Star')?.id ?? null;
     (Array.isArray(stations) ? stations : []).forEach(station => {
         const marketId = toId(station?.market_id);
-        const stationId = toId(station?.body_id)
-            ?? (marketId != null ? -marketId : null);
+        // A station market ID is its stable identity. body_id is the game body
+        // it orbits, so it is its layout parent rather than the station node ID.
+        const stationId = marketId != null ? -marketId : null;
         if(stationId == null || nodes.has(stationId)) return;
-        const resolvedHostId = resolveStationHostId(station);
-        const hasResolvedHost = resolvedHostId != null && nodes.has(resolvedHostId);
-        const hostId = hasResolvedHost ? resolvedHostId : primaryStarId;
+        const requestedHostId = resolveStationHostId(station);
+        const hasResolvedHost = requestedHostId != null && nodes.has(requestedHostId);
+        const hostId = hasResolvedHost ? requestedHostId : 0;
         if(hostId == null) return;
         const stationBody = {
             ...station,

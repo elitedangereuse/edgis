@@ -16,6 +16,7 @@
         : null;
     const infoPanel = document.getElementById('InfoPanel');
     const bodyInfoButton = document.getElementById('bodyInfoButton');
+    const stationToggleButton = document.getElementById('stationToggleButton');
     const controlsPanel = document.getElementById('controlsPanel');
     const controlsToggleButton = document.getElementById('controlsToggleButton');
     const downloadButton = document.getElementById('downloadSvgButton');
@@ -71,7 +72,7 @@
     const loadButton = document.getElementById('load');
     const urlParams = new URLSearchParams(globalThis.location?.search || '');
     const systemFromURL = (urlParams.get('system') || '').trim();
-    const showStations = ['1', 'true', 'yes', 'on'].includes(
+    let showStations = ['1', 'true', 'yes', 'on'].includes(
         (urlParams.get('station') ?? urlParams.get('stations') ?? '').toLowerCase()
     );
     const parseBodyIdParam = (value) => {
@@ -82,10 +83,17 @@
         return Number.isFinite(num) ? num : null;
     };
     const bodyIdFromURL = parseBodyIdParam(urlParams.get('body_id') ?? urlParams.get('bodyId') ?? urlParams.get('body'));
+    const parseStationMarketId = (value) => {
+        const id = Number(value);
+        return Number.isSafeInteger(id) && id > 0 ? id : null;
+    };
+    const stationIdFromURL = parseStationMarketId(urlParams.get('station_id'));
+    showStations = showStations || stationIdFromURL !== null;
     if (systemFromURL && systemInput) {
         systemInput.value = systemFromURL;
     }
     updateNavigationButtonState();
+    updateStationToggleButton();
     const downloadMode = (() => {
         const pngFlag = (urlParams.get('png') || urlParams.get('png_only') || urlParams.get('pngOnly') || '').toLowerCase();
         if(['1', 'true', 'yes', 'on', 'png'].includes(pngFlag)){
@@ -128,7 +136,21 @@
         handleSelectionChange();
     };
 
-    function updateUrlState(systemName, bodyId){
+    function resolveNodeStationMarketId(node){
+        if(!node?.isStation) return null;
+        return parseStationMarketId(node.station?.market_id);
+    }
+
+    function updateStationToggleButton(){
+        if(!stationToggleButton) return;
+        stationToggleButton.setAttribute('aria-pressed', showStations ? 'true' : 'false');
+        stationToggleButton.classList.toggle('active', showStations);
+        const label = showStations ? 'Hide stations' : 'Show stations';
+        stationToggleButton.setAttribute('title', label);
+        stationToggleButton.setAttribute('aria-label', label);
+    }
+
+    function updateUrlState(systemName, bodyId, stationId){
         if(typeof globalThis === 'undefined' || !globalThis.history || !globalThis.location) return;
         const url = new URL(globalThis.location.href);
         const activeSystem = systemName ?? resolveActiveSystemName();
@@ -137,14 +159,23 @@
         } else {
             url.searchParams.delete('system');
         }
-        const candidateId = bodyId != null ? bodyId : resolveNodeBodyId(selectedBodyNode);
-        const normalizedBodyId = parseBodyIdParam(candidateId);
-        if(normalizedBodyId != null){
-            url.searchParams.set('body_id', normalizedBodyId);
-        } else {
+        const candidateStationId = stationId != null
+            ? parseStationMarketId(stationId)
+            : resolveNodeStationMarketId(selectedBodyNode);
+        if(candidateStationId != null){
+            url.searchParams.set('station_id', candidateStationId);
             url.searchParams.delete('body_id');
+        } else {
+            url.searchParams.delete('station_id');
+            const candidateId = bodyId != null ? bodyId : resolveNodeBodyId(selectedBodyNode);
+            const normalizedBodyId = parseBodyIdParam(candidateId);
+            if(normalizedBodyId != null){
+                url.searchParams.set('body_id', normalizedBodyId);
+            } else {
+                url.searchParams.delete('body_id');
+            }
         }
-        if(showStations){
+        if(showStations || candidateStationId != null){
             url.searchParams.set('station', '1');
             url.searchParams.delete('stations');
         } else {
@@ -265,6 +296,19 @@
                 }
             }
             setControlsPanelVisible(shouldShow);
+        });
+    }
+
+    if(stationToggleButton){
+        stationToggleButton.addEventListener('click', () => {
+            showStations = !showStations;
+            updateStationToggleButton();
+            if(!showStations && resolveNodeStationMarketId(selectedBodyNode) != null){
+                clearSelection({ updateShareState: false });
+            }
+            renderSystem(resolveActiveSystemName(), {
+                bodyId: resolveNodeBodyId(selectedBodyNode)
+            });
         });
     }
 
@@ -670,7 +714,10 @@
 
     const initialSystem = resolveActiveSystemName();
     if (initialSystem) {
-        const initialRender = renderSystem(initialSystem, { bodyId: bodyIdFromURL });
+        const initialRender = renderSystem(initialSystem, {
+            bodyId: bodyIdFromURL,
+            stationId: stationIdFromURL
+        });
         loadSysmapCssForExport();
         if (downloadMode === 'svg') {
             initialRender.then((success) => {
@@ -851,7 +898,7 @@
         }
     }
 
-    async function renderSystem(systemName, { bodyId = null } = {}){
+    async function renderSystem(systemName, { bodyId = null, stationId = null } = {}){
         const normalizedSystemName = sanitizeSystemName(systemName);
         if (!normalizedSystemName) {
             return false;
@@ -880,6 +927,7 @@
             const bodyIdNumber = Number(bodyId);
             requestedBodyId = Number.isFinite(bodyIdNumber) ? bodyIdNumber : null;
         }
+        const requestedStationId = parseStationMarketId(stationId);
         const trimmedInputName = normalizedSystemName;
         let resolvedSystemName = systemMetadata.name || trimmedInputName || systemName;
         if(trimmedInputName && parseSystemId64(trimmedInputName) !== null){
@@ -892,7 +940,7 @@
             systemInput.value = resolvedSystemName;
             updateNavigationButtonState();
         }
-        updateUrlState(resolvedSystemName, requestedBodyId);
+        updateUrlState(resolvedSystemName, requestedBodyId, requestedStationId);
 
         const { nodes, roots } = SysmapRoots.buildSystemTree(bodyData, stations);
 
@@ -929,7 +977,10 @@
         }
 
         const bounds = computeBounds([...nodes.values()]);
-        draw([...nodes.values()], bounds, resolvedSystemName, requestedBodyId, systemMetadata);
+        draw(
+            [...nodes.values()], bounds, resolvedSystemName, requestedBodyId,
+            systemMetadata, requestedStationId
+        );
         if(isEmbedPanelVisible()){
             updateEmbedLinkField();
         }
@@ -1690,7 +1741,9 @@
             image.setAttribute('x', -iconSize / 2);
             image.setAttribute('y', -iconSize / 2);
             image.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-            image.setAttribute('class', 'station-icon');
+            image.setAttribute(
+                'class', n.unresolvedStationHost ? 'station-icon unresolved' : 'station-icon'
+            );
             image.setAttribute('aria-label', n.name || 'Station');
             const iconPath = `/static/assets/${icon}`;
             image.setAttributeNS('http://www.w3.org/1999/xlink', 'href', iconPath);
@@ -1800,7 +1853,10 @@
         svg.appendChild(defs);
     }
 
-    function draw(nodes, bounds, title, preselectBodyId = null, systemMetadata = {}){
+    function draw(
+        nodes, bounds, title, preselectBodyId = null, systemMetadata = {},
+        preselectStationMarketId = null
+    ){
         const skipSiblingPairs = computeBarycenterSkipPairs(nodes);
         const drawnLinks = new Set();
         while(svg.firstChild) svg.removeChild(svg.firstChild);
@@ -2353,6 +2409,16 @@
             const matched = selectBodyById(normalizedPreselectId);
             if(!matched){
                 handleSelectionChange();
+            }
+        }
+        const normalizedStationMarketId = parseStationMarketId(preselectStationMarketId);
+        if(normalizedStationMarketId != null){
+            const stationNode = nodes.find(node =>
+                node.isStation
+                && parseStationMarketId(node.station?.market_id) === normalizedStationMarketId
+            );
+            if(stationNode){
+                selectBodyById(stationNode.id);
             }
         }
 
@@ -3214,13 +3280,20 @@
         }
         const url = new URL(globalThis.location?.href || '');
         url.searchParams.set('system', systemName);
-        const selectedId = resolveNodeBodyId(selectedBodyNode);
-        if(selectedId != null){
-            url.searchParams.set('body_id', selectedId);
-        } else {
+        const selectedStationId = resolveNodeStationMarketId(selectedBodyNode);
+        if(selectedStationId != null){
+            url.searchParams.set('station_id', selectedStationId);
             url.searchParams.delete('body_id');
+        } else {
+            url.searchParams.delete('station_id');
+            const selectedId = resolveNodeBodyId(selectedBodyNode);
+            if(selectedId != null){
+                url.searchParams.set('body_id', selectedId);
+            } else {
+                url.searchParams.delete('body_id');
+            }
         }
-        if(showStations){
+        if(showStations || selectedStationId != null){
             url.searchParams.set('station', '1');
             url.searchParams.delete('stations');
         } else {
