@@ -85,6 +85,11 @@ function stationIconAsset(stationType){
     if(type.includes('coriolis')) return 'coriolisstation.svg';
     if(type.includes('orbis')) return 'orbisstation.svg';
     if(type.includes('outpost')) return 'outpoststation.svg';
+    if(type.includes('megaship')) return 'megashipstation.svg';
+    if(type.includes('squadron')) return 'squadroncarrierstation.svg';
+    if(type.includes('installation')) return 'installationstation.svg';
+    if(type.includes('disabledfleetfixme')) return 'disabledfleetcarrierstation.svg';
+    if(type.includes('fleet')) return 'fleetcarrierstation.svg';
     return null;
 }
 
