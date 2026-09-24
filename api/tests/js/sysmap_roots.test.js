@@ -54,6 +54,7 @@ test('station attachment: uses the reconstructed host and the primary star fallb
 
     assert.equal(nodes.get(69).parentId, 14);
     assert.equal(nodes.get(69).isStation, true);
+    assert.deepEqual(nodes.get(1).children.map(node => node.id), [70, 14, 69]);
     assert.equal(nodes.get(70).parentId, 1);
     assert.equal(nodes.get(70).unresolvedStationHost, true);
 });
