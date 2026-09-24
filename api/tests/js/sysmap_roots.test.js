@@ -54,7 +54,8 @@ test('station attachment: uses the reconstructed host and the primary star fallb
 
     assert.equal(nodes.get(69).parentId, 14);
     assert.equal(nodes.get(69).isStation, true);
-    assert.deepEqual(nodes.get(1).children.map(node => node.id), [70, 14, 69]);
+    assert.deepEqual(nodes.get(1).children.map(node => node.id), [70, 14]);
+    assert.deepEqual(nodes.get(14).children.map(node => node.id), [69]);
     assert.equal(nodes.get(70).parentId, 1);
     assert.equal(nodes.get(70).unresolvedStationHost, true);
 });
@@ -66,6 +67,24 @@ test('station attachment: uses a map-only market ID when its BodyID is absent', 
     );
 
     assert.equal(nodes.get(-4341179395).isStation, true);
+});
+
+test('station attachment: orders direct station siblings by arrival distance', () => {
+    const { nodes } = buildSystemTree(
+        [
+            { body_id: 0, body_name: 'Lave', type: 'Star', radius: 1, distance_from_arrival_ls: 0 },
+            { body_id: 1, body_name: 'Planet Lave', type: 'Planet', radius: 6000, distance_from_arrival_ls: 279.357954, parents: [{ Star: 0 }] },
+            { body_id: 2, body_name: 'Castellan Belt', type: 'StellarRing', radius: 1, distance_from_arrival_ls: 2398.64421, parents: [{ Star: 0 }] }
+        ],
+        [{
+            body_id: 1000,
+            name: 'Warinus',
+            distance_from_arrival_ls: 864.919012,
+            parents: [{ Star: 0 }]
+        }]
+    );
+
+    assert.deepEqual(nodes.get(0).children.map(node => node.id), [1, 1000, 2]);
 });
 
 test('station attachment: infers Earth from a root station arrival distance', () => {
