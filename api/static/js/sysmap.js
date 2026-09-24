@@ -2325,14 +2325,12 @@
 
             const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
             label.textContent = `${n.name}`;
-            label.setAttribute('text-anchor', n.isStation ? 'start' : 'middle');
-            label.setAttribute('x', n.isStation ? n.x + 12 : n.x);
+            label.setAttribute('text-anchor', 'middle');
+            label.setAttribute('x', n.x);
             const labelYOffset = n.radiusScaled + 26;
-            label.setAttribute('y', n.isStation ? n.y + 3 : n.y - labelYOffset);
+            label.setAttribute('y', n.y - labelYOffset);
             label.setAttribute('dominant-baseline', 'bottom');
-            label.setAttribute(
-                'class', n.isStation ? 'station-label' : (showAllLabels ? 'label' : 'label hidden')
-            );
+            label.setAttribute('class', showAllLabels ? 'label' : 'label hidden');
             label.dataset.node = String(n.id);
             label.id = `${n.name} (#${n.id})`;
             labelsGroup.appendChild(label);
