@@ -97,6 +97,7 @@ def test_system_map_returns_sparse_stations_and_allegiance(monkeypatch):
                 "name": "FC Example",
                 "station_type": "FleetCarrier",
                 "body_id": 1,
+                "parents": [{"Planet": 1}],
             }
         ],
     }
@@ -108,6 +109,42 @@ def test_system_map_returns_sparse_stations_and_allegiance(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == expected
+
+
+def test_fetch_system_map_includes_station_parents(monkeypatch):
+    station_columns = [
+        "market_id",
+        "system_id64",
+        "body_id",
+        "body_name",
+        "parents",
+        "name",
+    ]
+    cursor = _patch_db(
+        monkeypatch,
+        first=(42, "Example", "Alliance"),
+        rows=[
+            (
+                128666762,
+                42,
+                69,
+                "Jameson Memorial",
+                [{"Planet": 14}, {"Star": 1}],
+                "Jameson Memorial",
+            )
+        ],
+        description=[(column,) for column in station_columns],
+    )
+    monkeypatch.setattr(
+        systems,
+        "fetch_bodies_from_db",
+        lambda *_args, **_kwargs: [{"system_id64": 42, "body_id": 14}],
+    )
+
+    result = systems.fetch_system_map_from_db("Example")
+
+    assert result["stations"][0]["parents"] == [{"Planet": 14}, {"Star": 1}]
+    assert "parents" in cursor.executed[1][0]
 
 
 def test_get_neighbors_radius_too_large():

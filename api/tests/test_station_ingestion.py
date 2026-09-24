@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 import importlib
 import json
 import sys
@@ -15,7 +16,7 @@ if str(REPO_ROOT) not in sys.path:
 from feeders import station_ingestion
 
 
-def test_spansh_nested_station_keeps_game_body_id():
+def test_spansh_nested_station_uses_its_host_as_first_parent():
     row = station_ingestion.station_from_spansh(
         {
             "id": 3910909952,
@@ -25,15 +26,41 @@ def test_spansh_nested_station_keeps_game_body_id():
         },
         13862946481609,
         None,
-        body_id=12,
         body_name="Upaniklis B 2 b",
+        parents=[{"Planet": 12}, {"Star": 2}, {"Null": 0}],
     )
 
     assert row is not None
     assert row["market_id"] == 3910909952
-    assert row["body_id"] == 12
+    assert row["body_id"] is None
     assert row["body_name"] == "Upaniklis B 2 b"
-    assert row["attachment_source"] == "spansh_body_id"
+    assert json.loads(row["parents"]) == [
+        {"Planet": 12}, {"Star": 2}, {"Null": 0}
+    ]
+
+
+def test_station_parent_chain_requires_a_typed_host_body():
+    assert station_ingestion.station_parent_chain(
+        12, "Planet", [{"Star": 2}, {"Null": 0}]
+    ) == [{"Planet": 12}, {"Star": 2}, {"Null": 0}]
+    assert station_ingestion.station_parent_chain(None, "Planet", []) == []
+
+
+def test_spansh_station_serializes_ijson_decimal_economies():
+    row = station_ingestion.station_from_spansh(
+        {
+            "id": 1,
+            "name": "Example Station",
+            "type": "Outpost",
+            "updateTime": "2026-09-24T12:00:00Z",
+            "economies": {"High Tech": Decimal("0.67")},
+        },
+        42,
+        None,
+    )
+
+    assert row is not None
+    assert json.loads(row["economies"]) == {"High Tech": 0.67}
 
 
 def test_eddn_carrier_jump_preserves_market_and_body_ids():

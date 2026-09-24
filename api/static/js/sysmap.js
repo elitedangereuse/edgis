@@ -2317,13 +2317,14 @@
         stationLayer.setAttribute('class', 'station-layer');
         svg.appendChild(stationLayer);
         stations.forEach((station, index) => {
-            const byId = station.body_id == null
-                ? null : nodesById.get(Number(station.body_id));
+            const hostBodyId = SysmapRoots.resolveStationHostId(station);
+            const byParent = hostBodyId == null
+                ? null : nodesById.get(hostBodyId);
             const byName = station.body_name
                 ? nodesByName.get(station.body_name.trim().toLowerCase()) : null;
-            const inferredHost = byId || byName
+            const inferredHost = byParent || byName
                 ? null : SysmapRoots.inferStationHostByArrivalDistance(station, nodes);
-            const host = byId || byName || inferredHost;
+            const host = byParent || byName || inferredHost;
             const x = host ? host.x + host.radiusScaled + 8 : 165 + (index % 5) * 108;
             const y = host ? host.y - host.radiusScaled - 8 : 58 + Math.floor(index / 5) * 18;
             const marker = document.createElementNS(ns, 'path');
