@@ -15,6 +15,7 @@ EXCLUDED_MARKET_IDS = frozenset({127000000, 127000256, 127000512})
 STATION_UPSERT = """
     INSERT INTO stations (
         market_id, system_id64, body_id, body_name, attachment_source,
+        parents,
         name, station_type, is_carrier, is_planetary,
         distance_from_arrival_ls, latitude, longitude,
         large_pads, medium_pads, small_pads, services, economies,
@@ -23,7 +24,8 @@ STATION_UPSERT = """
         location_updated_at, details_updated_at, last_seen_at, last_source
     ) VALUES (
         %(market_id)s, %(system_id64)s, %(body_id)s, %(body_name)s,
-        %(attachment_source)s, %(name)s, %(station_type)s, %(is_carrier)s,
+        %(attachment_source)s, %(parents)s::jsonb,
+        %(name)s, %(station_type)s, %(is_carrier)s,
         %(is_planetary)s, %(distance_from_arrival_ls)s, %(latitude)s,
         %(longitude)s, %(large_pads)s, %(medium_pads)s, %(small_pads)s,
         %(services)s::jsonb, %(economies)s::jsonb, %(primary_economy)s,
@@ -45,6 +47,10 @@ STATION_UPSERT = """
         attachment_source = CASE
             WHEN EXCLUDED.location_updated_at >= COALESCE(stations.location_updated_at, '-infinity'::timestamptz)
             THEN EXCLUDED.attachment_source ELSE stations.attachment_source END,
+        parents = CASE
+            WHEN jsonb_array_length(EXCLUDED.parents) > 0
+             AND EXCLUDED.location_updated_at >= COALESCE(stations.location_updated_at, '-infinity'::timestamptz)
+            THEN EXCLUDED.parents ELSE stations.parents END,
         location_updated_at = GREATEST(stations.location_updated_at, EXCLUDED.location_updated_at),
         name = CASE
             WHEN EXCLUDED.details_updated_at >= COALESCE(stations.details_updated_at, '-infinity'::timestamptz)
@@ -205,6 +211,7 @@ def station_from_spansh(
             "spansh_body_id" if body_id is not None
             else "spansh_body_name" if source_body_name else "unresolved"
         ),
+        "parents": json.dumps([]),
         "name": str(name), "station_type": str(station_type),
         "is_carrier": _is_carrier(station_type),
         "is_planetary": _is_planetary(station_type),
@@ -247,6 +254,7 @@ def station_from_eddn(message: dict[str, Any]) -> dict[str, Any] | None:
         "body_id": int(body_id) if body_id is not None else None,
         "body_name": body_name,
         "attachment_source": "eddn_body_id" if body_id is not None else "unresolved",
+        "parents": json.dumps([]),
         "name": str(name), "station_type": str(station_type),
         "is_carrier": _is_carrier(station_type),
         "is_planetary": _is_planetary(station_type),
@@ -265,6 +273,47 @@ def station_from_eddn(message: dict[str, Any]) -> dict[str, Any] | None:
         "location_updated_at": updated_at, "details_updated_at": updated_at,
         "last_seen_at": updated_at, "last_source": "eddn_journal",
     }
+
+
+def reconstruct_station_parents(
+    cursor: Any, station: dict[str, Any], host_body_name: Any,
+) -> bool:
+    """Populate a station's parent chain from the body named by Docked.Body.
+
+    ``stations.body_id`` remains the station's own BodyID.  The first parent
+    instead identifies the celestial body that hosts the station.
+    """
+    if not isinstance(host_body_name, str) or not host_body_name.strip():
+        return False
+
+    cursor.execute(
+        """
+        SELECT b.body_id, bt.name, b.parents
+        FROM bodies b
+        INNER JOIN body_types bt ON bt.id = b.body_type_id
+        WHERE b.system_id64 = %s
+          AND LOWER(b.body_name) = LOWER(%s)
+        LIMIT 1
+        """,
+        (station["system_id64"], host_body_name.strip()),
+    )
+    host = cursor.fetchone()
+    if host is None:
+        return False
+
+    host_body_id, host_type, host_parents = host
+    if host_body_id is None or not isinstance(host_type, str) or not host_type:
+        return False
+    if isinstance(host_parents, str):
+        try:
+            host_parents = json.loads(host_parents)
+        except json.JSONDecodeError:
+            host_parents = []
+    if not isinstance(host_parents, list):
+        host_parents = []
+
+    station["parents"] = json.dumps([{host_type: int(host_body_id)}, *host_parents])
+    return True
 
 
 def system_allegiance_from_eddn(message: dict[str, Any]) -> tuple[int, str, datetime] | None:

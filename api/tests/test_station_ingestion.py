@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import importlib
+import json
 import sys
 import types
 from pathlib import Path
@@ -55,6 +56,58 @@ def test_eddn_carrier_jump_preserves_market_and_body_ids():
     assert row["body_id"] == 0
     assert row["is_carrier"] is True
     assert row["attachment_source"] == "eddn_body_id"
+
+
+def test_docked_station_reconstructs_parents_from_its_host_body():
+    class Cursor:
+        def __init__(self):
+            self.statement = None
+
+        def execute(self, query, params):
+            self.statement = (query, params)
+
+        def fetchone(self):
+            return (14, "Planet", [{"Star": 1}, {"Null": 0}])
+
+    station = station_ingestion.station_from_eddn(
+        {
+            "event": "Docked",
+            "timestamp": "2026-09-24T12:00:00Z",
+            "MarketID": 128666762,
+            "StationName": "Jameson Memorial",
+            "StationType": "Orbis",
+            "SystemAddress": 3932277478106,
+            "Body": "Founders World",
+            "BodyID": 69,
+        }
+    )
+
+    assert station is not None
+    cursor = Cursor()
+    assert station_ingestion.reconstruct_station_parents(
+        cursor, station, "Founders World"
+    )
+    assert station["body_id"] == 69
+    assert json.loads(station["parents"]) == [
+        {"Planet": 14}, {"Star": 1}, {"Null": 0}
+    ]
+    assert cursor.statement[1] == (3932277478106, "Founders World")
+
+
+def test_docked_station_leaves_parents_empty_when_host_is_unknown():
+    class Cursor:
+        def execute(self, *_args):
+            pass
+
+        def fetchone(self):
+            return None
+
+    station = {"system_id64": 42, "parents": json.dumps([])}
+
+    assert not station_ingestion.reconstruct_station_parents(
+        Cursor(), station, "Unknown World"
+    )
+    assert json.loads(station["parents"]) == []
 
 
 def test_journal_station_normalizes_economies_and_allegiance():

@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 try:
     from feeders.station_ingestion import (
         station_from_eddn,
+        reconstruct_station_parents,
         system_allegiance_from_eddn,
         upsert_station,
         upsert_system_allegiance,
@@ -26,6 +27,7 @@ except ModuleNotFoundError:  # Allow direct execution from feeders/.
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from feeders.station_ingestion import (
         station_from_eddn,
+        reconstruct_station_parents,
         system_allegiance_from_eddn,
         upsert_station,
         upsert_system_allegiance,
@@ -116,6 +118,8 @@ def process_message(
                 cursor, system_id64, value, updated_at, "eddn_journal"
             )
         if station is not None:
+            if event == "Docked":
+                reconstruct_station_parents(cursor, station, payload.get("Body"))
             is_new = upsert_station(cursor, station)
             record_stations_processed(cursor, is_new=is_new)
     db_conn.commit()
