@@ -41,7 +41,7 @@ STATION_UPSERT = """
             THEN EXCLUDED.system_id64 ELSE stations.system_id64 END,
         body_id = CASE
             WHEN EXCLUDED.location_updated_at >= COALESCE(stations.location_updated_at, '-infinity'::timestamptz)
-            THEN EXCLUDED.body_id ELSE stations.body_id END,
+            THEN COALESCE(EXCLUDED.body_id, stations.body_id) ELSE stations.body_id END,
         body_name = CASE
             WHEN EXCLUDED.location_updated_at >= COALESCE(stations.location_updated_at, '-infinity'::timestamptz)
             THEN EXCLUDED.body_name ELSE stations.body_name END,
@@ -50,7 +50,11 @@ STATION_UPSERT = """
             THEN EXCLUDED.attachment_source ELSE stations.attachment_source END,
         parents = CASE
             WHEN jsonb_array_length(EXCLUDED.parents) > 0
-             AND EXCLUDED.location_updated_at >= COALESCE(stations.location_updated_at, '-infinity'::timestamptz)
+             AND (
+                 stations.parents IS NULL
+                 OR stations.parents = '[]'::jsonb
+                 OR EXCLUDED.location_updated_at >= COALESCE(stations.location_updated_at, '-infinity'::timestamptz)
+             )
             THEN EXCLUDED.parents ELSE stations.parents END,
         location_updated_at = GREATEST(stations.location_updated_at, EXCLUDED.location_updated_at),
         name = CASE
@@ -200,7 +204,9 @@ def _is_carrier(station_type: str | None) -> bool:
 
 
 def station_parent_chain(
-    host_body_id: Any, host_type: Any, host_parents: Any,
+    host_body_id: Any,
+    host_type: Any,
+    host_parents: Any,
 ) -> list[dict[str, Any]]:
     """Return a station parent chain headed by its celestial host."""
     if not isinstance(host_type, str) or not host_type:
@@ -220,8 +226,12 @@ def station_parent_chain(
 
 
 def station_from_spansh(
-    station: dict[str, Any], system_id64: int, system_updated_at: datetime | None,
-    *, body_id: int | None = None, body_name: str | None = None,
+    station: dict[str, Any],
+    system_id64: int,
+    system_updated_at: datetime | None,
+    *,
+    body_id: int | None = None,
+    body_name: str | None = None,
     parents: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     market_id = station.get("id")
@@ -238,19 +248,25 @@ def station_from_spansh(
     pads = station.get("landingPads") or {}
     source_body_name = body_name or station.get("bodyName")
     return {
-        "market_id": market_id, "system_id64": system_id64,
-        "body_id": body_id, "body_name": source_body_name,
+        "market_id": market_id,
+        "system_id64": system_id64,
+        "body_id": body_id,
+        "body_name": source_body_name,
         "attachment_source": (
-            "spansh_body_id" if body_id is not None
+            "spansh_body_id"
+            if body_id is not None
             else "spansh_body_name" if source_body_name else "unresolved"
         ),
         "parents": _json_dumps(parents if isinstance(parents, list) else []),
-        "name": str(name), "station_type": str(station_type),
+        "name": str(name),
+        "station_type": str(station_type),
         "is_carrier": _is_carrier(station_type),
         "is_planetary": _is_planetary(station_type),
         "distance_from_arrival_ls": station.get("distanceToArrival"),
-        "latitude": station.get("latitude"), "longitude": station.get("longitude"),
-        "large_pads": pads.get("large"), "medium_pads": pads.get("medium"),
+        "latitude": station.get("latitude"),
+        "longitude": station.get("longitude"),
+        "large_pads": pads.get("large"),
+        "medium_pads": pads.get("medium"),
         "small_pads": pads.get("small"),
         "services": _json_dumps(station.get("services") or []),
         "economies": _json_dumps(station.get("economies") or {}),
@@ -260,8 +276,10 @@ def station_from_spansh(
         "controlling_faction": station.get("controllingFaction"),
         "controlling_faction_state": station.get("controllingFactionState"),
         "station_state": station.get("state"),
-        "location_updated_at": updated_at, "details_updated_at": updated_at,
-        "last_seen_at": updated_at, "last_source": "spansh_dump",
+        "location_updated_at": updated_at,
+        "details_updated_at": updated_at,
+        "last_seen_at": updated_at,
+        "last_source": "spansh_dump",
     }
 
 
@@ -272,7 +290,10 @@ def station_from_eddn(message: dict[str, Any]) -> dict[str, Any] | None:
     station_type = message.get("StationType")
     updated_at = parse_timestamp(message.get("timestamp"))
     if (
-        market_id is None or system_id64 is None or not name or not station_type
+        market_id is None
+        or system_id64 is None
+        or not name
+        or not station_type
         or updated_at is None
     ):
         return None
@@ -283,33 +304,43 @@ def station_from_eddn(message: dict[str, Any]) -> dict[str, Any] | None:
     body_id = message.get("BodyID")
     body_name = message.get("Body")
     return {
-        "market_id": market_id, "system_id64": int(system_id64),
+        "market_id": market_id,
+        "system_id64": int(system_id64),
         "body_id": int(body_id) if body_id is not None else None,
         "body_name": body_name,
         "attachment_source": "eddn_body_id" if body_id is not None else "unresolved",
         "parents": _json_dumps([]),
-        "name": str(name), "station_type": str(station_type),
+        "name": str(name),
+        "station_type": str(station_type),
         "is_carrier": _is_carrier(station_type),
         "is_planetary": _is_planetary(station_type),
         "distance_from_arrival_ls": message.get("DistFromStarLS"),
-        "latitude": message.get("Latitude"), "longitude": message.get("Longitude"),
-        "large_pads": pads.get("Large"), "medium_pads": pads.get("Medium"),
+        "latitude": message.get("Latitude"),
+        "longitude": message.get("Longitude"),
+        "large_pads": pads.get("Large"),
+        "medium_pads": pads.get("Medium"),
         "small_pads": pads.get("Small"),
         "services": _json_dumps(message.get("StationServices") or []),
-        "economies": _json_dumps(_economies_from_journal(message.get("StationEconomies"))),
+        "economies": _json_dumps(
+            _economies_from_journal(message.get("StationEconomies"))
+        ),
         "primary_economy": normalize_token(message.get("StationEconomy")),
         "government": normalize_token(message.get("StationGovernment")),
         "allegiance": normalize_allegiance(message.get("StationAllegiance")),
         "controlling_faction": _station_faction(message.get("StationFaction")),
         "controlling_faction_state": normalize_token(message.get("FactionState")),
         "station_state": message.get("StationState"),
-        "location_updated_at": updated_at, "details_updated_at": updated_at,
-        "last_seen_at": updated_at, "last_source": "eddn_journal",
+        "location_updated_at": updated_at,
+        "details_updated_at": updated_at,
+        "last_seen_at": updated_at,
+        "last_source": "eddn_journal",
     }
 
 
 def reconstruct_station_parents(
-    cursor: Any, station: dict[str, Any], host_body_name: Any,
+    cursor: Any,
+    station: dict[str, Any],
+    host_body_name: Any,
 ) -> bool:
     """Populate a station's parent chain from the body named by Docked.Body.
 
@@ -332,17 +363,21 @@ def reconstruct_station_parents(
     )
     host = cursor.fetchone()
     if host is None:
+        print(f"  parents: can't find host {host_body_name.strip()}")
         return False
 
     host_body_id, host_type, host_parents = host
     parents = station_parent_chain(host_body_id, host_type, host_parents)
+    print(f"  parents: {parents}")
     if not parents:
         return False
     station["parents"] = _json_dumps(parents)
     return True
 
 
-def system_allegiance_from_eddn(message: dict[str, Any]) -> tuple[int, str, datetime] | None:
+def system_allegiance_from_eddn(
+    message: dict[str, Any],
+) -> tuple[int, str, datetime] | None:
     system_id64 = message.get("SystemAddress")
     updated_at = parse_timestamp(message.get("timestamp"))
     allegiance = normalize_allegiance(message.get("SystemAllegiance"))
@@ -360,4 +395,6 @@ def upsert_station(cursor: Any, station: dict[str, Any]) -> bool:
 def upsert_system_allegiance(
     cursor: Any, system_id64: int, allegiance: str, updated_at: datetime, source: str
 ) -> None:
-    cursor.execute(SYSTEM_ALLEGIANCE_UPSERT, (system_id64, allegiance, updated_at, source))
+    cursor.execute(
+        SYSTEM_ALLEGIANCE_UPSERT, (system_id64, allegiance, updated_at, source)
+    )

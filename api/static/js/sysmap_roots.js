@@ -70,7 +70,14 @@ function inferStationHostByArrivalDistance(station, nodes){
     return candidates[0].node;
 }
 
-// A station's BodyID identifies the station, not its celestial host.  The
+function isSpaceStation(station){
+    return Boolean(station)
+        && !station.is_planetary
+        && !station.is_carrier
+        && station.station_type !== 'FleetCarrier';
+}
+
+// A station's BodyID identifies the station, not its celestial host. The
 // reconstructed parent chain begins with the body the station is attached to.
 function resolveStationHostId(station){
     let parents = station?.parents;
@@ -203,6 +210,9 @@ function buildNodeRecord(body, parentsMeta){
         massValue: resolveBodyMassValue(body),
         discovery: body.discovery ?? null,
         wasMapped: body.was_mapped ?? body.mapped ?? null,
+        isStation: body.is_station === true,
+        station: body.station ?? null,
+        unresolvedStationHost: body.station_unresolved === true,
         raw: body
     };
 }
@@ -392,7 +402,14 @@ function buildLayoutTree(nodes){
             nodes.get(pid).children.push(node);
         }
     });
-    arrayNodes.forEach(node => node.children.sort((a, b) => (a.id ?? 0) - (b.id ?? 0)));
+    arrayNodes.forEach(node => node.children.sort((a, b) => {
+        if(a.isStation && b.isStation){
+            return String(a.name || '').localeCompare(String(b.name || ''));
+        }
+        if(a.isStation) return -1;
+        if(b.isStation) return 1;
+        return (a.id ?? 0) - (b.id ?? 0);
+    }));
 
     const emitted = [];
     const emit = (node, seen) => {
@@ -430,7 +447,7 @@ function buildLayoutTree(nodes){
 // Builds the full system tree from raw API bodies:
 // returns { nodes: Map<body_id, node>, roots: [node] } where roots are the
 // top-level layout nodes in draw order.
-function buildSystemTree(bodies){
+function buildSystemTree(bodies, stations = []){
     const nodes = new Map();
     const pendingRings = new Map();
     (Array.isArray(bodies) ? bodies : []).forEach(body => {
@@ -446,6 +463,33 @@ function buildSystemTree(bodies){
         if(id == null) return;
         const parentsMeta = resolveParentRefs(body.parents || []);
         nodes.set(id, buildNodeRecord(body, parentsMeta));
+    });
+
+    const primaryStarId = [...nodes.values()].find(node => node.type === 'Star')?.id ?? null;
+    (Array.isArray(stations) ? stations : []).forEach(station => {
+        const marketId = toId(station?.market_id);
+        const stationId = toId(station?.body_id)
+            ?? (marketId != null ? -marketId : null);
+        if(stationId == null || nodes.has(stationId)) return;
+        const resolvedHostId = resolveStationHostId(station);
+        const hasResolvedHost = resolvedHostId != null && nodes.has(resolvedHostId);
+        const hostId = hasResolvedHost ? resolvedHostId : primaryStarId;
+        if(hostId == null) return;
+        const stationBody = {
+            ...station,
+            body_id: stationId,
+            body_name: station.name || station.body_name || 'Station',
+            type: 'Station',
+            radius: 1600,
+            parents: [{ Station: hostId }],
+            is_station: true,
+            station_unresolved: !hasResolvedHost,
+            station
+        };
+        nodes.set(stationId, buildNodeRecord(
+            stationBody,
+            resolveParentRefs(stationBody.parents)
+        ));
     });
 
     pendingRings.forEach((ringList, hostId) => {
@@ -508,6 +552,7 @@ const api = {
     isAsteroidClusterNode,
     inferStationHostByArrivalDistance,
     resolveStationHostId,
+    isSpaceStation,
     hasStarDescendant,
     getNodeMass,
     normalizeMassToUnit,

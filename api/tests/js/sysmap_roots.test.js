@@ -9,6 +9,7 @@ const {
     buildSystemTree,
     computeBarycenterSkipPairs,
     inferStationHostByArrivalDistance,
+    isSpaceStation,
     isBarycenter,
     pairKey,
     resolveStationHostId
@@ -20,6 +21,40 @@ test('station attachment: resolves the direct host from parents, not BodyID', ()
         14
     );
     assert.equal(resolveStationHostId({ body_id: 69, parents: [] }), null);
+});
+
+test('station attachment: only space stations are eligible for the map', () => {
+    assert.equal(isSpaceStation({ station_type: 'Orbis' }), true);
+    assert.equal(isSpaceStation({ station_type: 'PlanetaryOutpost', is_planetary: true }), false);
+    assert.equal(isSpaceStation({ station_type: 'FleetCarrier', is_carrier: true }), false);
+    assert.equal(isSpaceStation({ station_type: 'FleetCarrier' }), false);
+});
+
+test('station attachment: uses the reconstructed host and the primary star fallback', () => {
+    const { nodes } = buildSystemTree(
+        [
+            { body_id: 1, body_name: 'Shinrarta Dezhra', type: 'Star', radius: 1 },
+            { body_id: 14, body_name: 'Founders World', type: 'Planet', radius: 6000, parents: [{ Star: 1 }] }
+        ],
+        [
+            { body_id: 69, name: 'Jameson Memorial', parents: [{ Planet: 14 }, { Star: 1 }] },
+            { body_id: 70, name: 'Unresolved Station', parents: [] }
+        ]
+    );
+
+    assert.equal(nodes.get(69).parentId, 14);
+    assert.equal(nodes.get(69).isStation, true);
+    assert.equal(nodes.get(70).parentId, 1);
+    assert.equal(nodes.get(70).unresolvedStationHost, true);
+});
+
+test('station attachment: uses a map-only market ID when its BodyID is absent', () => {
+    const { nodes } = buildSystemTree(
+        [{ body_id: 1, body_name: 'Example', type: 'Star', radius: 1 }],
+        [{ market_id: 4341179395, name: 'Holzman Vision', parents: [{ Planet: 5 }]}]
+    );
+
+    assert.equal(nodes.get(-4341179395).isStation, true);
 });
 
 test('station attachment: infers Earth from a root station arrival distance', () => {
