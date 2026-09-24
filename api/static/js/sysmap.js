@@ -1683,7 +1683,7 @@
     function addStationNode(n, group){
         const icon = SysmapRoots.stationIconAsset(n.station?.station_type);
         if(icon){
-            const iconSize = 20;
+            const iconSize = 18;
             const image = document.createElementNS('http://www.w3.org/2000/svg', 'image');
             image.setAttribute('width', iconSize);
             image.setAttribute('height', iconSize);
