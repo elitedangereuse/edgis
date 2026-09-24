@@ -12,7 +12,8 @@ const {
     isSpaceStation,
     isBarycenter,
     pairKey,
-    resolveStationHostId
+    resolveStationHostId,
+    stationIconAsset
 } = require('../../static/js/sysmap_roots');
 
 test('station attachment: resolves the direct host from parents, not BodyID', () => {
@@ -28,6 +29,15 @@ test('station attachment: only space stations are eligible for the map', () => {
     assert.equal(isSpaceStation({ station_type: 'PlanetaryOutpost', is_planetary: true }), false);
     assert.equal(isSpaceStation({ station_type: 'FleetCarrier', is_carrier: true }), false);
     assert.equal(isSpaceStation({ station_type: 'FleetCarrier' }), false);
+});
+
+test('station icon: maps known station types to their SVG assets', () => {
+    assert.equal(stationIconAsset('Orbis'), 'orbisstation.svg');
+    assert.equal(stationIconAsset('Ocellus Starport'), 'ocelusstation.svg');
+    assert.equal(stationIconAsset('Dodec Starport'), 'dodecstation.svg');
+    assert.equal(stationIconAsset('Coriolis Starport'), 'coriolisstation.svg');
+    assert.equal(stationIconAsset('Asteroid Base'), 'asteroidstation.svg');
+    assert.equal(stationIconAsset('Space Construction Depot'), null);
 });
 
 test('station attachment: uses the reconstructed host and the primary star fallback', () => {
