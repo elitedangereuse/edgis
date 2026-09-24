@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from decimal import Decimal
 from datetime import datetime
 from typing import Any
 
@@ -121,6 +122,17 @@ def normalize_token(value: Any) -> str | None:
     return stripped or None
 
 
+def _json_default(value: Any) -> float:
+    if isinstance(value, Decimal):
+        return float(value)
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def _json_dumps(value: Any) -> str:
+    """Serialize values emitted by both standard JSON and ijson parsers."""
+    return json.dumps(value, default=_json_default)
+
+
 def normalize_allegiance(value: Any) -> str | None:
     allegiance = normalize_token(value)
     if not allegiance or allegiance.lower() in {"none", "null"}:
@@ -187,9 +199,30 @@ def _is_carrier(station_type: str | None) -> bool:
     return "carrier" in (station_type or "").lower()
 
 
+def station_parent_chain(
+    host_body_id: Any, host_type: Any, host_parents: Any,
+) -> list[dict[str, Any]]:
+    """Return a station parent chain headed by its celestial host."""
+    if not isinstance(host_type, str) or not host_type:
+        return []
+    try:
+        host_body_id = int(host_body_id)
+    except (TypeError, ValueError):
+        return []
+    if isinstance(host_parents, str):
+        try:
+            host_parents = json.loads(host_parents)
+        except json.JSONDecodeError:
+            host_parents = []
+    if not isinstance(host_parents, list):
+        host_parents = []
+    return [{host_type: host_body_id}, *host_parents]
+
+
 def station_from_spansh(
     station: dict[str, Any], system_id64: int, system_updated_at: datetime | None,
     *, body_id: int | None = None, body_name: str | None = None,
+    parents: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     market_id = station.get("id")
     name = station.get("name")
@@ -211,7 +244,7 @@ def station_from_spansh(
             "spansh_body_id" if body_id is not None
             else "spansh_body_name" if source_body_name else "unresolved"
         ),
-        "parents": json.dumps([]),
+        "parents": _json_dumps(parents if isinstance(parents, list) else []),
         "name": str(name), "station_type": str(station_type),
         "is_carrier": _is_carrier(station_type),
         "is_planetary": _is_planetary(station_type),
@@ -219,8 +252,8 @@ def station_from_spansh(
         "latitude": station.get("latitude"), "longitude": station.get("longitude"),
         "large_pads": pads.get("large"), "medium_pads": pads.get("medium"),
         "small_pads": pads.get("small"),
-        "services": json.dumps(station.get("services") or []),
-        "economies": json.dumps(station.get("economies") or {}),
+        "services": _json_dumps(station.get("services") or []),
+        "economies": _json_dumps(station.get("economies") or {}),
         "primary_economy": station.get("primaryEconomy"),
         "government": station.get("government"),
         "allegiance": normalize_allegiance(station.get("allegiance")),
@@ -254,7 +287,7 @@ def station_from_eddn(message: dict[str, Any]) -> dict[str, Any] | None:
         "body_id": int(body_id) if body_id is not None else None,
         "body_name": body_name,
         "attachment_source": "eddn_body_id" if body_id is not None else "unresolved",
-        "parents": json.dumps([]),
+        "parents": _json_dumps([]),
         "name": str(name), "station_type": str(station_type),
         "is_carrier": _is_carrier(station_type),
         "is_planetary": _is_planetary(station_type),
@@ -262,8 +295,8 @@ def station_from_eddn(message: dict[str, Any]) -> dict[str, Any] | None:
         "latitude": message.get("Latitude"), "longitude": message.get("Longitude"),
         "large_pads": pads.get("Large"), "medium_pads": pads.get("Medium"),
         "small_pads": pads.get("Small"),
-        "services": json.dumps(message.get("StationServices") or []),
-        "economies": json.dumps(_economies_from_journal(message.get("StationEconomies"))),
+        "services": _json_dumps(message.get("StationServices") or []),
+        "economies": _json_dumps(_economies_from_journal(message.get("StationEconomies"))),
         "primary_economy": normalize_token(message.get("StationEconomy")),
         "government": normalize_token(message.get("StationGovernment")),
         "allegiance": normalize_allegiance(message.get("StationAllegiance")),
@@ -302,17 +335,10 @@ def reconstruct_station_parents(
         return False
 
     host_body_id, host_type, host_parents = host
-    if host_body_id is None or not isinstance(host_type, str) or not host_type:
+    parents = station_parent_chain(host_body_id, host_type, host_parents)
+    if not parents:
         return False
-    if isinstance(host_parents, str):
-        try:
-            host_parents = json.loads(host_parents)
-        except json.JSONDecodeError:
-            host_parents = []
-    if not isinstance(host_parents, list):
-        host_parents = []
-
-    station["parents"] = json.dumps([{host_type: int(host_body_id)}, *host_parents])
+    station["parents"] = _json_dumps(parents)
     return True
 
 

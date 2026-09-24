@@ -2309,7 +2309,7 @@ def fetch_system_map_from_db(
                 return None
             cursor.execute(
                 """
-                SELECT market_id, system_id64, body_id, body_name, name,
+                SELECT market_id, system_id64, body_id, body_name, parents, name,
                        station_type, is_carrier, is_planetary,
                        distance_from_arrival_ls, latitude, longitude,
                        large_pads, medium_pads, small_pads, services, economies,

@@ -10,8 +10,17 @@ const {
     computeBarycenterSkipPairs,
     inferStationHostByArrivalDistance,
     isBarycenter,
-    pairKey
+    pairKey,
+    resolveStationHostId
 } = require('../../static/js/sysmap_roots');
+
+test('station attachment: resolves the direct host from parents, not BodyID', () => {
+    assert.equal(
+        resolveStationHostId({ body_id: 69, parents: [{ Planet: 14 }, { Star: 1 }] }),
+        14
+    );
+    assert.equal(resolveStationHostId({ body_id: 69, parents: [] }), null);
+});
 
 test('station attachment: infers Earth from a root station arrival distance', () => {
     const earth = {

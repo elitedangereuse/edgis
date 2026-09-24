@@ -16,6 +16,7 @@ try:
     from feeders.station_ingestion import (
         normalize_allegiance,
         parse_timestamp,
+        station_parent_chain,
         station_from_spansh,
         upsert_station,
         upsert_system_allegiance,
@@ -28,6 +29,7 @@ except ModuleNotFoundError:  # Allow direct execution from feeders/.
     from feeders.station_ingestion import (
         normalize_allegiance,
         parse_timestamp,
+        station_parent_chain,
         station_from_spansh,
         upsert_station,
         upsert_system_allegiance,
@@ -45,11 +47,11 @@ COMMIT_EVERY_SYSTEMS = 1_000
 def _ingest_station(
     cursor: Any, station: dict[str, Any], system_id64: int,
     system_updated_at, *, body_id: int | None = None,
-    body_name: str | None = None,
+    body_name: str | None = None, parents: list[dict[str, Any]] | None = None,
 ) -> bool:
     normalized = station_from_spansh(
         station, system_id64, system_updated_at,
-        body_id=body_id, body_name=body_name,
+        body_id=body_id, body_name=body_name, parents=parents,
     )
     return bool(normalized and upsert_station(cursor, normalized))
 
@@ -94,10 +96,13 @@ def ingest_streaming(path: str) -> tuple[int, int]:
                             body_id = int(body_id) if body_id is not None else None
                         except (TypeError, ValueError):
                             body_id = None
+                        parents = station_parent_chain(
+                            body_id, body.get("type"), body.get("parents")
+                        )
                         for station in body.get("stations") or []:
                             if _ingest_station(
                                 cursor, station, system_id64, updated_at,
-                                body_id=body_id, body_name=body.get("name"),
+                                body_name=body.get("name"), parents=parents,
                             ):
                                 created += 1
                             seen += 1

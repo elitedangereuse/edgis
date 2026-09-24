@@ -70,6 +70,23 @@ function inferStationHostByArrivalDistance(station, nodes){
     return candidates[0].node;
 }
 
+// A station's BodyID identifies the station, not its celestial host.  The
+// reconstructed parent chain begins with the body the station is attached to.
+function resolveStationHostId(station){
+    let parents = station?.parents;
+    if(typeof parents === 'string'){
+        try {
+            parents = JSON.parse(parents);
+        } catch(_error) {
+            return null;
+        }
+    }
+    if(!Array.isArray(parents) || parents.length === 0) return null;
+    const directParent = parents[0];
+    if(!directParent || typeof directParent !== 'object') return null;
+    return toId(Object.values(directParent)[0]);
+}
+
 // The parents array is ordered nearest ancestor first. Barycenter links are the
 // entries typed 'Null' (EDDN/Spansh) or 'Barycentre'/'Barycenter'.
 // - parentId: first non-bary parent (the host row the body is drawn in)
@@ -490,6 +507,7 @@ const api = {
     isStellarRingNode,
     isAsteroidClusterNode,
     inferStationHostByArrivalDistance,
+    resolveStationHostId,
     hasStarDescendant,
     getNodeMass,
     normalizeMassToUnit,
