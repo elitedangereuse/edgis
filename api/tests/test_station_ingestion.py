@@ -16,6 +16,11 @@ if str(REPO_ROOT) not in sys.path:
 from feeders import station_ingestion
 
 
+def test_station_upsert_backfills_empty_parents_without_requiring_a_newer_location():
+    assert "stations.parents = '[]'::jsonb" in station_ingestion.STATION_UPSERT
+    assert "COALESCE(EXCLUDED.body_id, stations.body_id)" in station_ingestion.STATION_UPSERT
+
+
 def test_spansh_nested_station_uses_its_host_as_first_parent():
     row = station_ingestion.station_from_spansh(
         {
