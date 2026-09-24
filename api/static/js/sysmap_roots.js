@@ -77,6 +77,16 @@ function isSpaceStation(station){
         && station.station_type !== 'FleetCarrier';
 }
 
+function stationIconAsset(stationType){
+    const type = String(stationType || '').toLowerCase();
+    if(type.includes('asteroid')) return 'asteroidstation.svg';
+    if(type.includes('ocellus')) return 'ocelusstation.svg';
+    if(type.includes('dodec')) return 'dodecstation.svg';
+    if(type.includes('coriolis')) return 'coriolisstation.svg';
+    if(type.includes('orbis')) return 'orbisstation.svg';
+    return null;
+}
+
 // A station's BodyID identifies the station, not its celestial host. The
 // reconstructed parent chain begins with the body the station is attached to.
 function resolveStationHostId(station){
@@ -553,6 +563,7 @@ const api = {
     inferStationHostByArrivalDistance,
     resolveStationHostId,
     isSpaceStation,
+    stationIconAsset,
     hasStarDescendant,
     getNodeMass,
     normalizeMassToUnit,

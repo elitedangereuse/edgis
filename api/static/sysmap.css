@@ -135,6 +135,7 @@ svg .station-marker {
 }
 svg .station-marker.carrier { fill: #d6a65c; }
 svg .station-marker.unresolved { fill: #e24b4b; }
+svg image.station-icon { filter: drop-shadow(0 0 3px rgba(110, 242, 237, 0.45)); }
 svg .station-label {
     font-size: .52rem;
     fill: #c8e7ea;

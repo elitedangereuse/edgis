@@ -1681,6 +1681,23 @@
     }
 
     function addStationNode(n, group){
+        const icon = SysmapRoots.stationIconAsset(n.station?.station_type);
+        if(icon){
+            const iconSize = 20;
+            const image = document.createElementNS('http://www.w3.org/2000/svg', 'image');
+            image.setAttribute('width', iconSize);
+            image.setAttribute('height', iconSize);
+            image.setAttribute('x', -iconSize / 2);
+            image.setAttribute('y', -iconSize / 2);
+            image.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+            image.setAttribute('class', 'station-icon');
+            image.setAttribute('aria-label', n.name || 'Station');
+            const iconPath = `/static/assets/${icon}`;
+            image.setAttributeNS('http://www.w3.org/1999/xlink', 'href', iconPath);
+            image.setAttribute('href', iconPath);
+            group.appendChild(image);
+            return;
+        }
         const marker = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         marker.setAttribute('d', 'M 0,-4 L 4,0 L 0,4 L -4,0 Z');
         marker.setAttribute(
@@ -2309,7 +2326,7 @@
             const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
             label.textContent = `${n.name}`;
             label.setAttribute('text-anchor', n.isStation ? 'start' : 'middle');
-            label.setAttribute('x', n.isStation ? n.x + 8 : n.x);
+            label.setAttribute('x', n.isStation ? n.x + 12 : n.x);
             const labelYOffset = n.radiusScaled + 26;
             label.setAttribute('y', n.isStation ? n.y + 3 : n.y - labelYOffset);
             label.setAttribute('dominant-baseline', 'bottom');
