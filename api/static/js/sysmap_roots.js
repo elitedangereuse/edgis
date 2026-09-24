@@ -84,6 +84,7 @@ function stationIconAsset(stationType){
     if(type.includes('dodec')) return 'dodecstation.svg';
     if(type.includes('coriolis')) return 'coriolisstation.svg';
     if(type.includes('orbis')) return 'orbisstation.svg';
+    if(type.includes('outpost')) return 'outpoststation.svg';
     return null;
 }
 
@@ -375,6 +376,9 @@ function associateBarycenterMembers(nodes){
 // Layout tree: every body hangs off
 // - its first non-bary parent (host row: moons under their planet, rings under
 //   their star, barycenter members under their host star), or
+// - for a resolved orbital station, its host's layout parent: this retains the
+//   station's true parentId while placing it immediately after its host on the
+//   same orbital rail, as in the in-game map, or
 // - when it only orbits barycenters: as a member, surfaced next to its
 //   barycenter (same layout parent), or as a branch child of the barycenter
 //   for non-member bodies (circumbinary planets and nested barycenter pairs).
@@ -389,7 +393,10 @@ function buildLayoutTree(nodes){
         if(path.has(node.id)) return null; // defensive: malformed parent cycle
         path.add(node.id);
         let result;
-        if(node.parentId != null && nodes.has(node.parentId)){
+        if(node.isStation && !node.unresolvedStationHost
+           && node.parentId != null && nodes.has(node.parentId)){
+            result = resolveLayoutParentId(nodes.get(node.parentId), path);
+        } else if(node.parentId != null && nodes.has(node.parentId)){
             result = node.parentId;
         } else {
             const bary = node.directBaryParentId != null ? nodes.get(node.directBaryParentId) : null;
@@ -414,10 +421,20 @@ function buildLayoutTree(nodes){
     });
     arrayNodes.forEach(node => node.children.sort((a, b) => {
         if(a.isStation && b.isStation){
+            const hostDifference = Number(a.parentId) - Number(b.parentId);
+            if(Number.isFinite(hostDifference) && hostDifference !== 0){
+                return hostDifference;
+            }
             return String(a.name || '').localeCompare(String(b.name || ''));
         }
-        if(a.isStation) return -1;
-        if(b.isStation) return 1;
+        if(a.isStation){
+            const hostDifference = Number(a.parentId) - Number(b.id);
+            return hostDifference === 0 ? 1 : hostDifference;
+        }
+        if(b.isStation){
+            const hostDifference = Number(a.id) - Number(b.parentId);
+            return hostDifference === 0 ? -1 : hostDifference;
+        }
         return (a.id ?? 0) - (b.id ?? 0);
     }));
 
