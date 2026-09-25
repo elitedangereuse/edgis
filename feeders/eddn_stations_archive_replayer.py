@@ -80,6 +80,28 @@ def market_id_occurrences(path: Path, limit: int | None) -> Counter[int]:
     return occurrences
 
 
+def docked_log_label(envelope: dict[str, Any]) -> str:
+    """Build a useful progress label without depending on feeder acceptance."""
+    payload = envelope.get("message") or {}
+    station_name = (
+        payload.get("StationName_Localised")
+        or payload.get("StationName")
+        or "Unknown station"
+    )
+    market_id = payload.get("MarketID", "?")
+    system_name = payload.get("StarSystem") or payload.get("SystemName")
+    system_id64 = payload.get("SystemAddress")
+    if system_name and system_id64 is not None:
+        location = f"{system_name} [{system_id64}]"
+    elif system_name:
+        location = str(system_name)
+    elif system_id64 is not None:
+        location = str(system_id64)
+    else:
+        location = "unknown system"
+    return f"Docked: {station_name} [{market_id}] in {location}"
+
+
 def replay_archives(
     paths: Iterable[Path],
     connection: Any,
@@ -138,10 +160,16 @@ def replay_archives(
                 outcome = process(
                     envelope,
                     connection=connection,
-                    verbose=verbose,
+                    # The replayer owns progress logging so every retained
+                    # archive row is visible, including rejected old schemas.
+                    verbose=False,
                     commit=False,
                     record_metrics=False,
                 )
+                if verbose:
+                    outcome_reason = getattr(outcome, "reason", None)
+                    reason = f" ({outcome_reason})" if outcome_reason else ""
+                    print(f"{docked_log_label(envelope)} -> {outcome.status}{reason}")
                 if outcome.status == "success":
                     counts["processed"] += 1
                     committed_since_last += 1

@@ -67,7 +67,7 @@ def test_replay_streams_messages_without_live_metrics(tmp_path):
         "skipped": 0,
         "invalid": 0,
     }
-    assert all(call[1]["verbose"] is True for call in calls)
+    assert all(call[1]["verbose"] is False for call in calls)
     assert all(call[1]["commit"] is False for call in calls)
     assert all(call[1]["record_metrics"] is False for call in calls)
     assert connection.commits == 3
@@ -91,7 +91,7 @@ def test_dry_run_rolls_back_the_replay_transaction(tmp_path):
     assert connection.rollbacks == 1
 
 
-def test_replay_deduplicates_each_archive_by_market_id(tmp_path):
+def test_replay_deduplicates_each_archive_by_market_id(tmp_path, capsys):
     archive = tmp_path / "Journal.Docked-2026-09-24.jsonl.bz2"
     write_archive(
         archive,
@@ -111,3 +111,6 @@ def test_replay_deduplicates_each_archive_by_market_id(tmp_path):
     assert counts["seen"] == 3
     assert counts["processed"] == 2
     assert counts["duplicates"] == 1
+    output = capsys.readouterr().out
+    assert "Docked: New [1] in unknown system -> success" in output
+    assert "Docked: Old [1]" not in output
