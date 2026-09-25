@@ -85,6 +85,26 @@ function isSpaceStation(station){
         && stationType !== 'craterport';
 }
 
+function isSurfaceStation(station){
+    const stationType = String(station?.station_type || '')
+        .replace(/[\s-]+/g, '')
+        .toLowerCase();
+    return Boolean(station)
+        && (
+            station.is_planetary === true
+            || [
+                'crateroutpost',
+                'craterport',
+                'surfacestation',
+                'settlement',
+                'onfootsettlement',
+                'planetaryoutpost',
+                'planetaryport',
+                'planetaryconstructiondepot'
+            ].includes(stationType)
+        );
+}
+
 // A station's BodyID identifies the station itself. Its host is simply the
 // first entry in the reconstructed parent chain, including barycenters.
 function resolveStationHostId(station){
@@ -229,6 +249,7 @@ function buildNodeRecord(body, parentsMeta){
         isStation: body.is_station === true,
         station: body.station ?? null,
         unresolvedStationHost: body.station_unresolved === true,
+        hasSurfaceStation: false,
         raw: body
     };
 }
@@ -524,7 +545,7 @@ function buildLayoutTree(nodes){
 // Builds the full system tree from raw API bodies:
 // returns { nodes: Map<body_id, node>, roots: [node] } where roots are the
 // top-level layout nodes in draw order.
-function buildSystemTree(bodies, stations = []){
+function buildSystemTree(bodies, stations = [], surfaceStations = []){
     const nodes = new Map();
     const pendingRings = new Map();
     (Array.isArray(bodies) ? bodies : []).forEach(body => {
@@ -540,6 +561,16 @@ function buildSystemTree(bodies, stations = []){
         if(id == null) return;
         const parentsMeta = resolveParentRefs(body.parents || []);
         nodes.set(id, buildNodeRecord(body, parentsMeta));
+    });
+
+    // Surface settlements are deliberately not nodes in the orbital layout,
+    // but their host planet needs the settlement marker in its landable arc.
+    (Array.isArray(surfaceStations) ? surfaceStations : []).forEach(station => {
+        const hostId = resolveStationHostId(station);
+        const host = hostId != null ? nodes.get(hostId) : null;
+        if(host && String(host.type || '').toLowerCase() === 'planet'){
+            host.hasSurfaceStation = true;
+        }
     });
 
     (Array.isArray(stations) ? stations : []).forEach(station => {
@@ -630,6 +661,7 @@ const api = {
     inferStationHostByArrivalDistance,
     resolveStationHostId,
     isSpaceStation,
+    isSurfaceStation,
     stationIconAsset,
     hasStarDescendant,
     getNodeMass,
