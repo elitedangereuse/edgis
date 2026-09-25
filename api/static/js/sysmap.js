@@ -2130,10 +2130,32 @@
                 };
             });
 
-            const minXEdge = Math.min(...childStats.map(c => c.x - c.r));
-            const maxXEdge = Math.max(...childStats.map(c => c.x + c.r));
-            const minYEdge = Math.min(...childStats.map(c => c.y - c.r));
-            const maxYEdge = Math.max(...childStats.map(c => c.y + c.r));
+            // A nested barycenter's icon is intentionally raised above its
+            // member bodies. That makes its anchor look vertically displaced
+            // even though all leaves still occupy the same system-map row.
+            // Determine bracket orientation from those leaves, while keeping
+            // the raised anchor for the actual connector geometry below.
+            const collectBaryLeaves = (child, seen = new Set()) => {
+                if(!isBarycenter(child)) return [child];
+                if(seen.has(child)) return [];
+                const members = (child.baryChildren || []).filter(Boolean);
+                if(members.length === 0) return [child];
+                const nextSeen = new Set(seen);
+                nextSeen.add(child);
+                return members.flatMap(member => collectBaryLeaves(member, nextSeen));
+            };
+            const orientationChildren = kids.flatMap(child => collectBaryLeaves(child));
+            const orientationStats = orientationChildren.length
+                ? orientationChildren.map(child => ({
+                    x: child.x,
+                    y: child.y,
+                    r: child.radiusScaled || radius
+                }))
+                : childStats;
+            const minXEdge = Math.min(...orientationStats.map(c => c.x - c.r));
+            const maxXEdge = Math.max(...orientationStats.map(c => c.x + c.r));
+            const minYEdge = Math.min(...orientationStats.map(c => c.y - c.r));
+            const maxYEdge = Math.max(...orientationStats.map(c => c.y + c.r));
             const horizontal = (maxXEdge - minXEdge) >= (maxYEdge - minYEdge);
 
             const layoutKids = horizontal ? kids : [...kids].sort((a, b) => getNodeMass(b) - getNodeMass(a));

@@ -33,7 +33,8 @@ class El {
         this.parentNode = null;
         this.classList = {
             add: (...cs) => cs.forEach(c => this.attrs._class = `${this.attrs._class || ''} ${c}`.trim()),
-            remove: () => {}
+            remove: () => {},
+            toggle: () => {}
         };
     }
     // Real DOM children is an HTMLCollection: iterable + length + index access,
@@ -133,7 +134,7 @@ function serialize(el, depth = 0){
 }
 
 const ID_MAP = {
-    svg: 'svg', InfoPanel: 'div', bodyInfoButton: 'button', controlsPanel: 'div',
+    svg: 'svg', InfoPanel: 'div', bodyInfoButton: 'button', stationToggleButton: 'button', controlsPanel: 'div',
     controlsToggleButton: 'button', downloadSvgButton: 'button', openGalaxyMapButton: 'button',
     openEdgisButton: 'button', copyEmbedButton: 'button', embedPanel: 'div',
     embedLinkInput: 'input', embedCodeOutput: 'textarea', embedCodeCopyButton: 'button',
@@ -170,6 +171,7 @@ async function run(systemName, fixturePath, outPath){
         const u = String(url);
         const respond = (payload) => ({ ok: true, status: 200, json: async () => payload, text: async () => String(payload) });
         if(u.includes('/bodies?')) return respond(bodies);
+        if(u.includes('/system-map?')) return respond({ bodies });
         if(u.includes('/systems/autocomplete')) return respond([]);
         if(u.includes('.css')) return respond(fs.readFileSync(SYSMAP_CSS, 'utf8'));
         return respond(null);
