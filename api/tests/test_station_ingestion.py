@@ -225,7 +225,7 @@ def test_system_allegiance_ignores_none_but_preserves_real_values():
     assert station_ingestion.system_allegiance_from_eddn(message) is None
 
 
-def test_eddn_station_feeder_handles_carrier_jump(monkeypatch):
+def test_eddn_station_feeder_handles_carrier_jump(monkeypatch, capsys):
     class Cursor:
         def __init__(self):
             self.statements = []
@@ -287,10 +287,10 @@ def test_eddn_station_feeder_handles_carrier_jump(monkeypatch):
                 "event": "CarrierJump", "timestamp": "2026-09-24T12:00:00Z",
                 "MarketID": 3700005632, "StationName": "FC L14-X1J",
                 "StationType": "FleetCarrier", "SystemAddress": 5363877956440,
-                "Body": "Hermitage", "BodyID": 0, "SystemAllegiance": "Alliance",
+                "StarSystem": "Hermitage", "Body": "Hermitage", "BodyID": 0,
+                "SystemAllegiance": "Alliance",
             },
         },
-        verbose=False,
     )
 
     assert result.status == "success"
@@ -299,3 +299,4 @@ def test_eddn_station_feeder_handles_carrier_jump(monkeypatch):
     assert any("system_allegiances" in query for query, _ in statements)
     assert any("INSERT INTO stations" in query for query, _ in statements)
     assert any("eddn_stations_metrics" in query for query, _ in statements)
+    assert "CarrierJump: FC L14-X1J [3700005632] in Hermitage [5363877956440]" in capsys.readouterr().out
