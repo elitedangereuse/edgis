@@ -97,6 +97,18 @@ test('station attachment: orders direct station siblings by arrival distance', (
     assert.deepEqual(nodes.get(0).children.map(node => node.id), [1, -1000, 2]);
 });
 
+test('celestial siblings retain game body order despite arrival-distance drift', () => {
+    const { nodes } = buildSystemTree([
+        { body_id: 7, body_name: 'Jupiter', type: 'Planet', parents: [{ Star: 0 }] },
+        { body_id: 9, body_name: 'Io', type: 'Planet', distance_from_arrival_ls: 2618.798905, parents: [{ Planet: 7 }, { Star: 0 }] },
+        { body_id: 10, body_name: 'Europa', type: 'Planet', distance_from_arrival_ls: 2618.640205, parents: [{ Planet: 7 }, { Star: 0 }] },
+        { body_id: 11, body_name: 'Ganymede', type: 'Planet', distance_from_arrival_ls: 2619.303117, parents: [{ Planet: 7 }, { Star: 0 }] },
+        { body_id: 12, body_name: 'Callisto', type: 'Planet', distance_from_arrival_ls: 2615.653817, parents: [{ Planet: 7 }, { Star: 0 }] }
+    ]);
+
+    assert.deepEqual(nodes.get(7).children.map(node => node.id), [9, 10, 11, 12]);
+});
+
 test('station attachment: keeps a station BodyID distinct from its host', () => {
     const { nodes } = buildSystemTree(
         [

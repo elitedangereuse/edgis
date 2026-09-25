@@ -462,11 +462,15 @@ function buildLayoutTree(nodes){
         return memberDistances.length > 0 ? Math.min(...memberDistances) : ownDistance;
     };
     arrayNodes.forEach(node => node.children.sort((a, b) => {
-        const aGroupId = resolveBaryLayoutGroup(a);
-        const bGroupId = resolveBaryLayoutGroup(b);
-        if(aGroupId != null && aGroupId === bGroupId){
+        // FDev body IDs are the authoritative display order for celestial
+        // siblings. Their distance from the arrival star is not an orbital
+        // ordering signal: Jupiter's moons would otherwise start Callisto,
+        // Europa, Io, Ganymede instead of their game order.
+        if(!a.isStation && !b.isStation){
             return (a.id ?? 0) - (b.id ?? 0);
         }
+        const aGroupId = resolveBaryLayoutGroup(a);
+        const bGroupId = resolveBaryLayoutGroup(b);
         const aSortAnchor = aGroupId != null ? nodes.get(aGroupId) : a;
         const bSortAnchor = bGroupId != null ? nodes.get(bGroupId) : b;
         const aDistance = sortDistance(aSortAnchor);
