@@ -1280,7 +1280,8 @@ async def test_fetch_system_from_db_by_name(monkeypatch):
 
     result = await systems.fetch_system_from_db.__wrapped__("Alioth")  # type: ignore[attr-defined]
     assert result["name"] == "Alioth"
-    assert "LOWER(name)" in cursor.executed[0][0]
+    assert "LOWER(s.name)" in cursor.executed[0][0]
+    assert "ORDER BY EXISTS" in cursor.executed[0][0]
 
 
 @pytest.mark.anyio("asyncio")
@@ -1335,8 +1336,9 @@ def test_fetch_bodies_from_db_named_filter(monkeypatch):
 
     systems.fetch_bodies_from_db("Sol", body_id=1)
     id_lookup_query = cursor.executed[0][0]
-    assert "SELECT id64" in id_lookup_query
-    assert "LOWER(name)" in id_lookup_query
+    assert "SELECT s.id64" in id_lookup_query
+    assert "LOWER(s.name)" in id_lookup_query
+    assert "ORDER BY EXISTS" in id_lookup_query
 
     bodies_query = cursor.executed[1][0]
     assert "b.system_id64 = %s" in bodies_query

@@ -1382,9 +1382,16 @@ def _fetch_system_from_db_sync(name_or_id: str):
                 cursor.execute(query, (name_or_id,))
             else:
                 query = """
-                    SELECT id64, name, mainstar, ST_AsText(coords) AS coordinates
-                    FROM systems_big
-                    WHERE LOWER(name) = LOWER(%s)
+                    SELECT s.id64, s.name, s.mainstar, ST_AsText(s.coords) AS coordinates
+                    FROM systems_big s
+                    WHERE LOWER(s.name) = LOWER(%s)
+                    -- Names are not unique in systems_big. Prefer the record for
+                    -- which body data exists; maps cannot be rendered otherwise.
+                    ORDER BY EXISTS (
+                        SELECT 1
+                        FROM bodies b
+                        WHERE b.system_id64 = s.id64
+                    ) DESC, s.id64
                     LIMIT 1;
                 """
                 cursor.execute(query, (name_or_id,))
@@ -2159,9 +2166,16 @@ def fetch_bodies_from_db(
             else:
                 cursor.execute(
                     """
-                    SELECT id64
-                    FROM systems_big
-                    WHERE LOWER(name) = LOWER(%s)
+                    SELECT s.id64
+                    FROM systems_big s
+                    WHERE LOWER(s.name) = LOWER(%s)
+                    -- A duplicate system name can exist in imported EDDN data.
+                    -- Prefer the candidate that can actually serve /bodies.
+                    ORDER BY EXISTS (
+                        SELECT 1
+                        FROM bodies b
+                        WHERE b.system_id64 = s.id64
+                    ) DESC, s.id64
                     LIMIT 1
                     """,
                     (identifier,),
