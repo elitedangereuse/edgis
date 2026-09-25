@@ -341,6 +341,8 @@ def reconstruct_station_parents(
     cursor: Any,
     station: dict[str, Any],
     host_body_name: Any,
+    *,
+    verbose: bool = True,
 ) -> bool:
     """Populate a station's parent chain from the body named by Docked.Body.
 
@@ -363,12 +365,14 @@ def reconstruct_station_parents(
     )
     host = cursor.fetchone()
     if host is None:
-        print(f"  parents: can't find host {host_body_name.strip()}")
+        if verbose:
+            print(f"  parents: can't find host {host_body_name.strip()}")
         return False
 
     host_body_id, host_type, host_parents = host
     parents = station_parent_chain(host_body_id, host_type, host_parents)
-    print(f"  parents: {parents}")
+    if verbose:
+        print(f"  parents: {parents}")
     if not parents:
         return False
     station["parents"] = _json_dumps(parents)
