@@ -10,6 +10,7 @@ const {
     computeBarycenterSkipPairs,
     inferStationHostByArrivalDistance,
     isSpaceStation,
+    isSurfaceStation,
     isBarycenter,
     pairKey,
     resolveStationHostId,
@@ -35,6 +36,23 @@ test('station attachment: only space stations are eligible for the map', () => {
     assert.equal(isSpaceStation({ station_type: 'Crater Port' }), false);
     assert.equal(isSpaceStation({ station_type: 'FleetCarrier', is_carrier: true }), false);
     assert.equal(isSpaceStation({ station_type: 'FleetCarrier' }), false);
+    assert.equal(isSurfaceStation({ station_type: 'CraterOutpost' }), true);
+    assert.equal(isSurfaceStation({ station_type: 'Coriolis' }), false);
+});
+
+test('surface station annotation: marks only its host planet', () => {
+    const { nodes } = buildSystemTree(
+        [
+            { body_id: 0, body_name: 'Example', type: 'Star' },
+            { body_id: 1, body_name: 'Example 1', type: 'Planet', parents: [{ Star: 0 }] },
+            { body_id: 2, body_name: 'Example 2', type: 'Planet', parents: [{ Star: 0 }] }
+        ],
+        [],
+        [{ station_type: 'CraterPort', parents: [{ Planet: 1 }, { Star: 0 }] }]
+    );
+
+    assert.equal(nodes.get(1).hasSurfaceStation, true);
+    assert.equal(nodes.get(2).hasSurfaceStation, false);
 });
 
 test('station icon: maps known station types to their SVG assets', () => {

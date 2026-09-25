@@ -917,9 +917,11 @@
             return false;
         }
         const bodyData = Array.isArray(data) ? data : data?.bodies;
-        const stations = showStations && Array.isArray(data?.stations)
-            ? data.stations.filter(SysmapRoots.isSpaceStation)
+        const allStations = Array.isArray(data?.stations) ? data.stations : [];
+        const stations = showStations
+            ? allStations.filter(SysmapRoots.isSpaceStation)
             : [];
+        const surfaceStations = allStations.filter(SysmapRoots.isSurfaceStation);
         const systemMetadata = data?.system || {};
         if(!bodyData || !Array.isArray(bodyData)) return false;
         let requestedBodyId = null;
@@ -942,7 +944,9 @@
         }
         updateUrlState(resolvedSystemName, requestedBodyId, requestedStationId);
 
-        const { nodes, roots } = SysmapRoots.buildSystemTree(bodyData, stations);
+        const { nodes, roots } = SysmapRoots.buildSystemTree(
+            bodyData, stations, surfaceStations
+        );
 
         // First pass: compute subtree sizes
         roots.forEach(r => computeSize(r, 1));
@@ -1137,7 +1141,9 @@
         path.setAttribute('class', 'notnode');
         group.appendChild(path);
 
-        // vertical ticks
+        if(!n.hasSurfaceStation) return;
+
+        // Vertical ticks indicate a settlement on this planet's surface.
         const lineHeight = 2.5;
         // Keep the tick separation constant in SVG units. A fixed angular
         // increment would spread them farther apart on larger markers.
