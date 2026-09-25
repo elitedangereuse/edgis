@@ -435,6 +435,24 @@ function buildLayoutTree(nodes){
         baryLayoutGroup.set(node.id, groupId);
         return groupId;
     };
+    // Some planetary barycenters (Sol's Pluto/Charon pair is an example)
+    // retain the primary-star default of zero distance. When that happens,
+    // ordering their group from the barycenter would put it before Mercury.
+    // Use the nearest member's arrival distance instead, retaining the
+    // barycenter anchor when it carries a meaningful orbital distance.
+    const sortDistance = (node, seen = new Set()) => {
+        const ownDistance = Number(node?.distanceToArrival);
+        if(!isBarycenter(node) || !Number.isFinite(ownDistance) || ownDistance !== 0){
+            return Number.isFinite(ownDistance) ? ownDistance : null;
+        }
+        if(seen.has(node.id)) return ownDistance;
+        const nextSeen = new Set(seen);
+        nextSeen.add(node.id);
+        const memberDistances = (node.baryChildren || [])
+            .map(member => sortDistance(member, nextSeen))
+            .filter(distance => Number.isFinite(distance) && distance > 0);
+        return memberDistances.length > 0 ? Math.min(...memberDistances) : ownDistance;
+    };
     arrayNodes.forEach(node => node.children.sort((a, b) => {
         const aGroupId = resolveBaryLayoutGroup(a);
         const bGroupId = resolveBaryLayoutGroup(b);
@@ -443,10 +461,10 @@ function buildLayoutTree(nodes){
         }
         const aSortAnchor = aGroupId != null ? nodes.get(aGroupId) : a;
         const bSortAnchor = bGroupId != null ? nodes.get(bGroupId) : b;
-        const hasArrivalDistances = aSortAnchor.distanceToArrival != null
-            && bSortAnchor.distanceToArrival != null;
-        const distanceDifference = Number(aSortAnchor.distanceToArrival)
-            - Number(bSortAnchor.distanceToArrival);
+        const aDistance = sortDistance(aSortAnchor);
+        const bDistance = sortDistance(bSortAnchor);
+        const hasArrivalDistances = aDistance != null && bDistance != null;
+        const distanceDifference = Number(aDistance) - Number(bDistance);
         if(hasArrivalDistances && Number.isFinite(distanceDifference) && distanceDifference !== 0){
             return distanceDifference;
         }
