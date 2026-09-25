@@ -142,6 +142,32 @@ def test_docked_station_leaves_parents_empty_when_host_is_unknown():
     assert json.loads(station["parents"]) == []
 
 
+def test_station_parents_fall_back_to_nearest_arrival_distance():
+    class Cursor:
+        def __init__(self):
+            self.statement = None
+
+        def execute(self, query, params):
+            self.statement = (query, params)
+
+        def fetchone(self):
+            return (3, "Planet", [{"Star": 1}, {"Null": 0}], "Earth", 502.233897)
+
+    station = {"system_id64": 10477373803, "parents": json.dumps([])}
+
+    assert station_ingestion.reconstruct_station_parents(
+        Cursor(), station, None, distance_from_arrival_ls=502.254085
+    )
+    assert json.loads(station["parents"]) == [
+        {"Planet": 3}, {"Star": 1}, {"Null": 0}
+    ]
+    resolution = station["_parent_resolution"]
+    assert resolution["source"] == "arrival_distance"
+    assert resolution["body_name"] == "Earth"
+    assert resolution["body_distance"] == 502.233897
+    assert abs(resolution["distance_delta"] - 0.020188) < 1e-9
+
+
 def test_journal_station_normalizes_economies_and_allegiance():
     row = station_ingestion.station_from_eddn(
         {
@@ -225,16 +251,20 @@ def test_system_allegiance_ignores_none_but_preserves_real_values():
     assert station_ingestion.system_allegiance_from_eddn(message) is None
 
 
-def test_eddn_station_feeder_handles_carrier_jump(monkeypatch, capsys):
+def test_eddn_station_feeder_reconstructs_location_parents(monkeypatch, capsys):
     class Cursor:
         def __init__(self):
             self.statements = []
+            self.results = iter([
+                (28, "Planet", [{"Planet": 22}, {"Null": 21}, {"Star": 0}]),
+                (True,),
+            ])
 
         def execute(self, query, params):
             self.statements.append((query, params))
 
         def fetchone(self):
-            return (True,)
+            return next(self.results)
 
         def __enter__(self):
             return self
@@ -284,10 +314,11 @@ def test_eddn_station_feeder_handles_carrier_jump(monkeypatch, capsys):
         {
             "header": {"softwareName": "EDDiscovery"},
             "message": {
-                "event": "CarrierJump", "timestamp": "2026-09-24T12:00:00Z",
-                "MarketID": 3700005632, "StationName": "FC L14-X1J",
-                "StationType": "FleetCarrier", "SystemAddress": 5363877956440,
-                "StarSystem": "Hermitage", "Body": "Hermitage", "BodyID": 0,
+                "event": "Location", "Docked": True,
+                "timestamp": "2026-09-24T12:00:00Z",
+                "MarketID": 128102648, "StationName": "de Kamp Orbital",
+                "StationType": "Orbis", "SystemAddress": 1178725255531,
+                "StarSystem": "Delkar", "Body": "Delkar 28", "BodyID": 55,
                 "SystemAllegiance": "Alliance",
             },
         },
@@ -297,6 +328,35 @@ def test_eddn_station_feeder_handles_carrier_jump(monkeypatch, capsys):
     assert fake_conn.commits == 1
     statements = fake_conn.cursor_instance.statements
     assert any("system_allegiances" in query for query, _ in statements)
-    assert any("INSERT INTO stations" in query for query, _ in statements)
+    station_params = next(
+        params for query, params in statements if "INSERT INTO stations" in query
+    )
+    assert json.loads(station_params["parents"]) == [
+        {"Planet": 28}, {"Planet": 22}, {"Null": 21}, {"Star": 0}
+    ]
     assert any("eddn_stations_metrics" in query for query, _ in statements)
-    assert "CarrierJump: FC L14-X1J [3700005632] in Hermitage [5363877956440]" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    station_log = "Location: de Kamp Orbital [128102648] in Delkar [1178725255531]"
+    assert station_log in output
+    assert output.index(station_log) < output.index("  parents: [{'Planet': 28}")
+
+    fake_conn.cursor_instance.results = iter([None, (True,)])
+    feeder.process_message(
+        {
+            "header": {"softwareName": "EDDiscovery"},
+            "message": {
+                "event": "Docked", "timestamp": "2026-09-24T12:00:00Z",
+                "MarketID": 128102648, "StationName": "Wyeth City",
+                "StationType": "Orbis", "SystemAddress": 233238947004,
+                "StarSystem": "Theta Indi", "Body": "Wyeth City", "BodyID": 55,
+                "DistFromStarLS": 502.0,
+            },
+        },
+        connection=fake_conn,
+    )
+
+    output = capsys.readouterr().out
+    assert "parents: can't find host '<none>'" in output
+    assert "BodyName=<missing>" in output
+    assert "Parents=<missing>" in output
+    assert "BodyID=55" in output
