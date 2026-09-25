@@ -71,10 +71,18 @@ function inferStationHostByArrivalDistance(station, nodes){
 }
 
 function isSpaceStation(station){
+    const stationType = String(station?.station_type || '')
+        .replace(/[\s-]+/g, '')
+        .toLowerCase();
     return Boolean(station)
         && !station.is_planetary
         && !station.is_carrier
-        && station.station_type !== 'FleetCarrier';
+        && stationType !== 'fleetcarrier'
+        // These are planetary settlements despite occasionally arriving
+        // without the Journal's is_planetary flag. Keep them for a future
+        // surface layout, never draw them in orbital space.
+        && stationType !== 'crateroutpost'
+        && stationType !== 'craterport';
 }
 
 // A station's BodyID identifies the station itself. Its host is simply the

@@ -31,6 +31,8 @@ test('station attachment: resolves the host from its reconstructed parents', () 
 test('station attachment: only space stations are eligible for the map', () => {
     assert.equal(isSpaceStation({ station_type: 'Orbis' }), true);
     assert.equal(isSpaceStation({ station_type: 'PlanetaryOutpost', is_planetary: true }), false);
+    assert.equal(isSpaceStation({ station_type: 'CraterOutpost' }), false);
+    assert.equal(isSpaceStation({ station_type: 'Crater Port' }), false);
     assert.equal(isSpaceStation({ station_type: 'FleetCarrier', is_carrier: true }), false);
     assert.equal(isSpaceStation({ station_type: 'FleetCarrier' }), false);
 });
