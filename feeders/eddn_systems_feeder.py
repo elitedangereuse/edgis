@@ -97,7 +97,20 @@ def record_systems_processed(cur, amount=1, is_new=False):
 # === UPSERT Query ===
 UPSERT_QUERY = """
     INSERT INTO systems_big (id64, name, mainstar, updatetime, coords)
-    VALUES (%s, %s, %s, %s, ST_MakePoint(%s, %s, %s)::geometry(PointZ))
+    SELECT %s, %s, %s, %s, ST_MakePoint(%s, %s, %s)::geometry(PointZ)
+    WHERE NOT EXISTS (
+        -- EDDN publishers can be malformed even when their client name is
+        -- trusted. Do not create a second ID for a mapped system name.
+        SELECT 1
+        FROM systems_big existing
+        WHERE existing.id64 <> %s
+          AND LOWER(existing.name) = LOWER(%s)
+          AND EXISTS (
+              SELECT 1
+              FROM bodies b
+              WHERE b.system_id64 = existing.id64
+          )
+    )
     ON CONFLICT (id64) DO UPDATE SET
         name      = COALESCE(EXCLUDED.name, systems_big.name),
         mainstar  = COALESCE(EXCLUDED.mainstar, systems_big.mainstar),
@@ -168,7 +181,7 @@ def _upsert_system(
     star_type: Optional[str],
     updatetime: datetime,
     coords: tuple[float, float, float],
-) -> None:
+) -> bool:
     with conn.cursor() as cur:
         cur.execute(
             UPSERT_QUERY,
@@ -180,12 +193,21 @@ def _upsert_system(
                 coords[0],
                 coords[1],
                 coords[2],
+                system_address,
+                star_system,
             ),
         )
         result = cur.fetchone()
+        if result is None:
+            print(
+                "Warning: rejected system update with conflicting mapped name: "
+                f"{star_system} [{system_address}]"
+            )
+            return False
         is_new = result[0] if result else False
         record_systems_processed(cur, amount=1, is_new=is_new)
     conn.commit()
+    return True
 
 def _handle_scan_event(msg_data: dict) -> None:
     system_address = msg_data.get("SystemAddress")
@@ -217,8 +239,10 @@ def _handle_scan_event(msg_data: dict) -> None:
 
     mainstar_type = star_type if distance_from_arrival == 0 else None
 
-    _upsert_system(system_address, star_system, mainstar_type, updatetime, coords)
-    print(f"Scan: {star_system} [{system_address}] | Type: {star_type}")
+    if _upsert_system(
+        system_address, star_system, mainstar_type, updatetime, coords
+    ):
+        print(f"Scan: {star_system} [{system_address}] | Type: {star_type}")
 
 def _handle_navroute_event(msg_data: dict) -> None:
     route = msg_data.get("Route")
@@ -252,9 +276,13 @@ def _handle_navroute_event(msg_data: dict) -> None:
         if not coords:
             continue
 
-        _upsert_system(system_address, star_system, star_class, updatetime, coords)
-        systems_added += 1
-        print(f"NavRoute: {star_system} [{system_address}] | Class: {star_class}")
+        if _upsert_system(
+            system_address, star_system, star_class, updatetime, coords
+        ):
+            systems_added += 1
+            print(
+                f"NavRoute: {star_system} [{system_address}] | Class: {star_class}"
+            )
 
     if systems_added:
         print(f"NavRoute completed: {systems_added} systems upserted")
@@ -285,10 +313,10 @@ def _handle_fsdjump_event(msg_data: dict) -> None:
     if not updatetime:
         return
 
-    _upsert_system(system_address, star_system, None, updatetime, coords)
-    print(
-        f"FSDJump: {star_system} [{system_address}] | Pos: {coords[0]}, {coords[1]}, {coords[2]}"
-    )
+    if _upsert_system(system_address, star_system, None, updatetime, coords):
+        print(
+            f"FSDJump: {star_system} [{system_address}] | Pos: {coords[0]}, {coords[1]}, {coords[2]}"
+        )
 
 EVENT_HANDLERS: dict[str, Callable[[dict], None]] = {
     "Scan": _handle_scan_event,

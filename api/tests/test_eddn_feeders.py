@@ -179,6 +179,22 @@ def test_systems_record_metrics(monkeypatch, systems_module):
     assert "systems_new" in cursor.statements[1][0]
 
 
+def test_systems_upsert_rejects_duplicate_mapped_name(systems_module):
+    inserted = systems_module._upsert_system(
+        12345,
+        "Sol",
+        None,
+        datetime(2026, 9, 25, tzinfo=timezone.utc),
+        (3.0, -1.0, 5.0),
+    )
+
+    assert not inserted
+    query, params = systems_module.conn.cursors[0].statements[0]
+    assert "LOWER(existing.name) = LOWER(%s)" in query
+    assert "FROM bodies b" in query
+    assert params[-2:] == (12345, "Sol")
+
+
 def test_systems_recv_with_watchdog_timeout(systems_module):
     sock = systems_module.zmq.Socket()
     with pytest.raises(systems_module.StreamStalledError):
