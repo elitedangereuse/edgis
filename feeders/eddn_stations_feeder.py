@@ -39,6 +39,18 @@ TRUSTED_CLIENTS = {
 }
 SUPPORTED_EVENTS = {"Docked", "Location", "CarrierJump", "FSDJump"}
 INACTIVITY_TIMEOUT_SECONDS = int(os.getenv("EDDN_INACTIVITY_TIMEOUT", "900"))
+PARENT_LOOKUP_FIELDS = (
+    "Body",
+    "BodyName",
+    "BodyID",
+    "Parents",
+    "StationName",
+    "StationName_Localised",
+    "StationType",
+    "DistFromStarLS",
+    "Latitude",
+    "Longitude",
+)
 
 load_dotenv()
 
@@ -80,6 +92,31 @@ def system_name_from_message(message: dict) -> str | None:
         return None
     system_name = system_name.strip()
     return system_name or None
+
+
+def parent_lookup_context(message: dict) -> str:
+    """Format only Journal fields useful for resolving a station host."""
+    fields = []
+    for field in PARENT_LOOKUP_FIELDS:
+        value = message.get(field, "<missing>")
+        if value == "<missing>":
+            fields.append(f"{field}=<missing>")
+        else:
+            fields.append(f"{field}={value!r}")
+    return "  parent lookup context: " + ", ".join(fields)
+
+
+def host_body_name_from_message(message: dict, station: dict) -> str | None:
+    """Prefer an explicit host body name over a Body value naming the station."""
+    body_name = message.get("BodyName")
+    if isinstance(body_name, str) and body_name.strip():
+        return body_name.strip()
+    body = message.get("Body")
+    if not isinstance(body, str) or not body.strip():
+        return None
+    if body.strip().casefold() == str(station["name"]).strip().casefold():
+        return None
+    return body.strip()
 
 
 def record_stations_processed(cur, amount: int = 1, is_new: bool = False) -> None:
@@ -126,6 +163,8 @@ def process_message(
     owns_connection = connection is None
     db_conn = connection or open_database_connection()
     station = None
+    parents_reconstructed = False
+    host_body_name = None
     try:
         if event in {"Docked", "CarrierJump"}:
             station = station_from_eddn(payload)
@@ -142,9 +181,14 @@ def process_message(
                     cursor, system_id64, value, updated_at, "eddn_journal"
                 )
             if station is not None:
-                if event == "Docked":
-                    reconstruct_station_parents(
-                        cursor, station, payload.get("Body"), verbose=verbose
+                if event in {"Docked", "Location"}:
+                    host_body_name = host_body_name_from_message(payload, station)
+                    parents_reconstructed = reconstruct_station_parents(
+                        cursor,
+                        station,
+                        host_body_name,
+                        distance_from_arrival_ls=payload.get("DistFromStarLS"),
+                        verbose=False,
                     )
                 is_new = upsert_station(cursor, station)
                 if record_metrics:
@@ -167,6 +211,22 @@ def process_message(
             f"{event}: {station['name']} [{station['market_id']}] "
             f"in {system_label}"
         )
+        if event in {"Docked", "Location"}:
+            if parents_reconstructed:
+                resolution = station.get("_parent_resolution") or {}
+                if resolution.get("source") == "arrival_distance":
+                    print(
+                        f"  parents: {json.loads(station['parents'])} "
+                        f"(inferred from {resolution['body_name']} at "
+                        f"{resolution['body_distance']:.6f} ls; "
+                        f"delta {resolution['distance_delta']:.6f} ls)"
+                    )
+                else:
+                    print(f"  parents: {json.loads(station['parents'])}")
+            else:
+                host_label = host_body_name if host_body_name is not None else "<none>"
+                print(f"  parents: can't find host {host_label!r}")
+                print(parent_lookup_context(payload))
     return ProcessOutcome("success")
 
 

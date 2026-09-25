@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from decimal import Decimal
 from datetime import datetime
@@ -342,31 +343,65 @@ def reconstruct_station_parents(
     station: dict[str, Any],
     host_body_name: Any,
     *,
+    distance_from_arrival_ls: Any = None,
     verbose: bool = True,
 ) -> bool:
-    """Populate a station's parent chain from the body named by Docked.Body.
+    """Populate a station's parent chain from its name or arrival distance.
 
     ``stations.body_id`` remains the station's own BodyID.  The first parent
     instead identifies the celestial body that hosts the station.
     """
-    if not isinstance(host_body_name, str) or not host_body_name.strip():
-        return False
+    host = None
+    resolution: dict[str, Any] | None = None
+    if isinstance(host_body_name, str) and host_body_name.strip():
+        host_body_name = host_body_name.strip()
+        cursor.execute(
+            """
+            SELECT b.body_id, bt.name, b.parents
+            FROM bodies b
+            INNER JOIN body_types bt ON bt.id = b.body_type_id
+            WHERE b.system_id64 = %s
+              AND LOWER(b.body_name) = LOWER(%s)
+            LIMIT 1
+            """,
+            (station["system_id64"], host_body_name),
+        )
+        host = cursor.fetchone()
+        if host is not None:
+            resolution = {"source": "body_name", "body_name": host_body_name}
 
-    cursor.execute(
-        """
-        SELECT b.body_id, bt.name, b.parents
-        FROM bodies b
-        INNER JOIN body_types bt ON bt.id = b.body_type_id
-        WHERE b.system_id64 = %s
-          AND LOWER(b.body_name) = LOWER(%s)
-        LIMIT 1
-        """,
-        (station["system_id64"], host_body_name.strip()),
-    )
-    host = cursor.fetchone()
+    try:
+        arrival_distance = float(distance_from_arrival_ls)
+    except (TypeError, ValueError):
+        arrival_distance = None
+    if host is None and arrival_distance is not None and math.isfinite(arrival_distance):
+        cursor.execute(
+            """
+            SELECT b.body_id, bt.name, b.parents, b.body_name,
+                   b.distance_from_arrival_ls
+            FROM bodies b
+            INNER JOIN body_types bt ON bt.id = b.body_type_id
+            WHERE b.system_id64 = %s
+              AND b.distance_from_arrival_ls IS NOT NULL
+            ORDER BY ABS(b.distance_from_arrival_ls - %s), b.body_id
+            LIMIT 1
+            """,
+            (station["system_id64"], arrival_distance),
+        )
+        host = cursor.fetchone()
+        if host is not None:
+            host_body_id, host_type, host_parents, body_name, body_distance = host
+            resolution = {
+                "source": "arrival_distance",
+                "body_name": body_name,
+                "body_distance": body_distance,
+                "distance_delta": abs(body_distance - arrival_distance),
+            }
+            host = (host_body_id, host_type, host_parents)
+
     if host is None:
         if verbose:
-            print(f"  parents: can't find host {host_body_name.strip()}")
+            print("  parents: can't resolve host")
         return False
 
     host_body_id, host_type, host_parents = host
@@ -376,6 +411,7 @@ def reconstruct_station_parents(
     if not parents:
         return False
     station["parents"] = _json_dumps(parents)
+    station["_parent_resolution"] = resolution
     return True
 
 
