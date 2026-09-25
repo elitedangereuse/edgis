@@ -223,3 +223,20 @@ test('nested barycenter leaves keep game body order despite radial differences',
 
     assert.deepEqual(nestedLeafIds, [10, 11, 12, 13, 14]);
 });
+
+test('zero-distance barycenters sort with their orbital members', () => {
+    const { nodes } = buildSystemTree([
+        { body_id: 0, body_name: 'Sol', type: 'Star', distance_from_arrival_ls: 0 },
+        { body_id: 1, body_name: 'Mercury', type: 'Planet', distance_from_arrival_ls: 225, parents: [{ Star: 0 }] },
+        { body_id: 28, body_name: 'Neptune', type: 'Planet', distance_from_arrival_ls: 14920, parents: [{ Star: 0 }] },
+        { body_id: 31, body_name: 'Barycenter31', type: 'Barycenter', distance_from_arrival_ls: 0, parents: [{ Star: 0 }] },
+        { body_id: 32, body_name: 'Pluto', type: 'Planet', distance_from_arrival_ls: 20460, parents: [{ Null: 31 }, { Star: 0 }] },
+        { body_id: 33, body_name: 'Charon', type: 'Planet', distance_from_arrival_ls: 20461, parents: [{ Null: 31 }, { Star: 0 }] }
+    ]);
+
+    const visibleChildren = nodes.get(0).children
+        .filter(node => !isBarycenter(node))
+        .map(node => node.id);
+
+    assert.deepEqual(visibleChildren, [1, 28, 32, 33]);
+});
