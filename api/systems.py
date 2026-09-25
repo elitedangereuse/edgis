@@ -5,6 +5,7 @@ import math
 import hmac
 import base64
 import json
+from html import escape
 from contextlib import contextmanager
 from queue import Empty, LifoQueue
 from threading import Lock
@@ -14,7 +15,7 @@ from fastapi import HTTPException
 from fastapi import FastAPI, Query
 from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 import psycopg
 from pydantic import BaseModel, Field
 from typing import Callable, Iterable, Optional, Any, Sequence
@@ -236,6 +237,8 @@ ADMIN_HTML_FILENAME = os.path.basename(
     os.getenv("ADMIN_HTML_FILENAME") or "admin.html"
 )
 ADMIN_HTML_PATH = os.path.join(STATIC_DIR, ADMIN_HTML_FILENAME)
+SYSMAP_HTML_PATH = os.path.join(STATIC_DIR, "sysmap.html")
+SYSMAP_OG_METADATA_PLACEHOLDER = "<!-- SYSMAP_OG_METADATA -->"
 
 REDIS_HOST = os.getenv("REDIS_HOST") or "localhost"
 REDIS_PORT = int(os.getenv("REDIS_PORT") or "6379")
@@ -2776,10 +2779,63 @@ async def get_total_systems():
 
 from fastapi.staticfiles import StaticFiles
 
+
+def _sysmap_og_metadata(request: Request) -> str:
+    """Build crawler-visible metadata for a system-map share URL.
+
+    Social crawlers do not execute the map's JavaScript, so these tags must be
+    rendered by the API rather than being populated after the page loads.
+    """
+    system_name = (request.query_params.get("system") or "").strip()
+    if len(system_name) > 80:
+        system_name = ""
+    if system_name:
+        title = f"{system_name} — EDGIS System Map"
+        description = (
+            f"Explore {system_name} in the EDGIS interactive Elite Dangerous "
+            "system map."
+        )
+    else:
+        title = "EDGIS System Map"
+        description = (
+            "Explore Elite Dangerous star systems with the EDGIS interactive "
+            "system map."
+        )
+
+    base_url = str(request.base_url).rstrip("/")
+    canonical_url = str(request.url)
+    image_url = f"{base_url}/static/milkyway.webp"
+    return "\n    ".join(
+        (
+            f'<meta name="description" content="{escape(description, quote=True)}">',
+            f'<link rel="canonical" href="{escape(canonical_url, quote=True)}">',
+            '<meta property="og:type" content="website">',
+            '<meta property="og:site_name" content="EDGIS">',
+            f'<meta property="og:title" content="{escape(title, quote=True)}">',
+            f'<meta property="og:description" content="{escape(description, quote=True)}">',
+            f'<meta property="og:url" content="{escape(canonical_url, quote=True)}">',
+            f'<meta property="og:image" content="{escape(image_url, quote=True)}">',
+            '<meta property="og:image:width" content="1000">',
+            '<meta property="og:image:height" content="625">',
+            '<meta name="twitter:card" content="summary_large_image">',
+            f'<meta name="twitter:title" content="{escape(title, quote=True)}">',
+            f'<meta name="twitter:description" content="{escape(description, quote=True)}">',
+            f'<meta name="twitter:image" content="{escape(image_url, quote=True)}">',
+        )
+    )
+
+
+@app.get("/static/sysmap.html", include_in_schema=False)
+def read_sysmap(request: Request) -> HTMLResponse:
+    """Serve the map shell with per-system Open Graph metadata."""
+    with open(SYSMAP_HTML_PATH, encoding="utf-8") as template_file:
+        template = template_file.read()
+    content = template.replace(
+        SYSMAP_OG_METADATA_PLACEHOLDER, _sysmap_og_metadata(request)
+    )
+    return HTMLResponse(content=content)
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
-from fastapi.responses import FileResponse
-
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():

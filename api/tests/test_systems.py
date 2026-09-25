@@ -111,6 +111,29 @@ def test_system_map_returns_sparse_stations_and_allegiance(monkeypatch):
     assert response.json() == expected
 
 
+def test_sysmap_has_system_specific_open_graph_metadata():
+    response = client.get(
+        "/static/sysmap.html",
+        params={"system": "Sol", "station": "1", "station_id": "128017408"},
+    )
+
+    assert response.status_code == 200
+    assert '<meta property="og:title" content="Sol — EDGIS System Map">' in response.text
+    assert 'content="Explore Sol in the EDGIS interactive Elite Dangerous system map."' in response.text
+    assert 'property="og:url" content="http://testserver/static/sysmap.html?system=Sol&amp;station=1&amp;station_id=128017408"' in response.text
+    assert 'property="og:image" content="http://testserver/static/milkyway.webp"' in response.text
+    assert 'name="twitter:card" content="summary_large_image"' in response.text
+    assert "SYSMAP_OG_METADATA" not in response.text
+
+
+def test_sysmap_open_graph_metadata_escapes_system_name():
+    response = client.get("/static/sysmap.html", params={"system": '<Sol & "A">'})
+
+    assert response.status_code == 200
+    assert "&lt;Sol &amp; &quot;A&quot;&gt; — EDGIS System Map" in response.text
+    assert '<Sol & "A"> — EDGIS System Map' not in response.text
+
+
 def test_fetch_system_map_includes_station_parents(monkeypatch):
     station_columns = [
         "market_id",
