@@ -7,6 +7,7 @@ import bz2
 import json
 import os
 import re
+from collections import Counter
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
@@ -42,6 +43,43 @@ def ordered_archives(paths: Iterable[Path]) -> list[Path]:
     return archives
 
 
+def market_id_from_envelope(envelope: dict[str, Any]) -> int | None:
+    """Return a stable station ID for a valid Docked archive record."""
+    payload = envelope.get("message") or {}
+    if payload.get("event") != "Docked":
+        return None
+    try:
+        return int(payload.get("MarketID"))
+    except (TypeError, ValueError):
+        return None
+
+
+def market_id_occurrences(path: Path, limit: int | None) -> Counter[int]:
+    """Count MarketIDs in the part of one archive eligible for replay.
+
+    Replaying only a MarketID's last line preserves the newest observation in
+    a chronological archive without retaining whole EDDN messages in memory.
+    """
+    occurrences: Counter[int] = Counter()
+    seen = 0
+    with bz2.open(path, mode="rt", encoding="utf-8") as stream:
+        for line in stream:
+            if not line.strip():
+                continue
+            seen += 1
+            try:
+                envelope = json.loads(line)
+            except json.JSONDecodeError:
+                pass
+            else:
+                market_id = market_id_from_envelope(envelope)
+                if market_id is not None:
+                    occurrences[market_id] += 1
+            if limit is not None and seen >= limit:
+                break
+    return occurrences
+
+
 def replay_archives(
     paths: Iterable[Path],
     connection: Any,
@@ -50,6 +88,7 @@ def replay_archives(
     dry_run: bool = False,
     commit_every: int = 10_000,
     limit: int | None = None,
+    verbose: bool = True,
 ) -> dict[str, int]:
     """Stream archived Docked envelopes through the live station processor."""
     if commit_every < 1:
@@ -61,6 +100,7 @@ def replay_archives(
         "seen": 0,
         "with_host": 0,
         "processed": 0,
+        "duplicates": 0,
         "skipped": 0,
         "invalid": 0,
     }
@@ -68,6 +108,10 @@ def replay_archives(
 
     for path in ordered_archives(paths):
         print(f"Replaying {path}")
+        remaining_limit = None if limit is None else limit - counts["seen"]
+        if remaining_limit is not None and remaining_limit < 1:
+            break
+        remaining_market_ids = market_id_occurrences(path, remaining_limit)
         with bz2.open(path, mode="rt", encoding="utf-8") as stream:
             for line in stream:
                 if not line.strip():
@@ -79,6 +123,13 @@ def replay_archives(
                     counts["invalid"] += 1
                     continue
 
+                market_id = market_id_from_envelope(envelope)
+                if market_id is not None:
+                    remaining_market_ids[market_id] -= 1
+                    if remaining_market_ids[market_id] > 0:
+                        counts["duplicates"] += 1
+                        continue
+
                 payload = envelope.get("message") or {}
                 host_body = payload.get("Body")
                 if isinstance(host_body, str) and host_body.strip():
@@ -87,7 +138,7 @@ def replay_archives(
                 outcome = process(
                     envelope,
                     connection=connection,
-                    verbose=False,
+                    verbose=verbose,
                     commit=False,
                     record_metrics=False,
                 )
@@ -129,6 +180,10 @@ def main() -> None:
         help="Commit after this many processed messages (default: 10000)",
     )
     parser.add_argument("--limit", type=int, help="Process at most this many rows")
+    parser.add_argument(
+        "--quiet", action="store_true",
+        help="Do not print each retained Docked station and its system name",
+    )
     args = parser.parse_args()
 
     load_dotenv()
@@ -151,12 +206,14 @@ def main() -> None:
             dry_run=args.dry_run,
             commit_every=args.commit_every,
             limit=args.limit,
+            verbose=not args.quiet,
         )
     mode = "Dry run:" if args.dry_run else "Imported:"
     print(
         f"{mode} scanned {counts['seen']}, found {counts['with_host']} Docked "
         f"host reference(s), processed {counts['processed']}, skipped "
-        f"{counts['skipped']}, and ignored {counts['invalid']} invalid row(s)."
+        f"{counts['skipped']}, deduplicated {counts['duplicates']}, and ignored "
+        f"{counts['invalid']} invalid row(s)."
     )
 
 

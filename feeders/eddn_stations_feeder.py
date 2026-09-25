@@ -73,6 +73,15 @@ def is_trusted_source(software_name: str | None) -> bool:
     return software_name in TRUSTED_CLIENTS
 
 
+def system_name_from_message(message: dict) -> str | None:
+    """Return the Journal-provided system name when the event supplies one."""
+    system_name = message.get("StarSystem") or message.get("SystemName")
+    if not isinstance(system_name, str):
+        return None
+    system_name = system_name.strip()
+    return system_name or None
+
+
 def record_stations_processed(cur, amount: int = 1, is_new: bool = False) -> None:
     bucket = datetime.now(timezone.utc).replace(second=0, microsecond=0)
     if is_new:
@@ -148,9 +157,15 @@ def process_message(
             if close is not None:
                 close()
     if verbose and station is not None:
+        system_name = system_name_from_message(payload)
+        system_label = (
+            f"{system_name} [{station['system_id64']}]"
+            if system_name
+            else str(station["system_id64"])
+        )
         print(
             f"{event}: {station['name']} [{station['market_id']}] "
-            f"in {station['system_id64']}"
+            f"in {system_label}"
         )
     return ProcessOutcome("success")
 
