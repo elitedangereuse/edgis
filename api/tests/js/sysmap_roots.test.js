@@ -174,3 +174,25 @@ test('nested barycenters suppress visible member links at every bracket boundary
         );
     }
 });
+
+test('nested barycenter leaves keep game body order despite radial differences', () => {
+    const distances = {
+        10: 2438.900602,
+        11: 2438.002831,
+        12: 2438.783367,
+        13: 2435.399442,
+        14: 2434.459137
+    };
+    const bodies = loadBodies(path.join(fixtureDir, 'PHREIA FLYOU FG-V D3-116.json'))
+        .map(body => ({
+            ...body,
+            distance_from_arrival_ls: distances[body.body_id]
+                ?? body.distance_from_arrival_ls
+        }));
+    const { nodes } = buildSystemTree(bodies);
+    const nestedLeafIds = nodes.get(0).children
+        .filter(node => !isBarycenter(node) && node.id >= 10 && node.id <= 14)
+        .map(node => node.id);
+
+    assert.deepEqual(nestedLeafIds, [10, 11, 12, 13, 14]);
+});

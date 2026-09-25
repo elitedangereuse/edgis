@@ -380,6 +380,7 @@ function associateBarycenterMembers(nodes){
 function buildLayoutTree(nodes){
     const arrayNodes = [...nodes.values()];
     const layoutParent = new Map();
+    const baryLayoutGroup = new Map();
     const resolveLayoutParentId = (node, path = new Set()) => {
         if(layoutParent.has(node.id)) return layoutParent.get(node.id);
         if(path.has(node.id)) return null; // defensive: malformed parent cycle
@@ -408,9 +409,42 @@ function buildLayoutTree(nodes){
             nodes.get(pid).children.push(node);
         }
     });
+    // Nested barycenter members share one physical orbital rail. Their tiny
+    // distance-from-arrival differences are not an ordering signal: using
+    // them scrambles game body order (5, 6, 7, 8, 9) into radial order. Keep
+    // the group together and order its leaves by their stable game body IDs.
+    const resolveBaryLayoutGroup = (node, path = new Set()) => {
+        if(baryLayoutGroup.has(node.id)) return baryLayoutGroup.get(node.id);
+        if(path.has(node.id)) return null;
+        const baryId = isBarycenter(node) ? node.id : node.directBaryParentId;
+        if(baryId == null || !nodes.has(baryId)){
+            baryLayoutGroup.set(node.id, null);
+            return null;
+        }
+        const bary = nodes.get(baryId);
+        const nextPath = new Set(path);
+        nextPath.add(node.id);
+        const parentBary = bary.directBaryParentId != null
+            ? nodes.get(bary.directBaryParentId)
+            : null;
+        const groupId = parentBary
+            ? resolveBaryLayoutGroup(parentBary, nextPath)
+            : bary.id;
+        baryLayoutGroup.set(node.id, groupId);
+        return groupId;
+    };
     arrayNodes.forEach(node => node.children.sort((a, b) => {
-        const hasArrivalDistances = a.distanceToArrival != null && b.distanceToArrival != null;
-        const distanceDifference = Number(a.distanceToArrival) - Number(b.distanceToArrival);
+        const aGroupId = resolveBaryLayoutGroup(a);
+        const bGroupId = resolveBaryLayoutGroup(b);
+        if(aGroupId != null && aGroupId === bGroupId){
+            return (a.id ?? 0) - (b.id ?? 0);
+        }
+        const aSortAnchor = aGroupId != null ? nodes.get(aGroupId) : a;
+        const bSortAnchor = bGroupId != null ? nodes.get(bGroupId) : b;
+        const hasArrivalDistances = aSortAnchor.distanceToArrival != null
+            && bSortAnchor.distanceToArrival != null;
+        const distanceDifference = Number(aSortAnchor.distanceToArrival)
+            - Number(bSortAnchor.distanceToArrival);
         if(hasArrivalDistances && Number.isFinite(distanceDifference) && distanceDifference !== 0){
             return distanceDifference;
         }
