@@ -77,11 +77,13 @@ function isSpaceStation(station){
         && station.station_type !== 'FleetCarrier';
 }
 
-// In the stations table, body_id deliberately keeps the in-game ID of the
-// celestial body that hosts the station. MarketID is the station's own stable
-// identity, so it must not be used for this relationship.
+// A station's BodyID identifies the station itself. Its host is simply the
+// first entry in the reconstructed parent chain, including barycenters.
 function resolveStationHostId(station){
-    return toId(station?.body_id);
+    const firstParent = Array.isArray(station?.parents) ? station.parents[0] : null;
+    if(!firstParent || typeof firstParent !== 'object') return null;
+    const [hostId] = Object.values(firstParent);
+    return toId(hostId);
 }
 
 function stationIconAsset(stationType){
@@ -512,8 +514,8 @@ function buildSystemTree(bodies, stations = []){
 
     (Array.isArray(stations) ? stations : []).forEach(station => {
         const marketId = toId(station?.market_id);
-        // A station market ID is its stable identity. body_id is the game body
-        // it orbits, so it is its layout parent rather than the station node ID.
+        // MarketID is the station's stable identity; its game BodyID can
+        // collide with a celestial body ID, so neither is used as the host.
         const stationId = marketId != null ? -marketId : null;
         if(stationId == null || nodes.has(stationId)) return;
         const requestedHostId = resolveStationHostId(station);

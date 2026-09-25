@@ -16,12 +16,16 @@ const {
     stationIconAsset
 } = require('../../static/js/sysmap_roots');
 
-test('station attachment: resolves the host from its stored game body ID', () => {
+test('station attachment: resolves the host from its reconstructed parents', () => {
     assert.equal(
         resolveStationHostId({ body_id: 14, parents: [{ Planet: 99 }, { Star: 1 }] }),
-        14
+        99
     );
-    assert.equal(resolveStationHostId({ parents: [{ Planet: 14 }] }), null);
+    assert.equal(resolveStationHostId({ body_id: 14, parents: [] }), null);
+    assert.equal(
+        resolveStationHostId({ body_id: 14, parents: [{ Null: 0 }, { Star: 1 }] }),
+        0
+    );
 });
 
 test('station attachment: only space stations are eligible for the map', () => {
@@ -40,14 +44,17 @@ test('station icon: maps known station types to their SVG assets', () => {
     assert.equal(stationIconAsset('Space Construction Depot'), null);
 });
 
-test('station attachment: uses the stored host and body 0 fallback', () => {
+test('station attachment: uses the reconstructed host and body 0 fallback', () => {
     const { nodes } = buildSystemTree(
         [
             { body_id: 0, body_name: 'Shinrarta Dezhra', type: 'Star', radius: 1 },
             { body_id: 14, body_name: 'Founders World', type: 'Planet', radius: 6000, parents: [{ Star: 0 }] }
         ],
         [
-            { market_id: 69, body_id: 14, name: 'Jameson Memorial' },
+            {
+                market_id: 69, body_id: 69, name: 'Jameson Memorial',
+                parents: [{ Planet: 14 }, { Star: 0 }]
+            },
             { market_id: 70, name: 'Unresolved Station' }
         ]
     );
@@ -78,13 +85,33 @@ test('station attachment: orders direct station siblings by arrival distance', (
         ],
         [{
             market_id: 1000,
-            body_id: 0,
+            body_id: 69,
             name: 'Warinus',
+            parents: [{ Star: 0 }],
             distance_from_arrival_ls: 864.919012
         }]
     );
 
     assert.deepEqual(nodes.get(0).children.map(node => node.id), [1, -1000, 2]);
+});
+
+test('station attachment: keeps a station BodyID distinct from its host', () => {
+    const { nodes } = buildSystemTree(
+        [
+            { body_id: 0, body_name: 'Fujin', type: 'Star', radius: 1 },
+            { body_id: 1, body_name: 'Futen', type: 'Planet', radius: 6000, parents: [{ Star: 0 }] },
+            { body_id: 2, body_name: 'Fujin 2', type: 'Planet', radius: 6000, parents: [{ Star: 0 }] }
+        ],
+        [{
+            market_id: 128134392,
+            body_id: 2,
+            name: 'Futen Spaceport',
+            parents: [{ Planet: 1 }, { Star: 0 }]
+        }]
+    );
+
+    assert.equal(nodes.get(-128134392).parentId, 1);
+    assert.equal(nodes.get(-128134392).unresolvedStationHost, false);
 });
 
 test('station attachment: infers Earth from a root station arrival distance', () => {
