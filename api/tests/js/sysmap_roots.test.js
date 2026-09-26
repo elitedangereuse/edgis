@@ -61,7 +61,7 @@ test('station icon: maps known station types to their SVG assets', () => {
     assert.equal(stationIconAsset('Dodec Starport'), 'dodecstation.svg');
     assert.equal(stationIconAsset('Coriolis Starport'), 'coriolisstation.svg');
     assert.equal(stationIconAsset('Asteroid Base'), 'asteroidstation.svg');
-    assert.equal(stationIconAsset('Space Construction Depot'), null);
+    assert.equal(stationIconAsset('Space Construction Depot'), 'spaceconstructiondepot.svg');
 });
 
 test('station attachment: uses the reconstructed host and body 0 fallback', () => {
