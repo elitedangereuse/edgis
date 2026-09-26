@@ -127,6 +127,7 @@ function stationIconAsset(stationType){
     if(type.includes('installation')) return 'installationstation.svg';
     if(type.includes('disabledfleetfixme')) return 'disabledfleetcarrierstation.svg';
     if(type.includes('fleet')) return 'fleetcarrierstation.svg';
+    if(type.includes('construction')) return 'spaceconstructiondepot.svg';
     return null;
 }
 
