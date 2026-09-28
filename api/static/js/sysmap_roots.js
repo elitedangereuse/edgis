@@ -70,14 +70,25 @@ function inferStationHostByArrivalDistance(station, nodes){
     return candidates[0].node;
 }
 
-function isSpaceStation(station){
-    const stationType = String(station?.station_type || '')
+function normalizedStationType(station){
+    return String(station?.station_type || '')
         .replace(/[\s-]+/g, '')
         .toLowerCase();
+}
+
+// Carriers are deliberately a distinct display layer: they move frequently
+// and can otherwise overwhelm a system map's permanent stations.
+function isCarrierStation(station){
+    const stationType = normalizedStationType(station);
+    return stationType === 'fleetcarrier' || stationType === 'squadroncarrier';
+}
+
+function isSpaceStation(station){
+    const stationType = normalizedStationType(station);
     return Boolean(station)
         && !station.is_planetary
         && !station.is_carrier
-        && stationType !== 'fleetcarrier'
+        && !isCarrierStation(station)
         // These are planetary settlements despite occasionally arriving
         // without the Journal's is_planetary flag. Keep them for a future
         // surface layout, never draw them in orbital space.
@@ -86,9 +97,7 @@ function isSpaceStation(station){
 }
 
 function isSurfaceStation(station){
-    const stationType = String(station?.station_type || '')
-        .replace(/[\s-]+/g, '')
-        .toLowerCase();
+    const stationType = normalizedStationType(station);
     return Boolean(station)
         && (
             station.is_planetary === true
@@ -662,6 +671,7 @@ const api = {
     inferStationHostByArrivalDistance,
     resolveStationHostId,
     isSpaceStation,
+    isCarrierStation,
     isSurfaceStation,
     stationIconAsset,
     hasStarDescendant,

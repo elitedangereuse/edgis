@@ -9,6 +9,7 @@ const {
     buildSystemTree,
     computeBarycenterSkipPairs,
     inferStationHostByArrivalDistance,
+    isCarrierStation,
     isSpaceStation,
     isSurfaceStation,
     isBarycenter,
@@ -36,6 +37,11 @@ test('station attachment: only space stations are eligible for the map', () => {
     assert.equal(isSpaceStation({ station_type: 'Crater Port' }), false);
     assert.equal(isSpaceStation({ station_type: 'FleetCarrier', is_carrier: true }), false);
     assert.equal(isSpaceStation({ station_type: 'FleetCarrier' }), false);
+    assert.equal(isSpaceStation({ station_type: 'Squadron Carrier' }), false);
+    assert.equal(isSpaceStation({ station_type: 'Space Construction Depot' }), true);
+    assert.equal(isCarrierStation({ station_type: 'FleetCarrier' }), true);
+    assert.equal(isCarrierStation({ station_type: 'Squadron Carrier' }), true);
+    assert.equal(isCarrierStation({ station_type: 'Drake-Class Carrier' }), false);
     assert.equal(isSurfaceStation({ station_type: 'CraterOutpost' }), true);
     assert.equal(isSurfaceStation({ station_type: 'Coriolis' }), false);
 });
