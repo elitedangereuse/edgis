@@ -80,7 +80,55 @@ function normalizedStationType(station){
 // and can otherwise overwhelm a system map's permanent stations.
 function isCarrierStation(station){
     const stationType = normalizedStationType(station);
-    return stationType === 'fleetcarrier' || stationType === 'squadroncarrier';
+    return ['fleetcarrier', 'squadroncarrier', 'fleetcarrierstack'].includes(stationType);
+}
+
+function isFleetCarrier(station){
+    return normalizedStationType(station) === 'fleetcarrier';
+}
+
+// Fleet carriers sharing a known host occupy the same orbital slot. Represent
+// them as one display node so busy systems remain legible. Carriers without a
+// resolved parent stay individual and red under the primary star.
+function collapseFleetCarrierStacks(stations){
+    const result = [];
+    const groups = new Map();
+    (Array.isArray(stations) ? stations : []).forEach(station => {
+        const hostId = isFleetCarrier(station) ? resolveStationHostId(station) : null;
+        if(hostId == null){
+            result.push({ station });
+            return;
+        }
+        let group = groups.get(hostId);
+        if(!group){
+            group = { carriers: [] };
+            groups.set(hostId, group);
+            result.push(group);
+        }
+        group.carriers.push(station);
+    });
+    return result.flatMap(item => {
+        if(!item.carriers || item.carriers.length === 1){
+            return item.carriers || [item.station];
+        }
+        const carriers = item.carriers;
+        const marketIds = carriers
+            .map(carrier => toId(carrier?.market_id))
+            .filter(marketId => marketId != null)
+            .sort((left, right) => left - right);
+        // A synthetic stack node still needs a stable numeric node ID. The
+        // smallest constituent MarketID is stable while the stack exists.
+        if(marketIds.length === 0) return carriers;
+        return [{
+            ...carriers[0],
+            market_id: marketIds[0],
+            name: `${carriers.length} Fleet Carriers`,
+            station_type: 'FleetCarrierStack',
+            is_carrier: true,
+            carrier_count: carriers.length,
+            carrier_market_ids: marketIds
+        }];
+    });
 }
 
 function isSpaceStation(station){
@@ -125,6 +173,7 @@ function resolveStationHostId(station){
 
 function stationIconAsset(stationType){
     const type = String(stationType || '').toLowerCase();
+    if(type.includes('fleetcarrierstack')) return 'fleetcarrierstack.svg';
     if(type.includes('asteroid')) return 'asteroidstation.svg';
     if(type.includes('ocellus')) return 'ocelusstation.svg';
     if(type.includes('dodec')) return 'dodecstation.svg';
@@ -583,7 +632,7 @@ function buildSystemTree(bodies, stations = [], surfaceStations = []){
         }
     });
 
-    (Array.isArray(stations) ? stations : []).forEach(station => {
+    collapseFleetCarrierStacks(stations).forEach(station => {
         const marketId = toId(station?.market_id);
         // MarketID is the station's stable identity; its game BodyID can
         // collide with a celestial body ID, so neither is used as the host.
@@ -672,6 +721,7 @@ const api = {
     resolveStationHostId,
     isSpaceStation,
     isCarrierStation,
+    collapseFleetCarrierStacks,
     isSurfaceStation,
     stationIconAsset,
     hasStarDescendant,
