@@ -17,6 +17,7 @@
     const infoPanel = document.getElementById('InfoPanel');
     const bodyInfoButton = document.getElementById('bodyInfoButton');
     const stationToggleButton = document.getElementById('stationToggleButton');
+    const carrierToggleButton = document.getElementById('carrierToggleButton');
     const controlsPanel = document.getElementById('controlsPanel');
     const controlsToggleButton = document.getElementById('controlsToggleButton');
     const downloadButton = document.getElementById('downloadSvgButton');
@@ -75,6 +76,9 @@
     let showStations = ['1', 'true', 'yes', 'on'].includes(
         (urlParams.get('station') ?? urlParams.get('stations') ?? '').toLowerCase()
     );
+    let showCarriers = ['1', 'true', 'yes', 'on'].includes(
+        (urlParams.get('carrier') ?? urlParams.get('carriers') ?? '').toLowerCase()
+    );
     const parseBodyIdParam = (value) => {
         if(value === null || value === undefined || value === ''){
             return null;
@@ -94,6 +98,7 @@
     }
     updateNavigationButtonState();
     updateStationToggleButton();
+    updateCarrierToggleButton();
     const downloadMode = (() => {
         const pngFlag = (urlParams.get('png') || urlParams.get('png_only') || urlParams.get('pngOnly') || '').toLowerCase();
         if(['1', 'true', 'yes', 'on', 'png'].includes(pngFlag)){
@@ -150,6 +155,19 @@
         stationToggleButton.setAttribute('aria-label', label);
     }
 
+    function updateCarrierToggleButton(){
+        if(!carrierToggleButton) return;
+        carrierToggleButton.setAttribute('aria-pressed', showCarriers ? 'true' : 'false');
+        carrierToggleButton.classList.toggle('active', showCarriers);
+        const label = showCarriers ? 'Hide fleet and squadron carriers' : 'Show fleet and squadron carriers';
+        carrierToggleButton.setAttribute('title', label);
+        carrierToggleButton.setAttribute('aria-label', label);
+    }
+
+    function isNodeCarrier(node){
+        return Boolean(node?.isStation && SysmapRoots.isCarrierStation(node.station));
+    }
+
     function updateUrlState(systemName, bodyId, stationId){
         if(typeof globalThis === 'undefined' || !globalThis.history || !globalThis.location) return;
         const url = new URL(globalThis.location.href);
@@ -175,12 +193,19 @@
                 url.searchParams.delete('body_id');
             }
         }
-        if(showStations || candidateStationId != null){
+        if(showStations || (candidateStationId != null && !isNodeCarrier(selectedBodyNode))){
             url.searchParams.set('station', '1');
             url.searchParams.delete('stations');
         } else {
             url.searchParams.delete('station');
             url.searchParams.delete('stations');
+        }
+        if(showCarriers){
+            url.searchParams.set('carrier', '1');
+            url.searchParams.delete('carriers');
+        } else {
+            url.searchParams.delete('carrier');
+            url.searchParams.delete('carriers');
         }
         globalThis.history.replaceState({}, '', url);
     }
@@ -304,6 +329,19 @@
             showStations = !showStations;
             updateStationToggleButton();
             if(!showStations && resolveNodeStationMarketId(selectedBodyNode) != null){
+                clearSelection({ updateShareState: false });
+            }
+            renderSystem(resolveActiveSystemName(), {
+                bodyId: resolveNodeBodyId(selectedBodyNode)
+            });
+        });
+    }
+
+    if(carrierToggleButton){
+        carrierToggleButton.addEventListener('click', () => {
+            showCarriers = !showCarriers;
+            updateCarrierToggleButton();
+            if(!showCarriers && isNodeCarrier(selectedBodyNode)){
                 clearSelection({ updateShareState: false });
             }
             renderSystem(resolveActiveSystemName(), {
@@ -918,8 +956,23 @@
         }
         const bodyData = Array.isArray(data) ? data : data?.bodies;
         const allStations = Array.isArray(data?.stations) ? data.stations : [];
+        const requestedStationId = parseStationMarketId(stationId);
+        const requestedStation = requestedStationId == null
+            ? null
+            : allStations.find(candidate =>
+                parseStationMarketId(candidate?.market_id) === requestedStationId
+            );
+        if(requestedStation && SysmapRoots.isCarrierStation(requestedStation)){
+            showCarriers = true;
+            showStations = false;
+            updateStationToggleButton();
+            updateCarrierToggleButton();
+        }
         const stations = showStations
             ? allStations.filter(SysmapRoots.isSpaceStation)
+            : [];
+        const carriers = showCarriers
+            ? allStations.filter(SysmapRoots.isCarrierStation)
             : [];
         const surfaceStations = allStations.filter(SysmapRoots.isSurfaceStation);
         const systemMetadata = data?.system || {};
@@ -929,7 +982,6 @@
             const bodyIdNumber = Number(bodyId);
             requestedBodyId = Number.isFinite(bodyIdNumber) ? bodyIdNumber : null;
         }
-        const requestedStationId = parseStationMarketId(stationId);
         const trimmedInputName = normalizedSystemName;
         let resolvedSystemName = systemMetadata.name || trimmedInputName || systemName;
         if(trimmedInputName && parseSystemId64(trimmedInputName) !== null){
@@ -945,7 +997,7 @@
         updateUrlState(resolvedSystemName, requestedBodyId, requestedStationId);
 
         const { nodes, roots } = SysmapRoots.buildSystemTree(
-            bodyData, stations, surfaceStations
+            bodyData, [...stations, ...carriers], surfaceStations
         );
 
         // First pass: compute subtree sizes
@@ -3321,12 +3373,19 @@
                 url.searchParams.delete('body_id');
             }
         }
-        if(showStations || selectedStationId != null){
+        if(showStations || (selectedStationId != null && !isNodeCarrier(selectedBodyNode))){
             url.searchParams.set('station', '1');
             url.searchParams.delete('stations');
         } else {
             url.searchParams.delete('station');
             url.searchParams.delete('stations');
+        }
+        if(showCarriers || (selectedStationId != null && isNodeCarrier(selectedBodyNode))){
+            url.searchParams.set('carrier', '1');
+            url.searchParams.delete('carriers');
+        } else {
+            url.searchParams.delete('carrier');
+            url.searchParams.delete('carriers');
         }
         url.searchParams.set('svgOnly', '1');
         url.searchParams.delete('svg_only');

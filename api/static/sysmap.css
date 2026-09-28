@@ -263,6 +263,16 @@ svg image.asteroid-cluster-icon { opacity: 0.95; filter: drop-shadow(0 0 6px rgb
     mask: url('/static/assets/orbisstation.svg') center / contain no-repeat;
 }
 
+.carrier-toggle-icon {
+    display: block;
+    width: 26px;
+    height: 26px;
+    margin: auto;
+    background-color: currentColor;
+    -webkit-mask: url('/static/assets/fleetcarrierstation.svg') center / contain no-repeat;
+    mask: url('/static/assets/fleetcarrierstation.svg') center / contain no-repeat;
+}
+
 .info-panel.embed-panel {
     top: 140px;
     right: 80px;

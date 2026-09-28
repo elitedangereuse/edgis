@@ -134,7 +134,7 @@ function serialize(el, depth = 0){
 }
 
 const ID_MAP = {
-    svg: 'svg', InfoPanel: 'div', bodyInfoButton: 'button', stationToggleButton: 'button', controlsPanel: 'div',
+    svg: 'svg', InfoPanel: 'div', bodyInfoButton: 'button', stationToggleButton: 'button', carrierToggleButton: 'button', controlsPanel: 'div',
     controlsToggleButton: 'button', downloadSvgButton: 'button', openGalaxyMapButton: 'button',
     openEdgisButton: 'button', copyEmbedButton: 'button', embedPanel: 'div',
     embedLinkInput: 'input', embedCodeOutput: 'textarea', embedCodeCopyButton: 'button',
