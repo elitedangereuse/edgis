@@ -2495,7 +2495,10 @@
         if(normalizedStationMarketId != null){
             const stationNode = nodes.find(node =>
                 node.isStation
-                && parseStationMarketId(node.station?.market_id) === normalizedStationMarketId
+                && (
+                    parseStationMarketId(node.station?.market_id) === normalizedStationMarketId
+                    || node.station?.carrier_market_ids?.includes(normalizedStationMarketId)
+                )
             );
             if(stationNode){
                 selectBodyById(stationNode.id);
@@ -2672,6 +2675,8 @@
         if(!infoPanel || !station) return;
         const card = document.createElement('article');
         card.className = 'card';
+        const carrierCount = Number(station.carrier_count);
+        const isCarrierStack = Number.isSafeInteger(carrierCount) && carrierCount > 1;
         const pads = [
             ['Large', station.large_pads], ['Medium', station.medium_pads], ['Small', station.small_pads]
         ].filter(([, value]) => value !== undefined && value !== null)
@@ -2683,8 +2688,8 @@
             : [];
         card.innerHTML = `<h1>${escapeHtml(station.name || 'Station')}</h1>
           <section><h2>STATION</h2><ul>
-            <li><span class="label">Type:</span> ${escapeHtml(station.station_type || 'Unknown')}</li>
-            <li><span class="label">Market ID:</span> ${escapeHtml(String(station.market_id ?? 'Unknown'))}</li>
+            <li><span class="label">Type:</span> ${isCarrierStack ? 'Fleet Carriers' : escapeHtml(station.station_type || 'Unknown')}</li>
+            ${isCarrierStack ? `<li><span class="label">Count:</span> ${carrierCount}</li>` : `<li><span class="label">Market ID:</span> ${escapeHtml(String(station.market_id ?? 'Unknown'))}</li>`}
             <li><span class="label">Distance:</span> ${formatLightSeconds(station.distance_from_arrival_ls)}</li>
             ${station.inferred_body_name ? `<li><span class="label">Position:</span> inferred near ${escapeHtml(station.inferred_body_name)}</li>` : ''}
             ${station.unresolved_station_host ? '<li><span class="label">Position:</span> unresolved host (shown under the primary star)</li>' : ''}

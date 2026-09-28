@@ -7,6 +7,7 @@ const test = require('node:test');
 const {
     buildRootIds,
     buildSystemTree,
+    collapseFleetCarrierStacks,
     computeBarycenterSkipPairs,
     inferStationHostByArrivalDistance,
     isCarrierStation,
@@ -44,6 +45,25 @@ test('station attachment: only space stations are eligible for the map', () => {
     assert.equal(isCarrierStation({ station_type: 'Drake-Class Carrier' }), false);
     assert.equal(isSurfaceStation({ station_type: 'CraterOutpost' }), true);
     assert.equal(isSurfaceStation({ station_type: 'Coriolis' }), false);
+});
+
+test('fleet carriers sharing a host collapse into one stack node', () => {
+    const carriers = [
+        { market_id: 300, name: 'FC A', station_type: 'FleetCarrier', parents: [{ Planet: 3 }] },
+        { market_id: 100, name: 'FC B', station_type: 'FleetCarrier', parents: [{ Planet: 3 }] },
+        { market_id: 200, name: 'FC C', station_type: 'FleetCarrier', parents: [{ Star: 0 }] },
+        { market_id: 400, name: 'Squadron', station_type: 'SquadronCarrier', parents: [{ Planet: 3 }] }
+    ];
+
+    const collapsed = collapseFleetCarrierStacks(carriers);
+    const stack = collapsed.find(station => station.carrier_count === 2);
+    assert.equal(stack.name, '2 Fleet Carriers');
+    assert.equal(stack.station_type, 'FleetCarrierStack');
+    assert.equal(stack.market_id, 100);
+    assert.deepEqual(stack.carrier_market_ids, [100, 300]);
+    assert.equal(collapsed.some(station => station.name === 'FC C'), true);
+    assert.equal(collapsed.some(station => station.name === 'Squadron'), true);
+    assert.equal(stationIconAsset('FleetCarrierStack'), 'fleetcarrierstack.svg');
 });
 
 test('surface station annotation: marks only its host planet', () => {
