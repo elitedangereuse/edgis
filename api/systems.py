@@ -1,14 +1,20 @@
 import os
+import asyncio
 import logging
 import time
 import math
 import hmac
 import base64
+import hashlib
 import json
+import shutil
+import subprocess
+import tempfile
 from html import escape
 from contextlib import contextmanager
+from pathlib import Path
 from queue import Empty, LifoQueue
-from threading import Lock
+from threading import Lock, Semaphore
 import httpx
 from decimal import Decimal
 from fastapi import HTTPException
@@ -19,7 +25,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 import psycopg
 from pydantic import BaseModel, Field
 from typing import Callable, Iterable, Optional, Any, Sequence
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 try:
     from .edts.edtslib import pgnames, sector, system  # type: ignore[attr-defined]
@@ -33,7 +39,6 @@ except ImportError:
         from edtslib import pgnames, sector, system  # type: ignore[attr-defined]
     else:
         raise
-import asyncio
 from dotenv import load_dotenv
 
 _SPANSH_IMPORT_ERROR: str | None = None
@@ -239,6 +244,27 @@ ADMIN_HTML_FILENAME = os.path.basename(
 ADMIN_HTML_PATH = os.path.join(STATIC_DIR, ADMIN_HTML_FILENAME)
 SYSMAP_HTML_PATH = os.path.join(STATIC_DIR, "sysmap.html")
 SYSMAP_OG_METADATA_PLACEHOLDER = "<!-- SYSMAP_OG_METADATA -->"
+SYSMAP_PREVIEW_CACHE_DIR = Path(
+    os.getenv("SYSMAP_PREVIEW_CACHE_DIR")
+    or os.path.join(tempfile.gettempdir(), "edgis-sysmap-previews")
+)
+SYSMAP_PREVIEW_CACHE_SECONDS = max(
+    0, int(os.getenv("SYSMAP_PREVIEW_CACHE_SECONDS") or str(7 * 24 * 60 * 60))
+)
+SYSMAP_PREVIEW_CACHE_MAX_FILES = max(
+    1, int(os.getenv("SYSMAP_PREVIEW_CACHE_MAX_FILES") or "1000")
+)
+SYSMAP_PREVIEW_CONCURRENCY = max(
+    1, int(os.getenv("SYSMAP_PREVIEW_CONCURRENCY") or "1")
+)
+SYSMAP_PREVIEW_TIMEOUT_SECONDS = max(
+    1, int(os.getenv("SYSMAP_PREVIEW_TIMEOUT_SECONDS") or "15")
+)
+SYSMAP_PREVIEW_CHROMIUM_BIN = os.getenv(
+    "SYSMAP_PREVIEW_CHROMIUM_BIN", "chromium"
+)
+SYSMAP_PREVIEW_BASE_URL = os.getenv("SYSMAP_PREVIEW_BASE_URL", "").rstrip("/")
+_sysmap_preview_semaphore = Semaphore(SYSMAP_PREVIEW_CONCURRENCY)
 
 REDIS_HOST = os.getenv("REDIS_HOST") or "localhost"
 REDIS_PORT = int(os.getenv("REDIS_PORT") or "6379")
@@ -2794,6 +2820,95 @@ async def get_total_systems():
 from fastapi.staticfiles import StaticFiles
 
 
+def _sysmap_preview_params(request: Request) -> list[tuple[str, str]]:
+    """Keep the preview renderer aligned with the shared map URL."""
+    allowed_names = ("system", "body_id", "station_id", "station", "carrier")
+    return [
+        (name, value)
+        for name in allowed_names
+        if (value := request.query_params.get(name)) is not None
+    ]
+
+
+def _sysmap_preview_url(request: Request) -> str:
+    base_url = str(request.base_url).rstrip("/")
+    query = urlencode(_sysmap_preview_params(request))
+    preview_url = f"{base_url}/static/sysmap-preview.png"
+    return f"{preview_url}?{query}" if query else preview_url
+
+
+def _sysmap_preview_cache_path(params: list[tuple[str, str]]) -> Path:
+    cache_key = urlencode(params)
+    digest = hashlib.sha256(cache_key.encode("utf-8")).hexdigest()
+    return SYSMAP_PREVIEW_CACHE_DIR / f"{digest}.png"
+
+
+def _sysmap_preview_is_cached(preview_path: Path) -> bool:
+    if not preview_path.is_file():
+        return False
+    return (
+        time.time() - preview_path.stat().st_mtime
+        < SYSMAP_PREVIEW_CACHE_SECONDS
+    )
+
+
+def _prune_sysmap_preview_cache() -> None:
+    """Bound disk use while keeping recent previews available to crawlers."""
+    now = time.time()
+    previews: list[tuple[Path, float]] = []
+    for preview_path in SYSMAP_PREVIEW_CACHE_DIR.glob("*.png"):
+        try:
+            age = now - preview_path.stat().st_mtime
+            if age >= SYSMAP_PREVIEW_CACHE_SECONDS:
+                preview_path.unlink()
+            else:
+                previews.append((preview_path, preview_path.stat().st_mtime))
+        except FileNotFoundError:
+            continue
+
+    excess_count = len(previews) - SYSMAP_PREVIEW_CACHE_MAX_FILES + 1
+    if excess_count > 0:
+        oldest_previews = sorted(previews, key=lambda item: item[1])[:excess_count]
+        for preview_path, _ in oldest_previews:
+            try:
+                preview_path.unlink()
+            except FileNotFoundError:
+                continue
+
+
+def _render_sysmap_preview(preview_url: str, output_path: Path) -> None:
+    """Render the existing SVG-only map in Chromium and atomically cache it."""
+    render_dir = Path(
+        tempfile.mkdtemp(prefix="render-", dir=SYSMAP_PREVIEW_CACHE_DIR)
+    )
+    screenshot_path = render_dir / "preview.png"
+    try:
+        command = (
+            SYSMAP_PREVIEW_CHROMIUM_BIN,
+            "--headless=new",
+            "--disable-gpu",
+            "--disable-dev-shm-usage",
+            "--hide-scrollbars",
+            "--run-all-compositor-stages-before-draw",
+            "--virtual-time-budget=8000",
+            "--window-size=1200,630",
+            f"--user-data-dir={render_dir / 'profile'}",
+            f"--screenshot={screenshot_path}",
+            preview_url,
+        )
+        subprocess.run(
+            command,
+            check=True,
+            timeout=SYSMAP_PREVIEW_TIMEOUT_SECONDS,
+            capture_output=True,
+        )
+        if not screenshot_path.is_file() or screenshot_path.stat().st_size == 0:
+            raise RuntimeError("Chromium did not produce a system-map preview")
+        screenshot_path.replace(output_path)
+    finally:
+        shutil.rmtree(render_dir, ignore_errors=True)
+
+
 def _sysmap_og_metadata(request: Request) -> str:
     """Build crawler-visible metadata for a system-map share URL.
 
@@ -2818,7 +2933,7 @@ def _sysmap_og_metadata(request: Request) -> str:
 
     base_url = str(request.base_url).rstrip("/")
     canonical_url = str(request.url)
-    image_url = f"{base_url}/static/milkyway.webp"
+    image_url = _sysmap_preview_url(request)
     return "\n    ".join(
         (
             f'<meta name="description" content="{escape(description, quote=True)}">',
@@ -2829,8 +2944,9 @@ def _sysmap_og_metadata(request: Request) -> str:
             f'<meta property="og:description" content="{escape(description, quote=True)}">',
             f'<meta property="og:url" content="{escape(canonical_url, quote=True)}">',
             f'<meta property="og:image" content="{escape(image_url, quote=True)}">',
-            '<meta property="og:image:width" content="1000">',
-            '<meta property="og:image:height" content="625">',
+            '<meta property="og:image:type" content="image/png">',
+            '<meta property="og:image:width" content="1200">',
+            '<meta property="og:image:height" content="630">',
             '<meta name="twitter:card" content="summary_large_image">',
             f'<meta name="twitter:title" content="{escape(title, quote=True)}">',
             f'<meta name="twitter:description" content="{escape(description, quote=True)}">',
@@ -2848,6 +2964,49 @@ def read_sysmap(request: Request) -> HTMLResponse:
         SYSMAP_OG_METADATA_PLACEHOLDER, _sysmap_og_metadata(request)
     )
     return HTMLResponse(content=content)
+
+
+@app.get("/static/sysmap-preview.png", include_in_schema=False)
+def read_sysmap_preview(request: Request) -> FileResponse:
+    """Return a cached PNG rendered from the system-map's SVG-only view."""
+    params = _sysmap_preview_params(request)
+    preview_path = _sysmap_preview_cache_path(params)
+    if not _sysmap_preview_is_cached(preview_path):
+        with _sysmap_preview_semaphore:
+            if not _sysmap_preview_is_cached(preview_path):
+                SYSMAP_PREVIEW_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                _prune_sysmap_preview_cache()
+                renderer_base_url = (
+                    SYSMAP_PREVIEW_BASE_URL or f"http://127.0.0.1:{UVICORN_PORT}"
+                )
+                query = urlencode([("svgOnly", "1"), *params])
+                render_url = f"{renderer_base_url}/static/sysmap.html?{query}"
+                try:
+                    _render_sysmap_preview(render_url, preview_path)
+                except FileNotFoundError as exc:
+                    raise HTTPException(
+                        status_code=503,
+                        detail="System-map preview renderer is unavailable",
+                    ) from exc
+                except (
+                    RuntimeError,
+                    subprocess.CalledProcessError,
+                    subprocess.TimeoutExpired,
+                ) as exc:
+                    logging.exception("Unable to render system-map preview")
+                    raise HTTPException(
+                        status_code=503,
+                        detail="System-map preview is temporarily unavailable",
+                    ) from exc
+
+    return FileResponse(
+        preview_path,
+        media_type="image/png",
+        headers={
+            "Cache-Control": f"public, max-age={SYSMAP_PREVIEW_CACHE_SECONDS}",
+        },
+    )
+
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

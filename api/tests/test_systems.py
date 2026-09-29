@@ -121,9 +121,42 @@ def test_sysmap_has_system_specific_open_graph_metadata():
     assert '<meta property="og:title" content="Sol — EDGIS System Map">' in response.text
     assert 'content="Explore Sol in the EDGIS interactive Elite Dangerous system map."' in response.text
     assert 'property="og:url" content="http://testserver/static/sysmap.html?system=Sol&amp;station=1&amp;station_id=128017408"' in response.text
-    assert 'property="og:image" content="http://testserver/static/milkyway.webp"' in response.text
+    assert (
+        'property="og:image" content="http://testserver/static/sysmap-preview.png?'
+        "system=Sol&amp;station_id=128017408&amp;station=1\""
+    ) in response.text
+    assert 'property="og:image:type" content="image/png"' in response.text
     assert 'name="twitter:card" content="summary_large_image"' in response.text
     assert "SYSMAP_OG_METADATA" not in response.text
+
+
+def test_sysmap_preview_renders_once_then_uses_cached_image(monkeypatch, tmp_path):
+    rendered_urls = []
+
+    def render_preview(preview_url, output_path):
+        rendered_urls.append(preview_url)
+        output_path.write_bytes(b"png preview")
+
+    monkeypatch.setattr(systems, "SYSMAP_PREVIEW_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(systems, "_render_sysmap_preview", render_preview)
+
+    response = client.get("/static/sysmap-preview.png", params={"system": "Sol"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.content == b"png preview"
+    assert rendered_urls == [
+        "http://127.0.0.1:8383/static/sysmap.html?svgOnly=1&system=Sol"
+    ]
+
+    cached_response = client.get(
+        "/static/sysmap-preview.png", params={"system": "Sol"}
+    )
+
+    assert cached_response.status_code == 200
+    assert rendered_urls == [
+        "http://127.0.0.1:8383/static/sysmap.html?svgOnly=1&system=Sol"
+    ]
 
 
 def test_sysmap_open_graph_metadata_escapes_system_name():
