@@ -48,6 +48,7 @@ TMP_CHANGED_FILE_LIST=$(mktemp)
     echo static/js/sysmap.js
     echo static/assets/fleetcarrierstation.svg
     echo static/assets/fleetcarrierstack.svg
+    echo static/assets/installationstation.svg
     echo static/assets/squadroncarrierstation.svg
     echo static/assets/spaceconstructiondepot.svg
     echo static/fixtures/sysmap-body-palette.json

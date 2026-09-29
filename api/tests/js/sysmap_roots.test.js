@@ -40,6 +40,7 @@ test('station attachment: only space stations are eligible for the map', () => {
     assert.equal(isSpaceStation({ station_type: 'FleetCarrier' }), false);
     assert.equal(isSpaceStation({ station_type: 'Squadron Carrier' }), false);
     assert.equal(isSpaceStation({ station_type: 'Space Construction Depot' }), true);
+    assert.equal(isSpaceStation({ station_type: 'Installation' }), true);
     assert.equal(isCarrierStation({ station_type: 'FleetCarrier' }), true);
     assert.equal(isCarrierStation({ station_type: 'Squadron Carrier' }), true);
     assert.equal(isCarrierStation({ station_type: 'Drake-Class Carrier' }), false);
@@ -88,6 +89,7 @@ test('station icon: maps known station types to their SVG assets', () => {
     assert.equal(stationIconAsset('Dodec Starport'), 'dodecstation.svg');
     assert.equal(stationIconAsset('Coriolis Starport'), 'coriolisstation.svg');
     assert.equal(stationIconAsset('Asteroid Base'), 'asteroidstation.svg');
+    assert.equal(stationIconAsset('Installation'), 'installationstation.svg');
     assert.equal(stationIconAsset('Space Construction Depot'), 'spaceconstructiondepot.svg');
 });
 
