@@ -29,16 +29,6 @@ Expose the development server on a predictable port by setting `UVICORN_PORT` (d
 ```
 UVICORN_PORT=8383
 ```
-#### System-map link previews
-Shared system-map URLs generate a PNG preview on first request using a local
-Chromium process, then cache it for seven days. Chromium must be installed on
-the API host. The renderer uses `http://127.0.0.1:$UVICORN_PORT` by default;
-set `SYSMAP_PREVIEW_BASE_URL` only if the service is bound elsewhere. Tune the
-cache location, lifetime, or render concurrency with
-`SYSMAP_PREVIEW_CACHE_DIR`, `SYSMAP_PREVIEW_CACHE_SECONDS`, and
-`SYSMAP_PREVIEW_CONCURRENCY`. The cache is capped at 1,000 PNGs by default;
-adjust it with `SYSMAP_PREVIEW_CACHE_MAX_FILES`.
-
 #### Landing page override
 Serve an alternate landing page by pointing `INDEX_HTML_FILENAME` to a file inside `api/static`.
 ```
