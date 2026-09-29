@@ -84,6 +84,7 @@ test('surface station annotation: marks only its host planet', () => {
 test('station icon: maps known station types to their SVG assets', () => {
     assert.equal(stationIconAsset('Orbis'), 'orbisstation.svg');
     assert.equal(stationIconAsset('Ocellus Starport'), 'ocelusstation.svg');
+    assert.equal(stationIconAsset('Bernal'), 'ocelusstation.svg');
     assert.equal(stationIconAsset('Dodec Starport'), 'dodecstation.svg');
     assert.equal(stationIconAsset('Coriolis Starport'), 'coriolisstation.svg');
     assert.equal(stationIconAsset('Asteroid Base'), 'asteroidstation.svg');

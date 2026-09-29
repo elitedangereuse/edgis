@@ -175,7 +175,7 @@ function stationIconAsset(stationType){
     const type = String(stationType || '').toLowerCase();
     if(type.includes('fleetcarrierstack')) return 'fleetcarrierstack.svg';
     if(type.includes('asteroid')) return 'asteroidstation.svg';
-    if(type.includes('ocellus')) return 'ocelusstation.svg';
+    if(type.includes('ocellus') || type.includes('bernal')) return 'ocelusstation.svg';
     if(type.includes('dodec')) return 'dodecstation.svg';
     if(type.includes('coriolis')) return 'coriolisstation.svg';
     if(type.includes('orbis')) return 'orbisstation.svg';
