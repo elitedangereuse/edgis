@@ -176,6 +176,20 @@ UPSERT_BODY = """
     RETURNING (xmax = 0) AS is_new;
 """
 
+# A positive ring row created by a direct scan may predate the parent Scan
+# that carries the authoritative Rings metadata (direct ring scans often
+# omit RingClass and radii). Fill only the missing ring fields; never
+# overwrite values already recorded for the source body.
+BACKFILL_RING_METADATA = """
+    UPDATE bodies SET
+        ring_class_id  = COALESCE(ring_class_id, %s),
+        ring_inner_rad = COALESCE(ring_inner_rad, %s),
+        ring_outer_rad = COALESCE(ring_outer_rad, %s),
+        ring_mass_mt   = COALESCE(ring_mass_mt, %s),
+        mass_em        = COALESCE(mass_em, %s)
+    WHERE system_id64 = %s AND body_id = %s;
+"""
+
 # === New UPSERTs for normalized tables ===
 UPSERT_MATERIAL = """
     INSERT INTO body_materials (system_id64, body_id, material_id, percent)
@@ -279,17 +293,23 @@ def inferred_ring_body_id(parent_body_id: int, ring_number: int) -> int:
     return -(parent_body_id * 4 + ring_number)
 
 
-def has_positive_ring_body(
+def find_positive_ring_body(
     db_conn: psycopg.Connection,
     system_id64: int,
     ring_name: str,
     ring_type_id: int,
-) -> bool:
-    """Whether a source or legacy positive ring already represents this ring."""
+) -> Optional[tuple]:
+    """Fetch a source or legacy positive ring row representing this ring.
+
+    Returns (body_id, ring_class_id, ring_inner_rad, ring_outer_rad,
+    ring_mass_mt) so callers can backfill rows created by direct ring
+    scans, which often omit the ring metadata carried by the parent Scan.
+    """
     with db_conn.cursor() as cur:
         cur.execute(
             """
-            SELECT 1
+            SELECT body_id, ring_class_id, ring_inner_rad,
+                   ring_outer_rad, ring_mass_mt
             FROM bodies
             WHERE system_id64 = %s
               AND body_name = %s
@@ -299,7 +319,7 @@ def has_positive_ring_body(
             """,
             (system_id64, ring_name, ring_type_id),
         )
-        return cur.fetchone() is not None
+        return cur.fetchone()
 
 
 # === Infer canonical body type ===
@@ -590,13 +610,56 @@ def process_message(
                 ring_type_id = get_lookup_id(
                     "body_types", "PlanetaryRing", db_conn
                 )
-                if has_positive_ring_body(
+                existing_ring = find_positive_ring_body(
                     db_conn, system_address, ring_name, ring_type_id
-                ):
-                    if verbose:
+                )
+                if existing_ring is not None:
+                    (
+                        existing_body_id,
+                        existing_class,
+                        existing_inner,
+                        existing_outer,
+                        existing_mass,
+                    ) = existing_ring
+                    incomplete_ring = None in (
+                        existing_class,
+                        existing_inner,
+                        existing_outer,
+                        existing_mass,
+                    )
+                    if incomplete_ring:
+                        ring_class_id = get_lookup_id(
+                            "ring_classes",
+                            normalize_ring_class(ring.get("RingClass")),
+                            db_conn,
+                        )
+                        mass_em = (
+                            ring.get("MassMT") / 5.972e20
+                            if ring.get("MassMT")
+                            else None
+                        )
+                        with db_conn.cursor() as cur:
+                            cur.execute(
+                                BACKFILL_RING_METADATA,
+                                [
+                                    ring_class_id,
+                                    ring.get("InnerRad"),
+                                    ring.get("OuterRad"),
+                                    ring.get("MassMT"),
+                                    mass_em,
+                                    system_address,
+                                    existing_body_id,
+                                ],
+                            )
+                        if verbose:
+                            print(
+                                f"Backfilled ring metadata on {ring_name} "
+                                f"(ID {existing_body_id})"
+                            )
+                    elif verbose:
                         print(
                             f"Skipped inferred ring {ring_name}: "
-                            "a positive ring body already exists"
+                            "a complete positive ring body already exists"
                         )
                     continue
                 ring_body_id = inferred_ring_body_id(

@@ -152,3 +152,131 @@ def test_convert_atmosphere_type_variants(spansh_module, description, subtype, e
 )
 def test_to_seconds(spansh_module, value, multiplier, expected):
     assert spansh_module.to_seconds(value, multiplier=multiplier) == expected
+
+
+class _RecordingCursor:
+    def __init__(self, fetch_results=None) -> None:
+        self.statements: list[tuple[str, tuple | None]] = []
+        self.fetch_results = list(fetch_results or [])
+        self.closed = False
+
+    def execute(self, query, params=None) -> None:
+        self.statements.append((query, params))
+
+    def fetchone(self):
+        return self.fetch_results.pop(0) if self.fetch_results else None
+
+    def fetchall(self) -> list[tuple]:
+        return []
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _RecordingConnection:
+    def __init__(self) -> None:
+        self.cursors: list[_RecordingCursor] = []
+
+    def cursor(self) -> _RecordingCursor:
+        cursor = _RecordingCursor()
+        self.cursors.append(cursor)
+        return cursor
+
+    def commit(self) -> None:  # pragma: no cover - no-op stub
+        return None
+
+    def rollback(self) -> None:  # pragma: no cover - no-op stub
+        return None
+
+    def close(self) -> None:  # pragma: no cover - no-op stub
+        return None
+
+
+def _make_ring_session(spansh_module, existing_ring):
+    connection = _RecordingConnection()
+    session = spansh_module.SpanshBodyIngestSession(
+        connection=connection, log_func=lambda _message: None
+    )
+    session.body_cursor.fetch_results.append(existing_ring)
+    return session, connection
+
+
+PLANET_BODY = {
+    "bodyId": 26,
+    "name": "Col 285 Sector KM-V d2-106 5",
+    "type": "Planet",
+    "subType": "Class III gas giant",
+    "terraformingState": "Not terraformable",
+    "rings": [
+        {
+            "name": "Col 285 Sector KM-V d2-106 5 A Ring",
+            "type": "Metallic",
+            "innerRadius": 138820000.0,
+            "outerRadius": 181440000.0,
+            "mass": 427150000000.0,
+        }
+    ],
+}
+
+
+def _seed_ring_lookup_cache(spansh_module):
+    spansh_module.lookup_cache["body_types"]["Planet"] = 1
+    spansh_module.lookup_cache["body_types"]["PlanetaryRing"] = 2
+    spansh_module.lookup_cache["planet_classes"]["Class III gas giant"] = 3
+    spansh_module.lookup_cache["terraform_states"]["Not terraformable"] = 4
+    spansh_module.lookup_cache["ring_classes"]["eRingClass_Metallic"] = 5
+
+
+def test_spansh_backfills_missing_ring_metadata_on_positive_ring(spansh_module):
+    _seed_ring_lookup_cache(spansh_module)
+    session, connection = _make_ring_session(
+        spansh_module, (27, None, None, None, None)
+    )
+
+    session.process_body(PLANET_BODY, 3652643195227, None)
+
+    body_inserts = [
+        params
+        for query, params in connection.cursors[0].statements
+        if "INSERT INTO bodies" in query
+    ]
+    assert len(body_inserts) == 1  # no inferred ring row created
+    ring_updates = [
+        (query, params)
+        for query, params in connection.cursors[0].statements
+        if "UPDATE bodies SET" in query
+    ]
+    assert len(ring_updates) == 1
+    query, params = ring_updates[0]
+    assert "COALESCE(ring_class_id" in query
+    assert "COALESCE(ring_mass_mt" in query
+    assert params == [5, 138820000.0, 181440000.0, 427150000000.0, 3652643195227, 27]
+
+
+def test_spansh_skips_backfill_for_complete_positive_ring(spansh_module):
+    _seed_ring_lookup_cache(spansh_module)
+    session, connection = _make_ring_session(
+        spansh_module, (27, 5, 138820000.0, 181440000.0, 427150000000.0)
+    )
+
+    session.process_body(PLANET_BODY, 3652643195227, None)
+
+    body_inserts = [
+        params
+        for query, params in connection.cursors[0].statements
+        if "INSERT INTO bodies" in query
+    ]
+    assert len(body_inserts) == 1
+    ring_updates = [
+        params
+        for query, params in connection.cursors[0].statements
+        if "UPDATE bodies SET" in query
+    ]
+    assert ring_updates == []
+
+
+def test_spansh_backfill_statement_only_fills_missing_ring_fields(spansh_module):
+    assert "COALESCE(ring_class_id" in spansh_module.BACKFILL_RING_METADATA
+    assert "COALESCE(ring_inner_rad" in spansh_module.BACKFILL_RING_METADATA
+    assert "COALESCE(ring_outer_rad" in spansh_module.BACKFILL_RING_METADATA
+    assert "COALESCE(ring_mass_mt" in spansh_module.BACKFILL_RING_METADATA
