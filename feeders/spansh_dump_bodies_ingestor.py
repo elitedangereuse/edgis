@@ -167,6 +167,18 @@ UPSERT_MATERIAL = """
     ON CONFLICT (system_id64, body_id, material_id) DO NOTHING;
 """
 
+# A positive ring row created from a direct scan may predate this dump and
+# lack ring metadata. Fill only the missing ring fields on such rows;
+# never overwrite values already recorded for the source body.
+BACKFILL_RING_METADATA = """
+    UPDATE bodies SET
+        ring_class_id  = COALESCE(ring_class_id, %s),
+        ring_inner_rad = COALESCE(ring_inner_rad, %s),
+        ring_outer_rad = COALESCE(ring_outer_rad, %s),
+        ring_mass_mt   = COALESCE(ring_mass_mt, %s)
+    WHERE system_id64 = %s AND body_id = %s;
+"""
+
 UPSERT_ATMOSPHERE_GAS = """
     INSERT INTO body_atmospheres (system_id64, body_id, gas_id, percent)
     VALUES (%s, %s, %s, %s)
@@ -583,15 +595,16 @@ class SpanshBodyIngestSession:
 
         return self._run_with_retry(_fetch_lookup_id, f"Lookup {table}")  # type: ignore[return-value]
 
-    def has_positive_ring_body(
+    def find_positive_ring_body(
         self, system_id64: int, ring_name: str, ring_type_id: int
-    ) -> bool:
-        """Whether a source or legacy positive ring already represents this ring."""
+    ) -> tuple | None:
+        """Fetch a source or legacy positive ring row representing this ring."""
 
-        def _find() -> bool:
+        def _find() -> tuple | None:
             self.body_cursor.execute(
                 """
-                SELECT 1
+                SELECT body_id, ring_class_id, ring_inner_rad,
+                       ring_outer_rad, ring_mass_mt
                 FROM bodies
                 WHERE system_id64 = %s
                   AND body_name = %s
@@ -601,11 +614,9 @@ class SpanshBodyIngestSession:
                 """,
                 (system_id64, ring_name, ring_type_id),
             )
-            return self.body_cursor.fetchone() is not None
+            return self.body_cursor.fetchone()
 
-        return bool(
-            self._run_with_retry(_find, "Find existing positive ring")
-        )
+        return self._run_with_retry(_find, "Find existing positive ring")
 
     def flush_batches(self) -> None:
         if self.material_batch:
@@ -888,13 +899,55 @@ class SpanshBodyIngestSession:
 
         for ring_number, ring in enumerate(body.get("rings", []), start=1):
             ring_type_id = self.get_lookup_id("body_types", "PlanetaryRing")
-            if self.has_positive_ring_body(
+            existing_ring = self.find_positive_ring_body(
                 sys_id, ring.get("name"), ring_type_id
-            ):
-                self._log(
-                    f"Skipped inferred ring {ring.get('name')}: "
-                    "a positive ring body already exists"
+            )
+            if existing_ring is not None:
+                (
+                    existing_body_id,
+                    existing_class,
+                    existing_inner,
+                    existing_outer,
+                    existing_mass,
+                ) = existing_ring
+                incomplete_ring = None in (
+                    existing_class,
+                    existing_inner,
+                    existing_outer,
+                    existing_mass,
                 )
+                if incomplete_ring:
+                    ring_class_id = (
+                        self.get_lookup_id(
+                            "ring_classes",
+                            "eRingClass_" + ring.get("type", "").replace(" ", ""),
+                        )
+                        if ring.get("type")
+                        else None
+                    )
+                    self._run_with_retry(
+                        lambda: self.body_cursor.execute(
+                            BACKFILL_RING_METADATA,
+                            [
+                                ring_class_id,
+                                ring.get("innerRadius"),
+                                ring.get("outerRadius"),
+                                ring.get("mass"),
+                                sys_id,
+                                existing_body_id,
+                            ],
+                        ),
+                        "Backfill ring metadata",
+                    )
+                    self._log(
+                        f"Backfilled ring metadata on {ring.get('name')} "
+                        f"(ID {existing_body_id})"
+                    )
+                else:
+                    self._log(
+                        f"Skipped inferred ring {ring.get('name')}: "
+                        "a complete positive ring body already exists"
+                    )
                 continue
             ring_body_id = inferred_ring_body_id(
                 body.get("bodyId"), ring_number

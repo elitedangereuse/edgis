@@ -291,14 +291,16 @@ def test_bodies_assigns_negative_ids_to_inferred_rings(monkeypatch, bodies_modul
     assert bodies_module.inferred_ring_body_id(29, 2) == -118
 
 
-def test_bodies_does_not_duplicate_existing_positive_ring(
+def test_bodies_does_not_duplicate_complete_positive_ring(
     monkeypatch, bodies_module
 ):
     monkeypatch.setattr(
         bodies_module, "get_lookup_id", lambda *_args, **_kwargs: 1
     )
     monkeypatch.setattr(
-        bodies_module, "has_positive_ring_body", lambda *_args, **_kwargs: True
+        bodies_module,
+        "find_positive_ring_body",
+        lambda *_args, **_kwargs: (30, 1, 100.0, 200.0, 5.0),
     )
 
     result = bodies_module.process_message(peacock_ring_scan_message(), verbose=False)
@@ -311,6 +313,48 @@ def test_bodies_does_not_duplicate_existing_positive_ring(
         if "INSERT INTO bodies" in query
     ]
     assert [params[1] for params in body_inserts] == [29]
+    ring_updates = [
+        (query, params)
+        for cursor in bodies_module.conn.cursors
+        for query, params in cursor.statements
+        if "UPDATE bodies SET" in query
+    ]
+    assert ring_updates == []
+
+
+def test_bodies_backfills_missing_ring_metadata_on_positive_ring(
+    monkeypatch, bodies_module
+):
+    monkeypatch.setattr(
+        bodies_module, "get_lookup_id", lambda *_args, **_kwargs: 1
+    )
+    monkeypatch.setattr(
+        bodies_module,
+        "find_positive_ring_body",
+        lambda *_args, **_kwargs: (30, None, None, None, None),
+    )
+
+    result = bodies_module.process_message(peacock_ring_scan_message(), verbose=False)
+
+    assert result.status == "success"
+    body_inserts = [
+        params
+        for cursor in bodies_module.conn.cursors
+        for query, params in cursor.statements
+        if "INSERT INTO bodies" in query
+    ]
+    assert [params[1] for params in body_inserts] == [29]
+    ring_updates = [
+        (query, params)
+        for cursor in bodies_module.conn.cursors
+        for query, params in cursor.statements
+        if "UPDATE bodies SET" in query
+    ]
+    assert len(ring_updates) == 1
+    query, params = ring_updates[0]
+    assert "COALESCE(ring_class_id" in query
+    assert "COALESCE(ring_mass_mt" in query
+    assert params == [1, None, None, None, None, 4459065949, 30]
 
 
 def test_bodies_preserves_and_reads_direct_ring_metadata(
