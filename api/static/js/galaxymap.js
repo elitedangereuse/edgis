@@ -2570,8 +2570,8 @@
 
      const ALLEGIANCE_COLORS = {
        Alliance: 'f2a900',
-       Empire: 'd3444b',
-       Federation: '4f93e8',
+       Empire: '4f93e8',
+       Federation: 'd3444b',
        Independent: 'c8d0da',
        PilotsFederation: '55d6c2',
        Thargoid: '8fcf3c',
