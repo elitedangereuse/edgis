@@ -45,6 +45,7 @@
      let hudFacetSortMode = 'count_desc';
      let distanceHeatEnabled = false;
      let boxelOverlayEnabled = false;
+     let allegianceVoronoiEnabled = false;
      let predictedSystemsEnabled = false;
      let experimentalFeaturesEnabled = false;
      let regionNamesEnabled = true;
@@ -60,6 +61,8 @@
      let boxelLabelGroup = null;
      let boxelLabelRefreshTimer = null;
      let boxelOverlayRequestId = 0;
+     let allegianceVoronoiGroup = null;
+     let currentAllegianceSystems = [];
      let dynamicBaseGridGroup = null;
      let dynamicBaseGridRefreshTimer = null;
      let cachedVisibleStarCount = null;
@@ -448,7 +451,12 @@
 
     function normalizeFilterDimension(dimension) {
       const normalized = String(dimension || '').toLowerCase();
-      if (normalized === 'atmosphere' || normalized === 'material' || normalized === 'spectral') {
+      if (
+        normalized === 'allegiance'
+        || normalized === 'atmosphere'
+        || normalized === 'material'
+        || normalized === 'spectral'
+      ) {
         return normalized;
       }
       return 'spectral';
@@ -458,10 +466,12 @@
       const spectralButton = document.getElementById('filterDimensionSpectralButton');
       const atmosphereButton = document.getElementById('filterDimensionAtmosphereButton');
       const materialButton = document.getElementById('filterDimensionMaterialButton');
+      const allegianceButton = document.getElementById('filterDimensionAllegianceButton');
       const byDimension = {
         spectral: spectralButton,
         atmosphere: atmosphereButton,
-        material: materialButton
+        material: materialButton,
+        allegiance: allegianceButton
       };
       Object.entries(byDimension).forEach(([dimension, button]) => {
         if (!button) {
@@ -640,6 +650,9 @@
       }
       if (activeFilterDimension === 'material') {
         return 'Materials';
+      }
+      if (activeFilterDimension === 'allegiance') {
+        return 'Allegiance';
       }
       return 'Spectral Type';
     }
@@ -1314,6 +1327,11 @@
       } else {
         nextUrl.searchParams.delete('boxels');
       }
+      if (allegianceVoronoiEnabled) {
+        nextUrl.searchParams.set('allegiance_voronoi', '1');
+      } else {
+        nextUrl.searchParams.delete('allegiance_voronoi');
+      }
       if (predictedSystemsEnabled) {
         nextUrl.searchParams.set('predicted', '1');
       } else {
@@ -1343,11 +1361,15 @@
       const shouldShow = Boolean(experimentalFeaturesEnabled);
       const predictedSystemsButton = document.getElementById('predictedSystemsButton');
       const boxelOverlayButton = document.getElementById('boxelOverlayButton');
+      const allegianceVoronoiButton = document.getElementById('allegianceVoronoiButton');
       if (predictedSystemsButton) {
         predictedSystemsButton.style.display = shouldShow ? '' : 'none';
       }
       if (boxelOverlayButton) {
         boxelOverlayButton.style.display = shouldShow ? '' : 'none';
+      }
+      if (allegianceVoronoiButton) {
+        allegianceVoronoiButton.style.display = shouldShow ? '' : 'none';
       }
     }
 
@@ -1654,6 +1676,328 @@
         dynamicBaseGridRefreshTimer = null;
         buildDynamicBaseGridOverlay();
       }, delayMs);
+    }
+
+    function clearAllegianceVoronoiOverlay() {
+      if (allegianceVoronoiGroup?.parent) {
+        allegianceVoronoiGroup.parent.remove(allegianceVoronoiGroup);
+      }
+      allegianceVoronoiGroup?.traverse((object) => {
+        object.geometry?.dispose?.();
+        if (Array.isArray(object.material)) {
+          object.material.forEach((material) => material?.dispose?.());
+        } else {
+          object.material?.dispose?.();
+        }
+      });
+      allegianceVoronoiGroup = null;
+      updateAllegianceVoronoiLegend([]);
+    }
+
+    function updateAllegianceVoronoiLegend(allegiances, seedCount = 0) {
+      const legend = document.getElementById('allegianceVoronoiLegend');
+      if (!legend) {
+        return;
+      }
+      if (!allegianceVoronoiEnabled || !allegiances.length) {
+        legend.style.display = 'none';
+        legend.innerHTML = '';
+        return;
+      }
+      const rows = allegiances.sort((a, b) => a.localeCompare(b)).map((allegiance) => `
+        <div class="legend-row">
+          <span class="legend-chip" style="background:#${colorForAllegiance(allegiance)}"></span>
+          <span>${allegiance}</span>
+        </div>
+      `).join('');
+      legend.innerHTML = `
+        <div class="legend-title">Allegiance territories</div>
+        <div>Clipped 3D Voronoi cells · ${seedCount} system seeds</div>
+        ${rows}
+      `;
+      legend.style.display = 'block';
+    }
+
+    function getAllegianceTerritorySeeds() {
+      const observed = currentAllegianceSystems.filter((systemObj) => {
+        const coords = systemObj?.coords;
+        return normalizeAllegiance(systemObj?.allegiance) !== 'Unknown'
+          && Number.isFinite(Number(coords?.x))
+          && Number.isFinite(Number(coords?.y))
+          && Number.isFinite(Number(coords?.z));
+      });
+      const maxSeeds = 140;
+      if (observed.length <= maxSeeds) {
+        return observed;
+      }
+
+      // Keep at least one nearby seed for every allegiance, then use farthest-point
+      // sampling to retain the shape of dense areas without making the browser build
+      // thousands of clipped polyhedra.
+      const center = getCurrentMapCenter() || lastAutoLoadCenter || { x: 0, y: 0, z: 0 };
+      const byAllegiance = new Map();
+      observed.forEach((systemObj, index) => {
+        const allegiance = normalizeAllegiance(systemObj.allegiance);
+        const coords = systemObj.coords;
+        const dx = Number(coords.x) - center.x;
+        const dy = Number(coords.y) - center.y;
+        const dz = Number(coords.z) - center.z;
+        const distanceSquared = (dx * dx) + (dy * dy) + (dz * dz);
+        const current = byAllegiance.get(allegiance);
+        if (!current || distanceSquared < current.distanceSquared) {
+          byAllegiance.set(allegiance, { index, distanceSquared });
+        }
+      });
+
+      const selectedIndexes = new Set(Array.from(byAllegiance.values()).map((entry) => entry.index));
+      const minimumDistances = new Float64Array(observed.length);
+      minimumDistances.fill(Infinity);
+      const updateMinimumDistances = (selectedIndex) => {
+        const selectedCoords = observed[selectedIndex].coords;
+        for (let index = 0; index < observed.length; index += 1) {
+          const coords = observed[index].coords;
+          const dx = Number(coords.x) - Number(selectedCoords.x);
+          const dy = Number(coords.y) - Number(selectedCoords.y);
+          const dz = Number(coords.z) - Number(selectedCoords.z);
+          const distanceSquared = (dx * dx) + (dy * dy) + (dz * dz);
+          minimumDistances[index] = Math.min(minimumDistances[index], distanceSquared);
+        }
+      };
+      selectedIndexes.forEach(updateMinimumDistances);
+      while (selectedIndexes.size < maxSeeds) {
+        let nextIndex = -1;
+        let largestMinimumDistance = -1;
+        for (let index = 0; index < observed.length; index += 1) {
+          if (!selectedIndexes.has(index) && minimumDistances[index] > largestMinimumDistance) {
+            largestMinimumDistance = minimumDistances[index];
+            nextIndex = index;
+          }
+        }
+        if (nextIndex < 0) {
+          break;
+        }
+        selectedIndexes.add(nextIndex);
+        updateMinimumDistances(nextIndex);
+      }
+      return Array.from(selectedIndexes).map((index) => observed[index]);
+    }
+
+    function createSphericalVoronoiBounds(center, radius) {
+      // An icosphere is an inscribed, convex approximation of the requested
+      // radius: every generated cell stays inside the selected-radius sphere.
+      const boundaryGeometry = new THREE.IcosahedronGeometry(radius, 1).toNonIndexed();
+      const positions = boundaryGeometry.getAttribute('position');
+      const faces = [];
+      for (let index = 0; index < positions.count; index += 3) {
+        faces.push([
+          new THREE.Vector3(
+            center.x + positions.getX(index),
+            center.y + positions.getY(index),
+            center.z + positions.getZ(index)
+          ),
+          new THREE.Vector3(
+            center.x + positions.getX(index + 1),
+            center.y + positions.getY(index + 1),
+            center.z + positions.getZ(index + 1)
+          ),
+          new THREE.Vector3(
+            center.x + positions.getX(index + 2),
+            center.y + positions.getY(index + 2),
+            center.z + positions.getZ(index + 2)
+          )
+        ]);
+      }
+      boundaryGeometry.dispose();
+      return faces;
+    }
+
+    function createClippedVoronoiCell(seed, seeds, boundaryFaces) {
+      const vector = (x, y, z) => new THREE.Vector3(x, y, z);
+      let faces = boundaryFaces.map((face) => face.map((point) => point.clone()));
+      const seedPosition = vector(Number(seed.coords.x), Number(seed.coords.y), Number(seed.coords.z));
+      const epsilon = 1e-7;
+
+      for (let index = 0; index < seeds.length && faces.length; index += 1) {
+        const otherSeed = seeds[index];
+        if (otherSeed === seed) {
+          continue;
+        }
+        const otherPosition = vector(Number(otherSeed.coords.x), Number(otherSeed.coords.y), Number(otherSeed.coords.z));
+        const normal = otherPosition.clone().sub(seedPosition);
+        if (normal.lengthSq() < epsilon) {
+          continue;
+        }
+        const planeConstant = normal.dot(seedPosition.clone().add(otherPosition).multiplyScalar(0.5));
+        const intersections = [];
+        const clippedFaces = [];
+        faces.forEach((face) => {
+          const clipped = [];
+          for (let vertexIndex = 0; vertexIndex < face.length; vertexIndex += 1) {
+            const current = face[vertexIndex];
+            const next = face[(vertexIndex + 1) % face.length];
+            const currentDistance = normal.dot(current) - planeConstant;
+            const nextDistance = normal.dot(next) - planeConstant;
+            const currentInside = currentDistance <= epsilon;
+            const nextInside = nextDistance <= epsilon;
+            if (currentInside) {
+              clipped.push(current);
+            }
+            if (currentInside !== nextInside) {
+              const ratio = currentDistance / (currentDistance - nextDistance);
+              const intersection = current.clone().lerp(next, ratio);
+              clipped.push(intersection);
+              intersections.push(intersection);
+            }
+          }
+          if (clipped.length >= 3) {
+            clippedFaces.push(clipped);
+          }
+        });
+
+        const uniqueIntersections = intersections.filter((point, pointIndex, points) => (
+          points.slice(0, pointIndex).every((otherPoint) => otherPoint.distanceToSquared(point) > epsilon)
+        ));
+        if (uniqueIntersections.length >= 3) {
+          const centroid = uniqueIntersections
+            .reduce((sum, point) => sum.add(point), vector(0, 0, 0))
+            .multiplyScalar(1 / uniqueIntersections.length);
+          const reference = Math.abs(normal.x) < 0.8 ? vector(1, 0, 0) : vector(0, 1, 0);
+          const axisU = vector(0, 0, 0).crossVectors(normal, reference).normalize();
+          const axisV = vector(0, 0, 0).crossVectors(normal, axisU).normalize();
+          uniqueIntersections.sort((a, b) => {
+            const aOffset = a.clone().sub(centroid);
+            const bOffset = b.clone().sub(centroid);
+            return Math.atan2(axisV.dot(aOffset), axisU.dot(aOffset))
+              - Math.atan2(axisV.dot(bOffset), axisU.dot(bOffset));
+          });
+          clippedFaces.push(uniqueIntersections);
+        }
+        faces = clippedFaces;
+      }
+      return faces;
+    }
+
+    function createVoronoiCellGeometry(faces) {
+      const positions = [];
+      faces.forEach((face) => {
+        for (let index = 1; index < face.length - 1; index += 1) {
+          [face[0], face[index], face[index + 1]].forEach((point) => {
+            positions.push(point.x, point.y, -point.z);
+          });
+        }
+      });
+      if (!positions.length) {
+        return null;
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      return geometry;
+    }
+
+    function renderAllegianceVoronoiOverlay() {
+      clearAllegianceVoronoiOverlay();
+      if (
+        !allegianceVoronoiEnabled
+        || typeof THREE === 'undefined'
+        || typeof scene === 'undefined'
+        || !scene
+      ) {
+        return;
+      }
+      const seeds = getAllegianceTerritorySeeds();
+      const allegiances = Array.from(new Set(seeds.map((seed) => normalizeAllegiance(seed.allegiance))));
+      if (!seeds.length || allegiances.length < 2) {
+        return;
+      }
+
+      const center = getCurrentMapCenter() || lastAutoLoadCenter;
+      const radius = Number(activeNeighborhoodRadius || 20);
+      if (!center || !Number.isFinite(radius) || radius <= 0) {
+        return;
+      }
+
+      const group = new THREE.Group();
+      group.name = 'allegianceVoronoiGroup';
+      const pointsByAllegiance = new Map(allegiances.map((allegiance) => [allegiance, []]));
+      const sphericalBounds = createSphericalVoronoiBounds(center, radius);
+      seeds.forEach((seed) => {
+        const allegiance = normalizeAllegiance(seed.allegiance);
+        const faces = createClippedVoronoiCell(seed, seeds, sphericalBounds);
+        const geometry = createVoronoiCellGeometry(faces);
+        if (!geometry) {
+          return;
+        }
+        const material = new THREE.MeshBasicMaterial({
+          color: `#${colorForAllegiance(allegiance)}`,
+          transparent: true,
+          opacity: 0.1,
+          depthWrite: false,
+          side: THREE.DoubleSide
+        });
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.name = `Voronoi cell: ${seed.name || allegiance}`;
+        group.add(mesh);
+        const edges = new THREE.LineSegments(
+          new THREE.EdgesGeometry(geometry, 1),
+          new THREE.LineBasicMaterial({
+            color: `#${colorForAllegiance(allegiance)}`,
+            transparent: true,
+            opacity: 0.58,
+            depthWrite: false
+          })
+        );
+        edges.name = `Voronoi edges: ${seed.name || allegiance}`;
+        group.add(edges);
+        pointsByAllegiance.get(allegiance)?.push(
+          Number(seed.coords.x),
+          Number(seed.coords.y),
+          -Number(seed.coords.z)
+        );
+      });
+      pointsByAllegiance.forEach((positions, allegiance) => {
+        if (!positions.length) {
+          return;
+        }
+        const pointGeometry = new THREE.BufferGeometry();
+        pointGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        const points = new THREE.Points(pointGeometry, new THREE.PointsMaterial({
+          color: `#${colorForAllegiance(allegiance)}`,
+          size: 7,
+          sizeAttenuation: false,
+          transparent: true,
+          opacity: 1,
+          depthWrite: false
+        }));
+        points.name = `Voronoi system seeds: ${allegiance}`;
+        points.renderOrder = 2;
+        group.add(points);
+      });
+      scene.add(group);
+      allegianceVoronoiGroup = group;
+      updateAllegianceVoronoiLegend(allegiances, seeds.length);
+    }
+
+    function updateAllegianceVoronoiButtonState() {
+      const button = document.getElementById('allegianceVoronoiButton');
+      if (!button) {
+        return;
+      }
+      button.classList.toggle('is-active', Boolean(allegianceVoronoiEnabled));
+      button.title = allegianceVoronoiEnabled ? 'Allegiance Territories: On' : 'Allegiance Territories: Off';
+      button.setAttribute('aria-label', button.title);
+    }
+
+    function toggleAllegianceVoronoiOverlay() {
+      if (!experimentalFeaturesEnabled) {
+        return;
+      }
+      allegianceVoronoiEnabled = !allegianceVoronoiEnabled;
+      updateAllegianceVoronoiButtonState();
+      renderAllegianceVoronoiOverlay();
+      const center = getCurrentMapCenter() || lastAutoLoadCenter;
+      if (center) {
+        updateBrowserUrlFromCurrentCenter(center);
+      }
     }
 
     function updateBoxelOverlayButtonState() {
@@ -2224,12 +2568,38 @@
 
     window.EDGIS_SUPPRESS_CAMERA_REFRESH = suppressCameraRefresh;
 
+     const ALLEGIANCE_COLORS = {
+       Alliance: 'f2a900',
+       Empire: 'd3444b',
+       Federation: '4f93e8',
+       Independent: 'c8d0da',
+       PilotsFederation: '55d6c2',
+       Thargoid: '8fcf3c',
+       Guardian: 'b06ff2',
+       Unknown: '777b86'
+     };
+
+     function normalizeAllegiance(value) {
+       const valueText = String(value || '').trim();
+       if (!valueText || valueText.toLowerCase() === 'none') {
+         return 'Unknown';
+       }
+       return valueText;
+     }
+
+     function colorForAllegiance(allegiance) {
+       return ALLEGIANCE_COLORS[normalizeAllegiance(allegiance)]
+         || colorFromFacetName(normalizeAllegiance(allegiance));
+     }
+
      function initSolutionJson(x, y, z, mode = "simple", dimension = "spectral") {
        const normalizedDimension = normalizeFilterDimension(dimension);
        if (normalizedDimension !== 'spectral') {
          const unknownCategoryName = normalizedDimension === 'atmosphere'
            ? 'Unknown Atmosphere'
-           : 'Unknown Material';
+           : normalizedDimension === 'material'
+             ? 'Unknown Material'
+             : 'Unknown';
          return {
            categories: {
              EDGIS: {
@@ -2451,8 +2821,16 @@
      }
 
      function ensureFacetCategories(res, spherejson, dimension) {
-       const facetKey = dimension === 'atmosphere' ? 'atmosphere_gases' : 'materials';
-       const unknownName = dimension === 'atmosphere' ? 'Unknown Atmosphere' : 'Unknown Material';
+       const facetKey = dimension === 'atmosphere'
+         ? 'atmosphere_gases'
+         : dimension === 'material'
+           ? 'materials'
+           : 'allegiance';
+       const unknownName = dimension === 'atmosphere'
+         ? 'Unknown Atmosphere'
+         : dimension === 'material'
+           ? 'Unknown Material'
+           : 'Unknown';
        const categoryBucket = res?.categories?.EDGIS;
        if (!categoryBucket) {
          return;
@@ -2460,6 +2838,10 @@
 
        const discovered = new Set();
        spherejson.forEach((systemObj) => {
+         if (dimension === 'allegiance') {
+           discovered.add(normalizeAllegiance(systemObj?.[facetKey]));
+           return;
+         }
          normalizeFacetValues(systemObj?.[facetKey]).forEach((name) => discovered.add(name));
        });
        discovered.add(unknownName);
@@ -2468,7 +2850,9 @@
          if (!categoryBucket[categoryName]) {
            categoryBucket[categoryName] = {
              name: categoryName,
-             color: categoryName === unknownName ? '999999' : colorFromFacetName(categoryName)
+             color: dimension === 'allegiance'
+               ? colorForAllegiance(categoryName)
+               : categoryName === unknownName ? '999999' : colorFromFacetName(categoryName)
            };
          }
        });
@@ -2480,6 +2864,7 @@
        if (normalizedDimension !== 'spectral') {
          ensureFacetCategories(res, spherejson, normalizedDimension);
        }
+       currentAllegianceSystems = Array.isArray(spherejson) ? spherejson : [];
        const starNameMap = {
          "TTS": "T Tauri Star",
          "M": "M (Red dwarf) Star",
@@ -2627,6 +3012,8 @@
              if (!starCategories.hasOwnProperty(category)) {
                console.warn(`Warning: Main star "${mainStar}" maps to missing category "${category}"`);
              }
+           } else if (normalizedDimension === 'allegiance') {
+             categories = [normalizeAllegiance(s?.allegiance)];
            } else {
              const facetKey = normalizedDimension === 'atmosphere' ? 'atmosphere_gases' : 'materials';
              const unknownName = normalizedDimension === 'atmosphere' ? 'Unknown Atmosphere' : 'Unknown Material';
@@ -2797,6 +3184,7 @@
         sphereurl.searchParams.set('z', String(center.z));
         sphereurl.searchParams.set('radius', String(radius));
         sphereurl.searchParams.set('include_facets', '1');
+        sphereurl.searchParams.set('include_allegiance', '1');
         if (filters.atmosphereGas) {
           sphereurl.searchParams.set('atmosphere_gas', filters.atmosphereGas);
         }
@@ -2994,6 +3382,7 @@
       }
       clearDynamicBaseGrid();
       clearBoxelOverlay();
+      clearAllegianceVoronoiOverlay();
       removeTrackedSolidSystems();
       System.remove();
       System.particleInfos = [];
@@ -3024,6 +3413,7 @@
       pendingSharedFilterIds = normalizeSharedFilterIds(selectedFilterIds);
       syncHudPanelUi();
       buildDynamicBaseGridOverlay();
+      renderAllegianceVoronoiOverlay();
       updateTrackedSolidSystemNames(solutionjson);
       refreshHudFilterCounts();
       restoreView(viewState);
@@ -3281,6 +3671,7 @@
           refreshHudFilterCounts();
           syncHudPanelUi();
           buildDynamicBaseGridOverlay();
+          renderAllegianceVoronoiOverlay();
           applyRegionNamesVisibility();
           applyUserStarVisualSettings();
           updateAdventureAnchorVisual();
@@ -3661,6 +4052,7 @@
          material: params.get('material'),
          heat: params.get('heat'),
          boxels: params.get('boxels'),
+         allegiance_voronoi: params.get('allegiance_voronoi'),
          predicted: params.get('predicted'),
          filter_ids: params.getAll('filter_ids'),
          region_names: params.get('region_names'),
@@ -3676,6 +4068,7 @@
        });
        distanceHeatEnabled = raw.heat === '1';
        boxelOverlayEnabled = raw.boxels === '1';
+       allegianceVoronoiEnabled = raw.allegiance_voronoi === '1';
        predictedSystemsEnabled = raw.predicted === '1';
        regionNamesEnabled = String(raw.region_names || '1') !== '0';
        reverseDebugGridDetailOrder = String(raw.grid_detail || '').toLowerCase() === 'reverse';
@@ -3684,6 +4077,7 @@
        pendingSharedFilterIds = parseSharedFilterIdsParam(raw.filter_ids);
        if (!experimentalFeaturesEnabled) {
          boxelOverlayEnabled = false;
+         allegianceVoronoiEnabled = false;
          predictedSystemsEnabled = false;
        }
        // Parse numbers safely
@@ -3904,12 +4298,14 @@
       const openEdgisButton = document.getElementById('openEdgisButton');
       const distanceHeatButton = document.getElementById('distanceHeatButton');
       const boxelOverlayButton = document.getElementById('boxelOverlayButton');
+      const allegianceVoronoiButton = document.getElementById('allegianceVoronoiButton');
       const predictedSystemsButton = document.getElementById('predictedSystemsButton');
       const searchSystemButton = document.getElementById('searchSystemButton');
       const settingsButton = document.getElementById('settingsButton');
       const filterDimensionSpectralButton = document.getElementById('filterDimensionSpectralButton');
       const filterDimensionAtmosphereButton = document.getElementById('filterDimensionAtmosphereButton');
       const filterDimensionMaterialButton = document.getElementById('filterDimensionMaterialButton');
+      const filterDimensionAllegianceButton = document.getElementById('filterDimensionAllegianceButton');
       const expertModeToggle = document.getElementById('expertModeToggle');
       const experimentalFeaturesToggle = document.getElementById('experimentalFeaturesToggle');
       const reverseDebugGridDetailToggle = document.getElementById('reverseDebugGridDetailToggle');
@@ -3982,6 +4378,12 @@
       if (boxelOverlayButton) {
         boxelOverlayButton.addEventListener('click', async () => {
           await toggleBoxelOverlay();
+        });
+      }
+
+      if (allegianceVoronoiButton) {
+        allegianceVoronoiButton.addEventListener('click', () => {
+          toggleAllegianceVoronoiOverlay();
         });
       }
 
@@ -4211,11 +4613,14 @@
           experimentalFeaturesEnabled = nextValue;
           if (!experimentalFeaturesEnabled) {
             boxelOverlayEnabled = false;
+            allegianceVoronoiEnabled = false;
             predictedSystemsEnabled = false;
             updateBoxelOverlayButtonState();
+            updateAllegianceVoronoiButtonState();
             updatePredictedSystemsButtonState();
             applyActivePointColorMode();
             clearBoxelOverlay();
+            clearAllegianceVoronoiOverlay();
           }
           updateModeButtonState();
 
@@ -4322,6 +4727,12 @@
         });
       }
 
+      if (filterDimensionAllegianceButton) {
+        filterDimensionAllegianceButton.addEventListener('click', async () => {
+          await toggleOrSetFilterDimension('allegiance');
+        });
+      }
+
       if (starSizeRange) {
         starSizeRange.addEventListener('input', () => {
           userStarSizeScale = clamp(Number(starSizeRange.value) / 100, 0.01, 10);
@@ -4373,6 +4784,7 @@
       updateFilterDimensionButtonState();
       updateDistanceHeatButtonState();
       updateBoxelOverlayButtonState();
+      updateAllegianceVoronoiButtonState();
       updatePredictedSystemsButtonState();
 
       document.addEventListener('keydown', (event) => {

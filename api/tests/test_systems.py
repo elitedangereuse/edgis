@@ -1171,6 +1171,34 @@ async def test_fetch_neighbors_from_db_parses_rows(monkeypatch):
 
 
 @pytest.mark.anyio("asyncio")
+async def test_fetch_neighbors_includes_observed_allegiance(monkeypatch):
+    cursor = _patch_db(
+        monkeypatch,
+        rows=[
+            (
+                99,
+                "Sol",
+                "G",
+                "POINT Z (1 2 3)",
+                4.2,
+                ["Argon"],
+                ["Iron"],
+                "Federation",
+            )
+        ],
+    )
+
+    rows = await systems.fetch_neighbors_from_db.__wrapped__(
+        0, 0, 0, 10, 25, include_facets=True, include_allegiance=True
+    )  # type: ignore[attr-defined]
+
+    assert rows[0]["allegiance"] == "Federation"
+    assert rows[0]["atmosphere_gases"] == ["Argon"]
+    select_query, _ = cursor.executed[-1]
+    assert "LEFT JOIN system_allegiances sa" in select_query
+
+
+@pytest.mark.anyio("asyncio")
 async def test_fetch_neighbors_page_from_db_returns_cursor(monkeypatch):
     cursor = _patch_db(
         monkeypatch,

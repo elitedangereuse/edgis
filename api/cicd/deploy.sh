@@ -38,12 +38,14 @@ TMP_CHANGED_FILE_LIST=$(mktemp)
 {
     echo systems.py
     echo static/index.html
+    echo static/galaxymap.html
     echo static/sysmap.html
     echo static/sysmap-body-palette.html
     echo static/sysmap.css
     echo static/tailwind.css
     echo static/milkyway.css
     echo static/js/panzoom.js
+    echo static/js/galaxymap.js
     echo static/js/sysmap_roots.js
     echo static/js/sysmap.js
     echo static/assets/fleetcarrierstation.svg
