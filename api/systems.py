@@ -789,7 +789,7 @@ def _fetch_total_systems_from_db_sync() -> int:
 
 
 def _normalize_neighbor_row(
-    row: Sequence[Any], include_facets: bool = False
+    row: Sequence[Any], include_facets: bool = False, include_allegiance: bool = False
 ) -> dict[str, Any]:
     coords = str(row[3]).replace("POINT Z (", "").replace(")", "").split()
     distance = row[4]
@@ -813,6 +813,10 @@ def _normalize_neighbor_row(
         materials = row[6] if len(row) > 6 else []
         normalized["atmosphere_gases"] = list(atmosphere_gases or [])
         normalized["materials"] = list(materials or [])
+    if include_allegiance:
+        allegiance_index = 7 if include_facets else 5
+        allegiance = row[allegiance_index] if len(row) > allegiance_index else None
+        normalized["allegiance"] = allegiance or None
     return normalized
 
 
@@ -872,9 +876,14 @@ def _neighbors_page_payload(
     rows: Sequence[Sequence[Any]],
     page_size: int,
     include_facets: bool = False,
+    include_allegiance: bool = False,
 ) -> dict[str, Any]:
     items = [
-        _normalize_neighbor_row(row, include_facets=include_facets)
+        _normalize_neighbor_row(
+            row,
+            include_facets=include_facets,
+            include_allegiance=include_allegiance,
+        )
         for row in rows[:page_size]
     ]
     has_more = len(rows) > page_size
@@ -905,6 +914,7 @@ async def fetch_neighbors_from_db(
     atmosphere_gas: str | None = None,
     material: str | None = None,
     include_facets: bool = False,
+    include_allegiance: bool = False,
 ):
     return await _run_db_task(
         _fetch_neighbors_from_db_sync,
@@ -916,6 +926,7 @@ async def fetch_neighbors_from_db(
         atmosphere_gas,
         material,
         include_facets,
+        include_allegiance,
     )
 
 
@@ -928,6 +939,7 @@ def _fetch_neighbors_from_db_sync(
     atmosphere_gas: str | None = None,
     material: str | None = None,
     include_facets: bool = False,
+    include_allegiance: bool = False,
 ) -> list[dict[str, Any]]:
     with _db_connection() as conn:
         cursor = conn.cursor()
@@ -993,6 +1005,13 @@ def _fetch_neighbors_from_db_sync(
                     ) mat ON true
                 """
 
+            allegiance_select = ", sa.allegiance" if include_allegiance else ""
+            allegiance_join = (
+                "LEFT JOIN system_allegiances sa ON sa.system_id64 = s.id64"
+                if include_allegiance
+                else ""
+            )
+
             query = f"""
                 WITH ref AS (
                     SELECT ST_SetSRID(ST_MakePoint(%s, %s, %s), 0) AS geom
@@ -1004,8 +1023,11 @@ def _fetch_neighbors_from_db_sync(
                         ST_AsText(s.coords) AS coordinates,
                         ST_3DDistance(s.coords, ref.geom) AS distance
                         {facet_select}
-                    FROM systems_big s, ref
+                        {allegiance_select}
+                    FROM systems_big s
+                    {allegiance_join}
                     {facet_joins}
+                    CROSS JOIN ref
                     WHERE {" AND ".join(where_clauses)}
                 )
                 SELECT *
@@ -1019,7 +1041,11 @@ def _fetch_neighbors_from_db_sync(
             cursor.close()
 
     return [
-        _normalize_neighbor_row(row, include_facets=include_facets)
+        _normalize_neighbor_row(
+            row,
+            include_facets=include_facets,
+            include_allegiance=include_allegiance,
+        )
         for row in rows
     ]
 
@@ -1044,6 +1070,7 @@ async def fetch_neighbors_page_from_db(
     atmosphere_gas: str | None = None,
     material: str | None = None,
     include_facets: bool = False,
+    include_allegiance: bool = False,
 ):
     return await _run_db_task(
         _fetch_neighbors_page_from_db_sync,
@@ -1058,6 +1085,7 @@ async def fetch_neighbors_page_from_db(
         atmosphere_gas,
         material,
         include_facets,
+        include_allegiance,
     )
 
 
@@ -1073,6 +1101,7 @@ def _fetch_neighbors_page_from_db_sync(
     atmosphere_gas: str | None = None,
     material: str | None = None,
     include_facets: bool = False,
+    include_allegiance: bool = False,
 ) -> dict[str, Any]:
     with _db_connection() as conn:
         cursor = conn.cursor()
@@ -1138,6 +1167,13 @@ def _fetch_neighbors_page_from_db_sync(
                     ) mat ON true
                 """
 
+            allegiance_select = ", sa.allegiance" if include_allegiance else ""
+            allegiance_join = (
+                "LEFT JOIN system_allegiances sa ON sa.system_id64 = s.id64"
+                if include_allegiance
+                else ""
+            )
+
             base_query = f"""
                 WITH ref AS (
                     SELECT ST_SetSRID(ST_MakePoint(%s, %s, %s), 0) AS geom
@@ -1149,8 +1185,11 @@ def _fetch_neighbors_page_from_db_sync(
                         ST_AsText(s.coords) AS coordinates,
                         ST_3DDistance(s.coords, ref.geom) AS distance
                         {facet_select}
-                    FROM systems_big s, ref
+                        {allegiance_select}
+                    FROM systems_big s
+                    {allegiance_join}
                     {facet_joins}
+                    CROSS JOIN ref
                     WHERE {" AND ".join(where_clauses)}
                 )
             """
@@ -1200,7 +1239,10 @@ def _fetch_neighbors_page_from_db_sync(
             cursor.close()
 
     return _neighbors_page_payload(
-        rows, page_size, include_facets=include_facets
+        rows,
+        page_size,
+        include_facets=include_facets,
+        include_allegiance=include_allegiance,
     )
 
 
@@ -1213,6 +1255,7 @@ async def fetch_neighbors_seeded_page_from_db(
     atmosphere_gas: str | None = None,
     material: str | None = None,
     include_facets: bool = False,
+    include_allegiance: bool = False,
 ) -> dict[str, Any]:
     fallback_page: dict[str, Any] | None = None
     for candidate_radius in _neighbors_seeded_radii_for_request(radius):
@@ -1228,6 +1271,7 @@ async def fetch_neighbors_seeded_page_from_db(
             atmosphere_gas,
             material,
             include_facets,
+            include_allegiance,
         )
         fallback_page = page
         if page["has_more"] or len(page["items"]) >= page_size:
@@ -1278,6 +1322,11 @@ async def get_neighbors(
         False,
         description="Include per-system atmosphere/material facet arrays",
     ),
+    include_allegiance: bool
+    | None = Query(
+        False,
+        description="Include the latest observed system allegiance when available",
+    ),
 ):
     if radius <= 0:
         return JSONResponse(
@@ -1308,42 +1357,51 @@ async def get_neighbors(
                         cursor_name,
                         cursor_id64,
                     ) = _decode_neighbors_cursor(cursor)
+                    page_args = (
+                        x, y, z, radius, page_size, cursor_distance, cursor_name,
+                        cursor_id64, normalized_atmosphere_gas,
+                        normalized_material, bool(include_facets),
+                    )
                     results = await fetch_neighbors_page_from_db(
-                        x,
-                        y,
-                        z,
-                        radius,
-                        page_size,
-                        cursor_distance,
-                        cursor_name,
-                        cursor_id64,
-                        normalized_atmosphere_gas,
-                        normalized_material,
-                        bool(include_facets),
+                        *page_args,
+                        *(() if not include_allegiance else (True,)),
                     )
                 else:
+                    seeded_page_args = (
+                        x, y, z, radius, page_size, normalized_atmosphere_gas,
+                        normalized_material, bool(include_facets),
+                    )
                     results = await fetch_neighbors_seeded_page_from_db(
-                        x,
-                        y,
-                        z,
-                        radius,
-                        page_size,
-                        normalized_atmosphere_gas,
-                        normalized_material,
-                        bool(include_facets),
+                        *seeded_page_args,
+                        *(() if not include_allegiance else (True,)),
                     )
                 return JSONResponse(content=results)
 
-            results = await fetch_neighbors_from_db(
-                x,
-                y,
-                z,
-                radius,
-                limit,
-                normalized_atmosphere_gas,
-                normalized_material,
-                bool(include_facets),
-            )
+            if include_allegiance:
+                results = await fetch_neighbors_from_db(
+                    x,
+                    y,
+                    z,
+                    radius,
+                    limit,
+                    normalized_atmosphere_gas,
+                    normalized_material,
+                    bool(include_facets),
+                    True,
+                )
+            else:
+                # Preserve the legacy call shape for integrations that monkeypatch
+                # or wrap the neighborhood query.
+                results = await fetch_neighbors_from_db(
+                    x,
+                    y,
+                    z,
+                    radius,
+                    limit,
+                    normalized_atmosphere_gas,
+                    normalized_material,
+                    bool(include_facets),
+                )
             return JSONResponse(content=results)
         except HTTPException:
             raise
