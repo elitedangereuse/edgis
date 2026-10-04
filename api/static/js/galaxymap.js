@@ -2030,7 +2030,7 @@
         return;
       }
       button.classList.toggle('is-active', Boolean(allegianceVoronoiEnabled));
-      const label = isControllingPowerMode() ? 'Power Territories' : 'Allegiance Territories';
+      const label = 'Voronoi View';
       button.title = allegianceVoronoiEnabled ? `${label}: On` : `${label}: Off`;
       button.setAttribute('aria-label', button.title);
     }

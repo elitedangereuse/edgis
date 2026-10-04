@@ -164,6 +164,16 @@
        mask: url('/static/assets/powerplayicon.svg') center / contain no-repeat;
      }
 
+     .left-toolbar .voronoi-overlay-icon {
+       width: 20px;
+       height: 20px;
+       display: block;
+       margin: 0 auto;
+       background-color: currentColor;
+       -webkit-mask: url('/static/assets/voronoiicon.svg') center / contain no-repeat;
+       mask: url('/static/assets/voronoiicon.svg') center / contain no-repeat;
+     }
+
      .radius-display-corner {
        position: fixed;
        right: 10px;
@@ -888,10 +898,8 @@
           <path d="m16.007 9.6573h12.7zm3.175 3.175 6.3499-6.35zm-6.35 6.3499h12.7zm6.3499-6.3499v12.7zm9.525-3.175v12.7zm-3.1749 9.525 6.3499-6.35zm-25.4 12.7h12.7zm6.3499-6.3499v12.7z" stroke-width=".52917"></path>
         </svg>
       </button>
-      <button title="Show Allegiance Territories" id="allegianceVoronoiButton" aria-label="Show Allegiance Territories" style="display:none">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" class="filter-dimension-icon" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M1 1h6v6H1zm8 0h6v6H9zM1 9h6v6H1zm8 0h6v6H9z"/>
-        </svg>
+      <button title="Voronoi View" id="allegianceVoronoiButton" aria-label="Voronoi View" style="display:none">
+        <span class="voronoi-overlay-icon" aria-hidden="true"></span>
       </button>
     </div>
     <!-- Toolbar -->
