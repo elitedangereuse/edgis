@@ -681,7 +681,11 @@
 
       const predictedFilterEl = document.querySelector('#hud #filters .map_filter[data-filter="Predicted Systems"]');
       if (predictedFilterEl) {
-        predictedFilterEl.style.display = experimentalFeaturesEnabled ? '' : 'none';
+        if (activeFilterDimension === 'allegiance' || activeFilterDimension === 'power') {
+          predictedFilterEl.remove();
+        } else {
+          predictedFilterEl.style.display = experimentalFeaturesEnabled ? '' : 'none';
+        }
       }
     }
 
@@ -1045,6 +1049,12 @@
       for (let index = 0; index < vertices.length; index++) {
         const vertex = vertices[index];
         if (!vertex || vertex.visible !== true) {
+          continue;
+        }
+        if (
+          (dimension === 'allegiance' || dimension === 'power')
+          && vertex?.infos?.predicted === true
+        ) {
           continue;
         }
 
@@ -1713,31 +1723,6 @@
         }
       });
       allegianceVoronoiGroup = null;
-      updateAllegianceVoronoiLegend([]);
-    }
-
-    function updateAllegianceVoronoiLegend(allegiances, seedCount = 0) {
-      const legend = document.getElementById('allegianceVoronoiLegend');
-      if (!legend) {
-        return;
-      }
-      if (!allegianceVoronoiEnabled || !allegiances.length) {
-        legend.style.display = 'none';
-        legend.innerHTML = '';
-        return;
-      }
-      const rows = allegiances.sort((a, b) => a.localeCompare(b)).map((allegiance) => `
-        <div class="legend-row">
-          <span class="legend-chip" style="background:#${colorForTerritory(allegiance)}"></span>
-          <span>${allegiance}</span>
-        </div>
-      `).join('');
-      legend.innerHTML = `
-        <div class="legend-title">${territoryTitle()}</div>
-        <div>Clipped 3D Voronoi cells · ${seedCount} system seeds</div>
-        ${rows}
-      `;
-      legend.style.display = 'block';
     }
 
     function getAllegianceTerritorySeeds() {
@@ -2004,7 +1989,6 @@
       });
       scene.add(group);
       allegianceVoronoiGroup = group;
-      updateAllegianceVoronoiLegend(allegiances, seeds.length);
     }
 
     function updateAllegianceVoronoiButtonState() {
