@@ -453,6 +453,7 @@
       const normalized = String(dimension || '').toLowerCase();
       if (
         normalized === 'allegiance'
+        || normalized === 'power'
         || normalized === 'atmosphere'
         || normalized === 'material'
         || normalized === 'spectral'
@@ -471,7 +472,8 @@
         spectral: spectralButton,
         atmosphere: atmosphereButton,
         material: materialButton,
-        allegiance: allegianceButton
+        allegiance: allegianceButton,
+        power: document.getElementById('filterDimensionPowerButton')
       };
       Object.entries(byDimension).forEach(([dimension, button]) => {
         if (!button) {
@@ -653,6 +655,9 @@
       }
       if (activeFilterDimension === 'allegiance') {
         return 'Allegiance';
+      }
+      if (activeFilterDimension === 'power') {
+        return 'Controlling Power';
       }
       return 'Spectral Type';
     }
@@ -1018,8 +1023,21 @@
         return;
       }
 
-      const facetKey = activeFilterDimension === 'atmosphere' ? 'atmosphere_gases' : 'materials';
-      const unknownFacetName = activeFilterDimension === 'atmosphere' ? 'Unknown Atmosphere' : 'Unknown Material';
+      const dimension = normalizeFilterDimension(activeFilterDimension);
+      const facetKey = dimension === 'atmosphere'
+        ? 'atmosphere_gases'
+        : dimension === 'material'
+          ? 'materials'
+          : dimension === 'power'
+            ? 'controlling_power'
+            : 'allegiance';
+      const unknownFacetName = dimension === 'atmosphere'
+        ? 'Unknown Atmosphere'
+        : dimension === 'material'
+          ? 'Unknown Material'
+          : dimension === 'power'
+            ? 'Unclaimed'
+            : 'Unknown';
       const activeFilterIds = new Set(getActiveHudFilterIds());
       const vertices = window.System.particleGeo.vertices;
       const colors = window.System.particleGeo.colors;
@@ -1030,7 +1048,11 @@
           continue;
         }
 
-        const rawFacetValues = normalizeFacetValues(vertex?.infos?.[facetKey]);
+        const rawFacetValues = dimension === 'allegiance'
+          ? [normalizeAllegiance(vertex?.infos?.[facetKey])]
+          : dimension === 'power'
+            ? [String(vertex?.infos?.[facetKey] || '').trim() || 'Unclaimed']
+            : normalizeFacetValues(vertex?.infos?.[facetKey]);
         const facetValues = rawFacetValues.length ? rawFacetValues : [unknownFacetName];
         let selectedFacet = facetValues.find((name) => activeFilterIds.has(name)) || facetValues[0];
         if (!selectedFacet) {
@@ -1706,12 +1728,12 @@
       }
       const rows = allegiances.sort((a, b) => a.localeCompare(b)).map((allegiance) => `
         <div class="legend-row">
-          <span class="legend-chip" style="background:#${colorForAllegiance(allegiance)}"></span>
+          <span class="legend-chip" style="background:#${colorForTerritory(allegiance)}"></span>
           <span>${allegiance}</span>
         </div>
       `).join('');
       legend.innerHTML = `
-        <div class="legend-title">Allegiance territories</div>
+        <div class="legend-title">${territoryTitle()}</div>
         <div>Clipped 3D Voronoi cells · ${seedCount} system seeds</div>
         ${rows}
       `;
@@ -1721,7 +1743,9 @@
     function getAllegianceTerritorySeeds() {
       const observed = currentAllegianceSystems.filter((systemObj) => {
         const coords = systemObj?.coords;
-        return normalizeAllegiance(systemObj?.allegiance) !== 'Unknown'
+        return normalizeTerritoryValue(
+          systemObj?.[isControllingPowerMode() ? 'controlling_power' : 'allegiance']
+        ) !== (isControllingPowerMode() ? 'Unclaimed' : 'Unknown')
           && Number.isFinite(Number(coords?.x))
           && Number.isFinite(Number(coords?.y))
           && Number.isFinite(Number(coords?.z));
@@ -1737,7 +1761,9 @@
       const center = getCurrentMapCenter() || lastAutoLoadCenter || { x: 0, y: 0, z: 0 };
       const byAllegiance = new Map();
       observed.forEach((systemObj, index) => {
-        const allegiance = normalizeAllegiance(systemObj.allegiance);
+        const allegiance = normalizeTerritoryValue(
+          systemObj[isControllingPowerMode() ? 'controlling_power' : 'allegiance']
+        );
         const coords = systemObj.coords;
         const dx = Number(coords.x) - center.x;
         const dy = Number(coords.y) - center.y;
@@ -1905,7 +1931,9 @@
         return;
       }
       const seeds = getAllegianceTerritorySeeds();
-      const allegiances = Array.from(new Set(seeds.map((seed) => normalizeAllegiance(seed.allegiance))));
+      const allegiances = Array.from(new Set(seeds.map((seed) => normalizeTerritoryValue(
+        seed[isControllingPowerMode() ? 'controlling_power' : 'allegiance']
+      ))));
       if (!seeds.length || allegiances.length < 2) {
         return;
       }
@@ -1921,14 +1949,16 @@
       const pointsByAllegiance = new Map(allegiances.map((allegiance) => [allegiance, []]));
       const sphericalBounds = createSphericalVoronoiBounds(center, radius);
       seeds.forEach((seed) => {
-        const allegiance = normalizeAllegiance(seed.allegiance);
+        const allegiance = normalizeTerritoryValue(
+          seed[isControllingPowerMode() ? 'controlling_power' : 'allegiance']
+        );
         const faces = createClippedVoronoiCell(seed, seeds, sphericalBounds);
         const geometry = createVoronoiCellGeometry(faces);
         if (!geometry) {
           return;
         }
         const material = new THREE.MeshBasicMaterial({
-          color: `#${colorForAllegiance(allegiance)}`,
+          color: `#${colorForTerritory(allegiance)}`,
           transparent: true,
           opacity: 0.1,
           depthWrite: false,
@@ -1940,7 +1970,7 @@
         const edges = new THREE.LineSegments(
           new THREE.EdgesGeometry(geometry, 1),
           new THREE.LineBasicMaterial({
-            color: `#${colorForAllegiance(allegiance)}`,
+            color: `#${colorForTerritory(allegiance)}`,
             transparent: true,
             opacity: 0.58,
             depthWrite: false
@@ -1961,7 +1991,7 @@
         const pointGeometry = new THREE.BufferGeometry();
         pointGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
         const points = new THREE.Points(pointGeometry, new THREE.PointsMaterial({
-          color: `#${colorForAllegiance(allegiance)}`,
+          color: `#${colorForTerritory(allegiance)}`,
           size: 7,
           sizeAttenuation: false,
           transparent: true,
@@ -1983,7 +2013,8 @@
         return;
       }
       button.classList.toggle('is-active', Boolean(allegianceVoronoiEnabled));
-      button.title = allegianceVoronoiEnabled ? 'Allegiance Territories: On' : 'Allegiance Territories: Off';
+      const label = isControllingPowerMode() ? 'Power Territories' : 'Allegiance Territories';
+      button.title = allegianceVoronoiEnabled ? `${label}: On` : `${label}: Off`;
       button.setAttribute('aria-label', button.title);
     }
 
@@ -2500,6 +2531,7 @@
       activeFilterDimension = normalizedDimension;
       applyHudFilterPanelTitle();
       updateFilterDimensionButtonState();
+      updateAllegianceVoronoiButtonState();
 
       if (externalSolutionJson) {
         return;
@@ -2592,6 +2624,31 @@
          || colorFromFacetName(normalizeAllegiance(allegiance));
      }
 
+     function isControllingPowerMode() {
+       return activeFilterDimension === 'power';
+     }
+
+     function normalizeTerritoryValue(value) {
+       if (isControllingPowerMode()) {
+         const power = String(value || '').trim();
+         return power || 'Unclaimed';
+       }
+       return normalizeAllegiance(value);
+     }
+
+     function colorForTerritory(value) {
+       const normalized = normalizeTerritoryValue(value);
+       return isControllingPowerMode()
+         ? colorFromFacetName(normalized)
+         : colorForAllegiance(normalized);
+     }
+
+     function territoryTitle() {
+       return isControllingPowerMode()
+         ? 'Controlling Power territories'
+         : 'Allegiance territories';
+     }
+
      function initSolutionJson(x, y, z, mode = "simple", dimension = "spectral") {
        const normalizedDimension = normalizeFilterDimension(dimension);
        if (normalizedDimension !== 'spectral') {
@@ -2599,7 +2656,9 @@
            ? 'Unknown Atmosphere'
            : normalizedDimension === 'material'
              ? 'Unknown Material'
-             : 'Unknown';
+             : normalizedDimension === 'power'
+               ? 'Unclaimed'
+               : 'Unknown';
          return {
            categories: {
              EDGIS: {
@@ -2825,12 +2884,16 @@
          ? 'atmosphere_gases'
          : dimension === 'material'
            ? 'materials'
-           : 'allegiance';
+           : dimension === 'power'
+             ? 'controlling_power'
+             : 'allegiance';
        const unknownName = dimension === 'atmosphere'
          ? 'Unknown Atmosphere'
          : dimension === 'material'
            ? 'Unknown Material'
-           : 'Unknown';
+           : dimension === 'power'
+             ? 'Unclaimed'
+             : 'Unknown';
        const categoryBucket = res?.categories?.EDGIS;
        if (!categoryBucket) {
          return;
@@ -2838,8 +2901,12 @@
 
        const discovered = new Set();
        spherejson.forEach((systemObj) => {
-         if (dimension === 'allegiance') {
-           discovered.add(normalizeAllegiance(systemObj?.[facetKey]));
+         if (dimension === 'allegiance' || dimension === 'power') {
+           discovered.add(
+             dimension === 'power'
+               ? String(systemObj?.[facetKey] || '').trim() || 'Unclaimed'
+               : normalizeAllegiance(systemObj?.[facetKey])
+           );
            return;
          }
          normalizeFacetValues(systemObj?.[facetKey]).forEach((name) => discovered.add(name));
@@ -2850,8 +2917,10 @@
          if (!categoryBucket[categoryName]) {
            categoryBucket[categoryName] = {
              name: categoryName,
-             color: dimension === 'allegiance'
-               ? colorForAllegiance(categoryName)
+             color: dimension === 'allegiance' || dimension === 'power'
+               ? (dimension === 'power'
+                   ? colorFromFacetName(categoryName)
+                   : colorForAllegiance(categoryName))
                : categoryName === unknownName ? '999999' : colorFromFacetName(categoryName)
            };
          }
@@ -3014,6 +3083,8 @@
              }
            } else if (normalizedDimension === 'allegiance') {
              categories = [normalizeAllegiance(s?.allegiance)];
+           } else if (normalizedDimension === 'power') {
+             categories = [String(s?.controlling_power || '').trim() || 'Unclaimed'];
            } else {
              const facetKey = normalizedDimension === 'atmosphere' ? 'atmosphere_gases' : 'materials';
              const unknownName = normalizedDimension === 'atmosphere' ? 'Unknown Atmosphere' : 'Unknown Material';
@@ -3185,6 +3256,7 @@
         sphereurl.searchParams.set('radius', String(radius));
         sphereurl.searchParams.set('include_facets', '1');
         sphereurl.searchParams.set('include_allegiance', '1');
+        sphereurl.searchParams.set('include_controlling_power', '1');
         if (filters.atmosphereGas) {
           sphereurl.searchParams.set('atmosphere_gas', filters.atmosphereGas);
         }
@@ -4306,6 +4378,7 @@
       const filterDimensionAtmosphereButton = document.getElementById('filterDimensionAtmosphereButton');
       const filterDimensionMaterialButton = document.getElementById('filterDimensionMaterialButton');
       const filterDimensionAllegianceButton = document.getElementById('filterDimensionAllegianceButton');
+      const filterDimensionPowerButton = document.getElementById('filterDimensionPowerButton');
       const expertModeToggle = document.getElementById('expertModeToggle');
       const experimentalFeaturesToggle = document.getElementById('experimentalFeaturesToggle');
       const reverseDebugGridDetailToggle = document.getElementById('reverseDebugGridDetailToggle');
@@ -4730,6 +4803,12 @@
       if (filterDimensionAllegianceButton) {
         filterDimensionAllegianceButton.addEventListener('click', async () => {
           await toggleOrSetFilterDimension('allegiance');
+        });
+      }
+
+      if (filterDimensionPowerButton) {
+        filterDimensionPowerButton.addEventListener('click', async () => {
+          await toggleOrSetFilterDimension('power');
         });
       }
 

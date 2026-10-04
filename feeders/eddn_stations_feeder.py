@@ -17,8 +17,10 @@ try:
         station_from_eddn,
         reconstruct_station_parents,
         system_allegiance_from_eddn,
+        controlling_power_from_eddn,
         upsert_station,
         upsert_system_allegiance,
+        upsert_system_controlling_power,
     )
 except ModuleNotFoundError:  # Allow direct execution from feeders/.
     import sys
@@ -29,8 +31,10 @@ except ModuleNotFoundError:  # Allow direct execution from feeders/.
         station_from_eddn,
         reconstruct_station_parents,
         system_allegiance_from_eddn,
+        controlling_power_from_eddn,
         upsert_station,
         upsert_system_allegiance,
+        upsert_system_controlling_power,
     )
 
 TRUSTED_CLIENTS = {
@@ -151,7 +155,7 @@ def process_message(
     commit: bool = True,
     record_metrics: bool = True,
 ) -> ProcessOutcome:
-    """Persist a station observation and/or sparse system allegiance."""
+    """Persist station data plus sparse system allegiance/Powerplay control."""
     header = message.get("header") or {}
     payload = message.get("message") or {}
     event = payload.get("event")
@@ -171,13 +175,19 @@ def process_message(
         elif event == "Location" and payload.get("Docked") is True:
             station = station_from_eddn(payload)
         allegiance = system_allegiance_from_eddn(payload)
-        if station is None and allegiance is None:
-            return ProcessOutcome("skipped", "no_station_or_allegiance")
+        controlling_power = controlling_power_from_eddn(payload)
+        if station is None and allegiance is None and controlling_power is None:
+            return ProcessOutcome("skipped", "no_station_or_system_affiliation")
 
         with db_conn.cursor() as cursor:
             if allegiance is not None:
                 system_id64, value, updated_at = allegiance
                 upsert_system_allegiance(
+                    cursor, system_id64, value, updated_at, "eddn_journal"
+                )
+            if controlling_power is not None:
+                system_id64, value, updated_at = controlling_power
+                upsert_system_controlling_power(
                     cursor, system_id64, value, updated_at, "eddn_journal"
                 )
             if station is not None:

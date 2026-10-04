@@ -103,6 +103,18 @@ SYSTEM_ALLEGIANCE_UPSERT = """
     WHERE EXCLUDED.updated_at >= system_allegiances.updated_at;
 """
 
+SYSTEM_CONTROLLING_POWER_UPSERT = """
+    INSERT INTO system_controlling_powers (
+        system_id64, controlling_power, updated_at, source
+    )
+    VALUES (%s, %s, %s, %s)
+    ON CONFLICT (system_id64) DO UPDATE SET
+        controlling_power = EXCLUDED.controlling_power,
+        updated_at = EXCLUDED.updated_at,
+        source = EXCLUDED.source
+    WHERE EXCLUDED.updated_at >= system_controlling_powers.updated_at;
+"""
+
 
 def parse_timestamp(value: Any) -> datetime | None:
     if not value or not isinstance(value, str):
@@ -426,6 +438,18 @@ def system_allegiance_from_eddn(
     return int(system_id64), allegiance, updated_at
 
 
+def controlling_power_from_eddn(
+    message: dict[str, Any],
+) -> tuple[int, str, datetime] | None:
+    """Extract the current Powerplay controller from an EDDN Journal event."""
+    system_id64 = message.get("SystemAddress")
+    updated_at = parse_timestamp(message.get("timestamp"))
+    controlling_power = normalize_token(message.get("ControllingPower"))
+    if system_id64 is None or controlling_power is None or updated_at is None:
+        return None
+    return int(system_id64), controlling_power, updated_at
+
+
 def upsert_station(cursor: Any, station: dict[str, Any]) -> bool:
     cursor.execute(STATION_UPSERT, station)
     result = cursor.fetchone()
@@ -437,4 +461,17 @@ def upsert_system_allegiance(
 ) -> None:
     cursor.execute(
         SYSTEM_ALLEGIANCE_UPSERT, (system_id64, allegiance, updated_at, source)
+    )
+
+
+def upsert_system_controlling_power(
+    cursor: Any,
+    system_id64: int,
+    controlling_power: str,
+    updated_at: datetime,
+    source: str,
+) -> None:
+    cursor.execute(
+        SYSTEM_CONTROLLING_POWER_UPSERT,
+        (system_id64, controlling_power, updated_at, source),
     )
