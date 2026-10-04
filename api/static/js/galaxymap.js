@@ -1102,6 +1102,7 @@
           }
           setTimeout(() => {
             applyActivePointColorMode();
+            syncAllegianceVoronoiFilterVisibility();
             syncFacetSelectionUrlParam();
           }, 0);
         });
@@ -1129,6 +1130,7 @@
         suppressFacetColorSync = false;
       }
       applyActivePointColorMode();
+      syncAllegianceVoronoiFilterVisibility();
       syncFacetSelectionUrlParam();
     }
 
@@ -1905,6 +1907,30 @@
       return geometry;
     }
 
+    function syncAllegianceVoronoiFilterVisibility() {
+      if (!allegianceVoronoiGroup) {
+        return;
+      }
+      const filtersTerritories = activeFilterDimension === 'allegiance'
+        || activeFilterDimension === 'power';
+      allegianceVoronoiGroup.traverse((object) => {
+        const territory = object.userData?.territory;
+        const visibleOpacity = object.userData?.visibleOpacity;
+        if (!territory || !Number.isFinite(visibleOpacity)) {
+          return;
+        }
+        const visible = !filtersTerritories || isCategoryVisible(territory);
+        const materials = Array.isArray(object.material)
+          ? object.material
+          : [object.material];
+        materials.forEach((material) => {
+          if (material) {
+            material.opacity = visible ? visibleOpacity : 0;
+          }
+        });
+      });
+    }
+
     function renderAllegianceVoronoiOverlay() {
       clearAllegianceVoronoiOverlay();
       if (
@@ -1951,6 +1977,8 @@
         });
         const mesh = new THREE.Mesh(geometry, material);
         mesh.name = `Voronoi cell: ${seed.name || allegiance}`;
+        mesh.userData.territory = allegiance;
+        mesh.userData.visibleOpacity = 0.1;
         group.add(mesh);
         const edges = new THREE.LineSegments(
           new THREE.EdgesGeometry(geometry, 1),
@@ -1962,6 +1990,8 @@
           })
         );
         edges.name = `Voronoi edges: ${seed.name || allegiance}`;
+        edges.userData.territory = allegiance;
+        edges.userData.visibleOpacity = 0.58;
         group.add(edges);
         pointsByAllegiance.get(allegiance)?.push(
           Number(seed.coords.x),
@@ -1984,11 +2014,14 @@
           depthWrite: false
         }));
         points.name = `Voronoi system seeds: ${allegiance}`;
+        points.userData.territory = allegiance;
+        points.userData.visibleOpacity = 1;
         points.renderOrder = 2;
         group.add(points);
       });
       scene.add(group);
       allegianceVoronoiGroup = group;
+      syncAllegianceVoronoiFilterVisibility();
     }
 
     function updateAllegianceVoronoiButtonState() {
