@@ -251,6 +251,21 @@ def test_system_allegiance_ignores_none_but_preserves_real_values():
     assert station_ingestion.system_allegiance_from_eddn(message) is None
 
 
+def test_controlling_power_ignores_blank_but_preserves_real_values():
+    message = {
+        "SystemAddress": 42,
+        "timestamp": "2026-09-24T12:00:00Z",
+        "ControllingPower": "Jerome Archer",
+    }
+    assert station_ingestion.controlling_power_from_eddn(message) == (
+        42,
+        "Jerome Archer",
+        datetime(2026, 9, 24, 12, 0, tzinfo=timezone.utc),
+    )
+    message["ControllingPower"] = ""
+    assert station_ingestion.controlling_power_from_eddn(message) is None
+
+
 def test_eddn_station_feeder_reconstructs_location_parents(monkeypatch, capsys):
     class Cursor:
         def __init__(self):

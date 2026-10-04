@@ -789,7 +789,10 @@ def _fetch_total_systems_from_db_sync() -> int:
 
 
 def _normalize_neighbor_row(
-    row: Sequence[Any], include_facets: bool = False, include_allegiance: bool = False
+    row: Sequence[Any],
+    include_facets: bool = False,
+    include_allegiance: bool = False,
+    include_controlling_power: bool = False,
 ) -> dict[str, Any]:
     coords = str(row[3]).replace("POINT Z (", "").replace(")", "").split()
     distance = row[4]
@@ -817,6 +820,10 @@ def _normalize_neighbor_row(
         allegiance_index = 7 if include_facets else 5
         allegiance = row[allegiance_index] if len(row) > allegiance_index else None
         normalized["allegiance"] = allegiance or None
+    if include_controlling_power:
+        power_index = 5 + (2 if include_facets else 0) + (1 if include_allegiance else 0)
+        controlling_power = row[power_index] if len(row) > power_index else None
+        normalized["controlling_power"] = controlling_power or None
     return normalized
 
 
@@ -877,12 +884,14 @@ def _neighbors_page_payload(
     page_size: int,
     include_facets: bool = False,
     include_allegiance: bool = False,
+    include_controlling_power: bool = False,
 ) -> dict[str, Any]:
     items = [
         _normalize_neighbor_row(
             row,
             include_facets=include_facets,
             include_allegiance=include_allegiance,
+            include_controlling_power=include_controlling_power,
         )
         for row in rows[:page_size]
     ]
@@ -915,6 +924,7 @@ async def fetch_neighbors_from_db(
     material: str | None = None,
     include_facets: bool = False,
     include_allegiance: bool = False,
+    include_controlling_power: bool = False,
 ):
     return await _run_db_task(
         _fetch_neighbors_from_db_sync,
@@ -927,6 +937,7 @@ async def fetch_neighbors_from_db(
         material,
         include_facets,
         include_allegiance,
+        include_controlling_power,
     )
 
 
@@ -940,6 +951,7 @@ def _fetch_neighbors_from_db_sync(
     material: str | None = None,
     include_facets: bool = False,
     include_allegiance: bool = False,
+    include_controlling_power: bool = False,
 ) -> list[dict[str, Any]]:
     with _db_connection() as conn:
         cursor = conn.cursor()
@@ -1011,6 +1023,14 @@ def _fetch_neighbors_from_db_sync(
                 if include_allegiance
                 else ""
             )
+            controlling_power_select = (
+                ", scp.controlling_power" if include_controlling_power else ""
+            )
+            controlling_power_join = (
+                "LEFT JOIN system_controlling_powers scp ON scp.system_id64 = s.id64"
+                if include_controlling_power
+                else ""
+            )
 
             query = f"""
                 WITH ref AS (
@@ -1024,8 +1044,10 @@ def _fetch_neighbors_from_db_sync(
                         ST_3DDistance(s.coords, ref.geom) AS distance
                         {facet_select}
                         {allegiance_select}
+                        {controlling_power_select}
                     FROM systems_big s
                     {allegiance_join}
+                    {controlling_power_join}
                     {facet_joins}
                     CROSS JOIN ref
                     WHERE {" AND ".join(where_clauses)}
@@ -1045,6 +1067,7 @@ def _fetch_neighbors_from_db_sync(
             row,
             include_facets=include_facets,
             include_allegiance=include_allegiance,
+            include_controlling_power=include_controlling_power,
         )
         for row in rows
     ]
@@ -1071,6 +1094,7 @@ async def fetch_neighbors_page_from_db(
     material: str | None = None,
     include_facets: bool = False,
     include_allegiance: bool = False,
+    include_controlling_power: bool = False,
 ):
     return await _run_db_task(
         _fetch_neighbors_page_from_db_sync,
@@ -1086,6 +1110,7 @@ async def fetch_neighbors_page_from_db(
         material,
         include_facets,
         include_allegiance,
+        include_controlling_power,
     )
 
 
@@ -1102,6 +1127,7 @@ def _fetch_neighbors_page_from_db_sync(
     material: str | None = None,
     include_facets: bool = False,
     include_allegiance: bool = False,
+    include_controlling_power: bool = False,
 ) -> dict[str, Any]:
     with _db_connection() as conn:
         cursor = conn.cursor()
@@ -1173,6 +1199,14 @@ def _fetch_neighbors_page_from_db_sync(
                 if include_allegiance
                 else ""
             )
+            controlling_power_select = (
+                ", scp.controlling_power" if include_controlling_power else ""
+            )
+            controlling_power_join = (
+                "LEFT JOIN system_controlling_powers scp ON scp.system_id64 = s.id64"
+                if include_controlling_power
+                else ""
+            )
 
             base_query = f"""
                 WITH ref AS (
@@ -1186,8 +1220,10 @@ def _fetch_neighbors_page_from_db_sync(
                         ST_3DDistance(s.coords, ref.geom) AS distance
                         {facet_select}
                         {allegiance_select}
+                        {controlling_power_select}
                     FROM systems_big s
                     {allegiance_join}
+                    {controlling_power_join}
                     {facet_joins}
                     CROSS JOIN ref
                     WHERE {" AND ".join(where_clauses)}
@@ -1243,6 +1279,7 @@ def _fetch_neighbors_page_from_db_sync(
         page_size,
         include_facets=include_facets,
         include_allegiance=include_allegiance,
+        include_controlling_power=include_controlling_power,
     )
 
 
@@ -1256,6 +1293,7 @@ async def fetch_neighbors_seeded_page_from_db(
     material: str | None = None,
     include_facets: bool = False,
     include_allegiance: bool = False,
+    include_controlling_power: bool = False,
 ) -> dict[str, Any]:
     fallback_page: dict[str, Any] | None = None
     for candidate_radius in _neighbors_seeded_radii_for_request(radius):
@@ -1272,6 +1310,7 @@ async def fetch_neighbors_seeded_page_from_db(
             material,
             include_facets,
             include_allegiance,
+            include_controlling_power,
         )
         fallback_page = page
         if page["has_more"] or len(page["items"]) >= page_size:
@@ -1327,6 +1366,11 @@ async def get_neighbors(
         False,
         description="Include the latest observed system allegiance when available",
     ),
+    include_controlling_power: bool
+    | None = Query(
+        False,
+        description="Include the latest observed Powerplay controlling power when available",
+    ),
 ):
     if radius <= 0:
         return JSONResponse(
@@ -1348,6 +1392,11 @@ async def get_neighbors(
     paged = page_size is not None
     normalized_atmosphere_gas = _normalize_optional_filter(atmosphere_gas)
     normalized_material = _normalize_optional_filter(material)
+    affiliation_args = (
+        (bool(include_allegiance), bool(include_controlling_power))
+        if include_allegiance or include_controlling_power
+        else ()
+    )
     async with _get_neighbors_semaphore(paged):
         try:
             if paged:
@@ -1364,7 +1413,7 @@ async def get_neighbors(
                     )
                     results = await fetch_neighbors_page_from_db(
                         *page_args,
-                        *(() if not include_allegiance else (True,)),
+                        *affiliation_args,
                     )
                 else:
                     seeded_page_args = (
@@ -1373,11 +1422,11 @@ async def get_neighbors(
                     )
                     results = await fetch_neighbors_seeded_page_from_db(
                         *seeded_page_args,
-                        *(() if not include_allegiance else (True,)),
+                        *affiliation_args,
                     )
                 return JSONResponse(content=results)
 
-            if include_allegiance:
+            if affiliation_args:
                 results = await fetch_neighbors_from_db(
                     x,
                     y,
@@ -1387,7 +1436,7 @@ async def get_neighbors(
                     normalized_atmosphere_gas,
                     normalized_material,
                     bool(include_facets),
-                    True,
+                    *affiliation_args,
                 )
             else:
                 # Preserve the legacy call shape for integrations that monkeypatch
