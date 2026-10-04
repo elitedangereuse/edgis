@@ -154,6 +154,16 @@
        margin: 0 auto;
      }
 
+     .left-toolbar .powerplay-filter-icon {
+       width: 20px;
+       height: 20px;
+       display: block;
+       margin: 0 auto;
+       background-color: currentColor;
+       -webkit-mask: url('/static/assets/powerplayicon.svg') center / contain no-repeat;
+       mask: url('/static/assets/powerplayicon.svg') center / contain no-repeat;
+     }
+
      .radius-display-corner {
        position: fixed;
        right: 10px;
@@ -216,10 +226,6 @@
        height: 10px;
        border: 1px solid rgba(255,255,255,0.35);
        box-sizing: border-box;
-     }
-
-     #allegianceVoronoiLegend {
-       bottom: 156px;
      }
 
      .controls-panel {
@@ -863,10 +869,8 @@
           <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0m0 1a7 7 0 0 1 6.93 6H9V1.07A7 7 0 0 1 8 1m1 7h5.93A7.01 7.01 0 0 1 9 14.93zm-1 0v5.93A7.01 7.01 0 0 1 1.07 8z"/>
         </svg>
       </button>
-      <button title="Controlling Power Filters" id="filterDimensionPowerButton" aria-label="Controlling Power Filters">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" class="filter-dimension-icon" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M7.5.5 1 9h4.5L5 15.5 15 6H9.5z"/>
-        </svg>
+      <button title="Powerplay Filters" id="filterDimensionPowerButton" aria-label="Powerplay Filters">
+        <span class="powerplay-filter-icon" aria-hidden="true"></span>
       </button>
       <button title="Show Predicted Systems" id="predictedSystemsButton" aria-label="Show Predicted Systems" style="display:none">
         <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" class="filter-dimension-icon" viewBox="0 0 16 16" aria-hidden="true">
@@ -951,13 +955,12 @@
       <span id="mapStatusStars">Stars: --</span>
     </div>
     <div id="debugGridLegend" class="debug-grid-legend" aria-live="polite" aria-atomic="true"></div>
-    <div id="allegianceVoronoiLegend" class="debug-grid-legend" aria-live="polite" aria-atomic="true"></div>
 
     <!-- Info Panel -->
     <div class="info-panel" id="InfoPanel" style="display:none">
     </div>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js" integrity="sha384-3ceskX3iaEnIogmQchP8opvBy3Mi7Ce34nWjpBIwVTHfGYWQS9jwHDVRnpKKHJg7" crossorigin="anonymous"></script>
-    <script>window.EDGIS_STATIC_VERSION = "20260525-6";</script>
+    <script>window.EDGIS_STATIC_VERSION = "20260525-7";</script>
     <script src="/static/ed3d/vendor/three-js/three.min.js?v=20260524-19"></script>
     <script src="/static/ed3d/vendor/three-js/FontLoader.js?v=20260524-1"></script>
     <script src="/static/js/ed3dmap.js?v=20260521-1"></script>
@@ -973,6 +976,6 @@
     <script src="/static/ed3d/js/components/galaxy.class.js?v=20260521-1"></script>
     <script src="/static/ed3d/js/components/heat.class.js?v=20260521-1"></script>
     <script src="/static/ed3d/vendor/tween-js/Tween.js?v=20260521-1"></script>
-    <script src="/static/js/galaxymap.js?v=20260525-6"></script>
+    <script src="/static/js/galaxymap.js?v=20260525-7"></script>
   </body>
 </html>
