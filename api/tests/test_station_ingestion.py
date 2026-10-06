@@ -68,6 +68,33 @@ def test_spansh_station_serializes_ijson_decimal_economies():
     assert json.loads(row["economies"]) == {"High Tech": 0.67}
 
 
+def test_spansh_station_api_record_can_relocate_a_carrier():
+    row = station_ingestion.station_from_spansh_api(
+        {
+            "market_id": 3713969920,
+            "name": "TNY-59G",
+            "type": "Drake-Class Carrier",
+            "system_id64": 633877140210,
+            "updated_at": "2026-01-19T05:24:48Z",
+            "distance_to_arrival": 323.851819,
+            "large_pads": 8,
+            "medium_pads": 4,
+            "small_pads": 4,
+            "is_planetary": False,
+            "services": [{"name": "Dock"}],
+            "economies": [{"name": "Private Enterprise", "share": 100}],
+        }
+    )
+
+    assert row is not None
+    assert row["market_id"] == 3713969920
+    assert row["system_id64"] == 633877140210
+    assert row["is_carrier"] is True
+    assert row["last_source"] == "spansh_station_api"
+    assert json.loads(row["services"]) == ["Dock"]
+    assert json.loads(row["economies"]) == {"Private Enterprise": 100.0}
+
+
 def test_eddn_carrier_jump_preserves_market_and_body_ids():
     row = station_ingestion.station_from_eddn(
         {
