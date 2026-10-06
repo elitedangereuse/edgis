@@ -296,6 +296,99 @@ def station_from_spansh(
     }
 
 
+def station_from_spansh_api(record: dict[str, Any]) -> dict[str, Any] | None:
+    """Normalize the public ``/api/station/{market_id}`` response.
+
+    The individual-station endpoint uses snake_case fields and represents
+    services/economies as lists, unlike the galaxy dump.  Keeping this adapter
+    here makes a targeted stale-station refresh use the same timestamp-aware
+    upsert path as the normal importers.
+    """
+    market_id = record.get("market_id")
+    system_id64 = record.get("system_id64")
+    updated_at = parse_timestamp(record.get("updated_at"))
+    name = record.get("name")
+    station_type = record.get("type")
+    if (
+        market_id is None
+        or system_id64 is None
+        or updated_at is None
+        or not isinstance(name, str)
+        or not name.strip()
+        or not isinstance(station_type, str)
+        or not station_type.strip()
+    ):
+        return None
+
+    try:
+        market_id = int(market_id)
+        system_id64 = int(system_id64)
+    except (TypeError, ValueError):
+        return None
+    if market_id in EXCLUDED_MARKET_IDS:
+        return None
+
+    economies: dict[str, float] = {}
+    for economy in record.get("economies") or []:
+        if not isinstance(economy, dict):
+            continue
+        economy_name = normalize_token(economy.get("name"))
+        share = economy.get("share")
+        if not economy_name or share is None:
+            continue
+        try:
+            economies[economy_name] = float(share)
+        except (TypeError, ValueError):
+            continue
+
+    services = [
+        service_name
+        for service in record.get("services") or []
+        if isinstance(service, dict)
+        and (service_name := normalize_token(service.get("name")))
+    ]
+    body_id = record.get("body_id")
+    try:
+        body_id = int(body_id) if body_id is not None else None
+    except (TypeError, ValueError):
+        body_id = None
+
+    return {
+        "market_id": market_id,
+        "system_id64": system_id64,
+        "body_id": body_id,
+        "body_name": normalize_token(record.get("body_name")),
+        "attachment_source": "spansh_station_api",
+        "parents": _json_dumps([]),
+        "name": name.strip(),
+        "station_type": station_type.strip(),
+        "is_carrier": _is_carrier(station_type),
+        "is_planetary": bool(record.get("is_planetary")),
+        "distance_from_arrival_ls": record.get("distance_to_arrival"),
+        "latitude": record.get("latitude"),
+        "longitude": record.get("longitude"),
+        "large_pads": record.get("large_pads"),
+        "medium_pads": record.get("medium_pads"),
+        "small_pads": record.get("small_pads"),
+        "services": _json_dumps(services),
+        "economies": _json_dumps(economies),
+        "primary_economy": normalize_token(record.get("primary_economy")),
+        "government": normalize_token(record.get("government")),
+        "allegiance": normalize_allegiance(record.get("allegiance")),
+        "controlling_faction": normalize_token(
+            record.get("controlling_minor_faction")
+        ),
+        "controlling_faction_state": normalize_token(
+            record.get("controlling_minor_faction_state")
+        ),
+        "station_state": normalize_token(record.get("state")),
+        "location_updated_at": updated_at,
+        "details_updated_at": updated_at,
+        "last_seen_at": updated_at,
+        "last_source": "spansh_station_api",
+    }
+
+
 def station_from_eddn(message: dict[str, Any]) -> dict[str, Any] | None:
     market_id = message.get("MarketID")
     system_id64 = message.get("SystemAddress")
