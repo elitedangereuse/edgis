@@ -5,6 +5,10 @@ attached to a system indefinitely.  This tool deliberately updates only rows
 whose EDGIS ``last_seen_at`` is older than a configurable threshold.  It never
 deletes a station: a successful Spansh lookup can safely move it to the system
 reported by Spansh, while an unavailable record remains untouched.
+
+This is intentionally not a complete system import: it only reconciles
+stations already stored in EDGIS.  Use ``spansh_system_stations_ingestor`` to
+discover stations that are missing locally.
 """
 
 from __future__ import annotations
