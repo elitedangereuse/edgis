@@ -572,6 +572,7 @@ svg image.asteroid-cluster-icon { opacity: 0.95; filter: drop-shadow(0 0 6px rgb
 }
 
 .material-percent {
+    inline-size: 5.5ch;
     color: #fff;
     font-variant-numeric: tabular-nums;
     text-align: right;
@@ -586,10 +587,13 @@ svg image.asteroid-cluster-icon { opacity: 0.95; filter: drop-shadow(0 0 6px rgb
     text-transform: uppercase;
 }
 
-.material-grade--1 { color: #b5b5b5; }
-.material-grade--2 { color: #78c9a7; }
-.material-grade--3 { color: #73bce4; }
-.material-grade--4 { color: #d89cf0; }
+.material-rarity-icon {
+    width: 1.25rem;
+    height: 1.25rem;
+    object-fit: contain;
+    filter: drop-shadow(0 0 3px rgba(250, 109, 0, 0.45));
+}
+
 .material-grade--unknown { color: #8b8b8b; }
 
 a {

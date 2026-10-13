@@ -9,7 +9,7 @@
     }
     const { isBarycenter, isPlanetaryRingNode, isStellarRingNode, isAsteroidClusterNode,
             hasStarDescendant, getNodeMass, computeBarycenterSkipPairs, pairKey } = SysmapRoots;
-    const { getRawMaterialGrade } = SysmapMaterials;
+    const { getRawMaterialGrade, normalizePercentageEntries } = SysmapMaterials;
     const svg = document.getElementById('svg');
     const config = globalThis.EDGIS_SYSMAP_CONFIG || {};
     const svgOnlyMode = Boolean(config.svgOnly);
@@ -390,25 +390,25 @@
         }
     });
 
-    if(bodyInfoButton){
-        bodyInfoButton.addEventListener('click', () => {
-            if(!infoPanel) return;
-            const shouldShow = !isInfoPanelVisible();
-            if(shouldShow){
-                hideControlsPanel();
-                setEmbedPanelVisible(false);
-                if(selectedBodyNode){
-                    renderBodyInfo(selectedBodyNode);
-                } else {
-                    infoPanel.innerHTML = '<p class="small">Select a planet, moon, or other body to view its information.</p>';
-                }
-                infoPanel.style.display = 'block';
+    const toggleBodyInfoPanel = () => {
+        if(!infoPanel) return;
+        const shouldShow = !isInfoPanelVisible();
+        if(shouldShow){
+            hideControlsPanel();
+            setEmbedPanelVisible(false);
+            if(selectedBodyNode){
+                renderBodyInfo(selectedBodyNode);
             } else {
-                hideInfoPanel();
+                infoPanel.innerHTML = '<p class="small">Select a planet, moon, or other body to view its information.</p>';
+                infoPanel.style.display = 'block';
             }
-        });
+        } else {
+            hideInfoPanel();
+        }
+    };
+    if(bodyInfoButton){
+        bodyInfoButton.addEventListener('click', toggleBodyInfoPanel);
     }
-
     // Enter key handler
     if (systemInput) {
         systemInput.addEventListener('keydown', (event) => {
@@ -2762,7 +2762,7 @@
           ${materials.map(m => {
               const grade = getRawMaterialGrade(m.name);
               const gradeLabel = grade
-                  ? `<span class="material-grade material-grade--${grade.grade}">G${grade.grade} · ${escapeHtml(grade.rarity)}</span>`
+                  ? `<img class="material-rarity-icon" src="${grade.icon}" alt="Grade ${grade.grade}: ${escapeHtml(grade.rarity)}" title="Grade ${grade.grade}: ${escapeHtml(grade.rarity)}">`
                   : '<span class="material-grade material-grade--unknown">Unclassified</span>';
               return `<li><span class="material-name">${escapeHtml(m.name)}</span>${gradeLabel}<span class="material-percent">${formatPercent(m.percent)}</span></li>`;
           }).join('')}
@@ -3082,24 +3082,6 @@
         const atm = num / 101325;
         if(atm >= 0.05 && atm <= 200) return `${formatNumber(atm, { fractionDigits: 2 })} atm`;
         return `${formatNumber(num, { fractionDigits: 0 })} Pa`;
-    }
-
-    function normalizePercentageEntries(source){
-        if(!source) return [];
-        const entries = [];
-        if(Array.isArray(source)){
-            source.forEach(item => {
-                const name = item?.name || item?.material || item?.label || item?.type;
-                const percent = Number(item?.percent ?? item?.percentage ?? item?.share ?? item?.amount ?? item?.value);
-                if(name && Number.isFinite(percent)) entries.push({ name, percent });
-            });
-        } else if(typeof source === 'object'){
-            Object.entries(source).forEach(([name, percent]) => {
-                const num = Number(percent);
-                if(name && Number.isFinite(num)) entries.push({ name, percent: num });
-            });
-        }
-        return entries.sort((a, b) => b.percent - a.percent);
     }
 
     function formatAtmosphere(type, composition){

@@ -42,6 +42,12 @@
         antimony: { grade: 4, rarity: 'Rare' },
         ruthenium: { grade: 4, rarity: 'Rare' }
     });
+    const RAW_MATERIAL_GRADE_ICONS = Object.freeze({
+        1: '/static/assets/materials/1-very%20common.svg',
+        2: '/static/assets/materials/2-common.svg',
+        3: '/static/assets/materials/3-standard.svg',
+        4: '/static/assets/materials/4-rare.svg'
+    });
 
     function normalizeMaterialName(name){
         return String(name ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -49,8 +55,40 @@
 
     function getRawMaterialGrade(name){
         const material = RAW_MATERIAL_GRADES[normalizeMaterialName(name)];
-        return material ? { ...material } : null;
+        return material
+            ? { ...material, icon: RAW_MATERIAL_GRADE_ICONS[material.grade] }
+            : null;
     }
 
-    return { RAW_MATERIAL_GRADES, getRawMaterialGrade, normalizeMaterialName };
+    // The body API uses `Name` and `Percent`, while Spansh fixtures commonly
+    // use lower camel-case equivalents.  Normalize both before rendering.
+    function normalizePercentageEntries(source){
+        if(!source) return [];
+        const entries = [];
+        if(Array.isArray(source)){
+            source.forEach(item => {
+                const name = item?.name ?? item?.Name ?? item?.material ?? item?.Material
+                    ?? item?.label ?? item?.Label ?? item?.type ?? item?.Type;
+                const percent = Number(
+                    item?.percent ?? item?.Percent ?? item?.percentage ?? item?.Percentage
+                    ?? item?.share ?? item?.amount ?? item?.value
+                );
+                if(name && Number.isFinite(percent)) entries.push({ name, percent });
+            });
+        } else if(typeof source === 'object'){
+            Object.entries(source).forEach(([name, percent]) => {
+                const num = Number(percent);
+                if(name && Number.isFinite(num)) entries.push({ name, percent: num });
+            });
+        }
+        return entries.sort((left, right) => right.percent - left.percent);
+    }
+
+    return {
+        RAW_MATERIAL_GRADES,
+        RAW_MATERIAL_GRADE_ICONS,
+        getRawMaterialGrade,
+        normalizeMaterialName,
+        normalizePercentageEntries
+    };
 });
