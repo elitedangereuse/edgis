@@ -3,8 +3,13 @@
     if(!SysmapRoots){
         throw new Error('sysmap_roots.js must be loaded before sysmap.js');
     }
+    const SysmapMaterials = globalThis.SysmapMaterials;
+    if(!SysmapMaterials){
+        throw new Error('sysmap_materials.js must be loaded before sysmap.js');
+    }
     const { isBarycenter, isPlanetaryRingNode, isStellarRingNode, isAsteroidClusterNode,
             hasStarDescendant, getNodeMass, computeBarycenterSkipPairs, pairKey } = SysmapRoots;
+    const { getRawMaterialGrade } = SysmapMaterials;
     const svg = document.getElementById('svg');
     const config = globalThis.EDGIS_SYSMAP_CONFIG || {};
     const svgOnlyMode = Boolean(config.svgOnly);
@@ -395,7 +400,7 @@
                 if(selectedBodyNode){
                     renderBodyInfo(selectedBodyNode);
                 } else {
-                    infoPanel.innerHTML = '<p class="small">Select a body to view details.</p>';
+                    infoPanel.innerHTML = '<p class="small">Select a planet, moon, or other body to view its information.</p>';
                 }
                 infoPanel.style.display = 'block';
             } else {
@@ -2751,10 +2756,16 @@
            ` : '';
         const materials = normalizePercentageEntries(node.materials ?? raw.materials);
         const materialsSection = materials.length ? `
-      <section>
-        <h2>MATERIALS</h2>
-        <ul>
-          ${materials.slice(0, 8).map(m => `<li><span class="label">${escapeHtml(m.name)}:</span> ${formatPercent(m.percent)}</li>`).join('')}
+      <section class="planetary-materials">
+        <h2>PLANETARY MATERIALS</h2>
+        <ul class="planetary-materials__list">
+          ${materials.map(m => {
+              const grade = getRawMaterialGrade(m.name);
+              const gradeLabel = grade
+                  ? `<span class="material-grade material-grade--${grade.grade}">G${grade.grade} · ${escapeHtml(grade.rarity)}</span>`
+                  : '<span class="material-grade material-grade--unknown">Unclassified</span>';
+              return `<li><span class="material-name">${escapeHtml(m.name)}</span>${gradeLabel}<span class="material-percent">${formatPercent(m.percent)}</span></li>`;
+          }).join('')}
         </ul>
       </section>
           ` : '';
@@ -2783,7 +2794,7 @@
 
         card.innerHTML = `
       <header>
-        <h2>BODY INFORMATION</h2>
+          <h2>${isStar ? 'BODY INFORMATION' : 'PLANETARY INFORMATION'}</h2>
         <ul>
           <li><span style="font-size: x-large;margin-top: -7px;">${escapeHtml(node.name || raw.name || 'Unknown')}</span></li>
         </ul>
