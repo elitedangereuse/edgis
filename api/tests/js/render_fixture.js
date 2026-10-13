@@ -162,6 +162,7 @@ function makeDocument(){
 async function run(systemName, fixturePath, outPath){
     const bodies = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
     globalThis.SysmapRoots = require(SYSMAP_ROOTS_JS);
+    globalThis.SysmapMaterials = require(path.join(REPO_ROOT, 'static', 'js', 'sysmap_materials.js'));
     globalThis.document = makeDocument();
     globalThis.navigator = {};
     globalThis.EDGIS_SYSMAP_CONFIG = {};

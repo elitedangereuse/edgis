@@ -392,11 +392,15 @@ svg image.asteroid-cluster-icon { opacity: 0.95; filter: drop-shadow(0 0 6px rgb
     position: fixed;
     top: 20px;
     right: 80px; /* leaves space for toolbar */
+    width: min(440px, calc(100vw - 150px));
+    max-height: calc(100vh - 64px);
+    box-sizing: border-box;
     background: black;
     color: white;
     padding: 15px;
     z-index: 999;
-    overflow: hidden; /* ensures glow doesn't spill too much */
+    overflow-x: hidden;
+    overflow-y: auto;
     border-top: 2px solid transparent; /* invisible by default */
     transition: border-color 0.3s ease;
 }
@@ -541,6 +545,52 @@ svg image.asteroid-cluster-icon { opacity: 0.95; filter: drop-shadow(0 0 6px rgb
     gap: 0.75rem;
     align-items: baseline;
 }
+
+.info-panel .planetary-materials {
+    margin-top: 1.2rem;
+}
+
+.info-panel .planetary-materials__list {
+    display: grid;
+    gap: 0.2rem;
+}
+
+.info-panel .planetary-materials__list li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) max-content max-content;
+    gap: 0.6rem;
+    align-items: center;
+    border-bottom: 1px solid rgba(250, 109, 0, 0.18);
+    padding: 0.18rem 0;
+}
+
+.material-name {
+    color: #f0f0f0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.material-percent {
+    color: #fff;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.material-grade {
+    min-width: 8.6rem;
+    color: #a9a9a9;
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    text-align: right;
+    text-transform: uppercase;
+}
+
+.material-grade--1 { color: #b5b5b5; }
+.material-grade--2 { color: #78c9a7; }
+.material-grade--3 { color: #73bce4; }
+.material-grade--4 { color: #d89cf0; }
+.material-grade--unknown { color: #8b8b8b; }
 
 a {
     color: #fa6d00;
