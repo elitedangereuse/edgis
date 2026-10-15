@@ -125,6 +125,9 @@
             infoPanel.style.display = 'none';
         }
     };
+    const scrollInfoPanelToTop = () => {
+        infoPanel?.querySelector?.('.card')?.scrollTo?.({ top: 0, behavior: 'smooth' });
+    };
 
     const isControlsPanelVisible = () => controlsPanel && controlsPanel.style.display !== 'none';
     const setControlsPanelVisible = (isVisible) => {
@@ -2128,12 +2131,12 @@
                 line.addEventListener('click', (event) => {
                     event.stopPropagation();
                     showBarycenterInfo(baryNode);
-                    infoPanel?.scrollTo({ top: 0, behavior: 'smooth' });
+                    scrollInfoPanelToTop();
                 });
                 line.addEventListener('pointerup', (event) => {
                     event.stopPropagation();
                     showBarycenterInfo(baryNode);
-                    infoPanel?.scrollTo({ top: 0, behavior: 'smooth' });
+                    scrollInfoPanelToTop();
                 });
             }
             const targetLayer = baryBracketLayer || baryLayerGroup || svg;
@@ -2341,17 +2344,17 @@
             group.addEventListener('click', (event) => {
                 event.stopPropagation();
                 selectNode(group, null, baryNode);
-                infoPanel?.scrollTo({ top: 0, behavior: 'smooth' });
+                scrollInfoPanelToTop();
             });
             group.addEventListener('pointerup', (event) => {
                 event.stopPropagation();
                 selectNode(group, null, baryNode);
-                infoPanel?.scrollTo({ top: 0, behavior: 'smooth' });
+                scrollInfoPanelToTop();
             });
             group.addEventListener('touchend', (event) => {
                 event.stopPropagation();
                 selectNode(group, null, baryNode);
-                infoPanel?.scrollTo({ top: 0, behavior: 'smooth' });
+                scrollInfoPanelToTop();
             }, { passive: true });
             group.addEventListener('mouseenter', () => {
                 group.classList.add('active');

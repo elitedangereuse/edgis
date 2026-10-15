@@ -399,8 +399,7 @@ svg image.asteroid-cluster-icon { opacity: 0.95; filter: drop-shadow(0 0 6px rgb
     color: white;
     padding: 15px;
     z-index: 999;
-    overflow-x: hidden;
-    overflow-y: auto;
+    overflow: hidden;
     border-top: 2px solid transparent; /* invisible by default */
     transition: border-color 0.3s ease;
 }
@@ -415,6 +414,13 @@ svg image.asteroid-cluster-icon { opacity: 0.95; filter: drop-shadow(0 0 6px rgb
 .info-panel p {
     margin: 4px 0;
     font-size: 14px;
+}
+
+.info-panel .card {
+    max-height: calc(100vh - 94px);
+    overflow-y: auto;
+    padding-right: 4px;
+    scroll-behavior: smooth;
 }
 
 .info-panel:hover {
@@ -462,27 +468,29 @@ svg image.asteroid-cluster-icon { opacity: 0.95; filter: drop-shadow(0 0 6px rgb
     .info-panel {
         height: 25vh;
         max-height: 25vh;
-        overflow-y: auto;
-        scroll-behavior: smooth;
         padding: 12px;
         font-size: 0.95em;
     }
 
-    .info-panel::-webkit-scrollbar {
+    .info-panel .card {
+        max-height: 100%;
+    }
+
+    .info-panel .card::-webkit-scrollbar {
         width: 6px;
     }
 
-    .info-panel::-webkit-scrollbar-track {
+    .info-panel .card::-webkit-scrollbar-track {
         background: rgba(0,0,0,0.1);
         border-radius: 3px;
     }
 
-    .info-panel::-webkit-scrollbar-thumb {
+    .info-panel .card::-webkit-scrollbar-thumb {
         background: rgba(250, 109, 0, 0.3);
         border-radius: 3px;
     }
 
-    .info-panel::-webkit-scrollbar-thumb:hover {
+    .info-panel .card::-webkit-scrollbar-thumb:hover {
         background: rgba(250, 109, 0, 0.5);
     }
 }
@@ -493,26 +501,28 @@ svg image.asteroid-cluster-icon { opacity: 0.95; filter: drop-shadow(0 0 6px rgb
         max-height: 42vh;
         width: 25vw;
         max-width: 25vw;
-        overflow-y: auto;
-        scroll-behavior: smooth;
         padding: 12px;
     }
 
-    .info-panel::-webkit-scrollbar {
+    .info-panel .card {
+        max-height: 100%;
+    }
+
+    .info-panel .card::-webkit-scrollbar {
         width: 6px;
     }
 
-    .info-panel::-webkit-scrollbar-track {
+    .info-panel .card::-webkit-scrollbar-track {
         background: rgba(0,0,0,0.1);
         border-radius: 3px;
     }
 
-    .info-panel::-webkit-scrollbar-thumb {
+    .info-panel .card::-webkit-scrollbar-thumb {
         background: rgba(250, 109, 0, 0.3);
         border-radius: 3px;
     }
 
-    .info-panel::-webkit-scrollbar-thumb:hover {
+    .info-panel .card::-webkit-scrollbar-thumb:hover {
         background: rgba(250, 109, 0, 0.5);
     }
 }
