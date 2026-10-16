@@ -73,6 +73,7 @@
     let baryIconLayer = null;
     let nodeElementsById = new Map();
     let labelsLayerGroup = null;
+    let dataQualityWarnings = [];
 
     const systemInput = document.getElementById('system');
     const loadButton = document.getElementById('load');
@@ -124,6 +125,9 @@
         if(infoPanel){
             infoPanel.style.display = 'none';
         }
+    };
+    const setDataQualityWarning = (warnings = []) => {
+        dataQualityWarnings = Array.isArray(warnings) ? warnings : [];
     };
     const scrollInfoPanelToTop = () => {
         infoPanel?.querySelector?.('.card')?.scrollTo?.({ top: 0, behavior: 'smooth' });
@@ -1004,9 +1008,10 @@
         }
         updateUrlState(resolvedSystemName, requestedBodyId, requestedStationId);
 
-        const { nodes, roots } = SysmapRoots.buildSystemTree(
+        const { nodes, roots, dataQualityWarnings } = SysmapRoots.buildSystemTree(
             bodyData, [...stations, ...carriers], surfaceStations
         );
+        setDataQualityWarning(dataQualityWarnings);
 
         // First pass: compute subtree sizes
         roots.forEach(r => computeSize(r, 1));
@@ -2540,6 +2545,64 @@
 
         const brandingPanel = buildBrandingPanel(title);
         svg.appendChild(brandingPanel);
+
+        if(dataQualityWarnings.length > 0){
+            const details = dataQualityWarnings.join('; ');
+            const warningWidth = 94;
+            const warning = document.createElementNS(ns, 'g');
+            warning.setAttribute('class', 'data-quality-warning');
+            warning.setAttribute(
+                'transform',
+                `translate(${titleBox.x + (titleBox.width - warningWidth) / 2} 42)`
+            );
+            warning.setAttribute('tabindex', '0');
+            warning.setAttribute('role', 'button');
+            warning.setAttribute('aria-expanded', 'false');
+            warning.setAttribute('aria-label', `Incomplete system data: ${details}.`);
+
+            const warningPanel = document.createElementNS(ns, 'rect');
+            warningPanel.setAttribute('class', 'data-quality-warning__panel');
+            warningPanel.setAttribute('width', String(warningWidth));
+            warningPanel.setAttribute('height', '11');
+            warning.appendChild(warningPanel);
+
+            const warningLabel = document.createElementNS(ns, 'text');
+            warningLabel.setAttribute('class', 'data-quality-warning__label');
+            warningLabel.setAttribute('x', '3');
+            warningLabel.setAttribute('y', '7.6');
+            warningLabel.textContent = 'Incomplete system data';
+            warning.appendChild(warningLabel);
+
+            const detailsGroup = document.createElementNS(ns, 'g');
+            detailsGroup.setAttribute('class', 'data-quality-warning__details');
+            const detailsWidth = Math.min(300, Math.max(warningWidth, details.length * 4 + 8));
+            const detailsPanel = document.createElementNS(ns, 'rect');
+            detailsPanel.setAttribute('class', 'data-quality-warning__details-panel');
+            detailsPanel.setAttribute('y', '15');
+            detailsPanel.setAttribute('width', String(detailsWidth));
+            detailsPanel.setAttribute('height', '14');
+            detailsGroup.appendChild(detailsPanel);
+            const detailsLabel = document.createElementNS(ns, 'text');
+            detailsLabel.setAttribute('class', 'data-quality-warning__details-label');
+            detailsLabel.setAttribute('x', '3');
+            detailsLabel.setAttribute('y', '24.5');
+            detailsLabel.textContent = details;
+            detailsGroup.appendChild(detailsLabel);
+            warning.appendChild(detailsGroup);
+
+            const toggleWarningDetails = () => {
+                const expanded = warning.classList.toggle('is-expanded');
+                warning.setAttribute('aria-expanded', String(expanded));
+            };
+            warning.addEventListener('click', toggleWarningDetails);
+            warning.addEventListener('keydown', (event) => {
+                if(event.key === 'Enter' || event.key === ' '){
+                    event.preventDefault();
+                    toggleWarningDetails();
+                }
+            });
+            svg.appendChild(warning);
+        }
     }
 
     function resolveNodeBodyId(node){
