@@ -2166,13 +2166,13 @@
             targetLayer.appendChild(pointer);
         };
 
-        const drawBarycenterBracket = (node, showLabel = false) => {
+        const drawBarycenterBracket = (node, showName = false) => {
             const kids = (node.baryChildren && node.baryChildren.length
                           ? node.baryChildren
                           : (node.children || [])).filter(Boolean);
             const debugLabel = node.name || `barycenter_${node.id || '??'}`;
             if(kids.length < 2){
-                if(showLabel){
+                if(showName){
                     // No bracket or icon to hover: keep the name visible so the
                     // barycenter stays identifiable (e.g. incomplete data).
                     const label = appendBaryLabel(node, node.x + 6, node.y - 6);
@@ -2267,7 +2267,7 @@
                           : child.y - (child.radiusScaled || radius);
                     appendBracketPointer(pointerX, legY, pointerX, targetY, 'horizontal', debugLabel);
                 });
-                if(showLabel){
+                if(showName){
                     appendBaryLabel(node, midX - 10, legY - BARY_ICON_OFFSET_Y + 3, 'end');
                 }
             } else {
@@ -2292,7 +2292,7 @@
                           : child.x - (child.radiusScaled || radius);
                     appendBracketPointer(legX, pointerY, targetX, pointerY, 'vertical', debugLabel);
                 });
-                if(showLabel){
+                if(showName){
                     appendBaryLabel(node, legX - BARY_ICON_OFFSET_Y - 10, midY + 3, 'end');
                 }
             }
