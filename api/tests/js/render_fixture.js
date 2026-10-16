@@ -160,7 +160,11 @@ function makeDocument(){
 }
 
 async function run(systemName, fixturePath, outPath){
-    const bodies = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+    const fixtureData = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+    const bodies = Array.isArray(fixtureData) ? fixtureData : fixtureData.bodies;
+    if(!Array.isArray(bodies)){
+        throw new Error('Fixture must be an array or an object with a bodies array');
+    }
     globalThis.SysmapRoots = require(SYSMAP_ROOTS_JS);
     globalThis.SysmapMaterials = require(path.join(REPO_ROOT, 'static', 'js', 'sysmap_materials.js'));
     globalThis.document = makeDocument();
