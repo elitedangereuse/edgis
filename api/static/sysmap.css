@@ -119,6 +119,34 @@ svg .uc-branding__date {
     letter-spacing: 0.08em;
 }
 
+svg .data-quality-warning {
+    cursor: pointer;
+}
+svg .data-quality-warning__panel,
+svg .data-quality-warning__details-panel {
+    fill: rgba(34, 20, 6, 0.94);
+    stroke: rgba(250, 109, 0, 0.65);
+    stroke-width: 0.35;
+}
+svg .data-quality-warning__label {
+    fill: #ffd09e;
+    font-size: 0.42rem;
+    letter-spacing: 0.04em;
+}
+svg .data-quality-warning__details-label {
+    fill: #e8e8e8;
+    font-size: 0.48rem;
+    letter-spacing: 0.02em;
+}
+svg .data-quality-warning__details {
+    display: none;
+    pointer-events: none;
+}
+svg .data-quality-warning:hover .data-quality-warning__details,
+svg .data-quality-warning.is-expanded .data-quality-warning__details {
+    display: block;
+}
+
 svg .systemName{
     font-size: 1rem;
     fill: #fa6d00;

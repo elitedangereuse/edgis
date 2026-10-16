@@ -301,3 +301,20 @@ test('zero-distance barycenters sort with their orbital members', () => {
 
     assert.deepEqual(visibleChildren, [1, 28, 32, 33]);
 });
+
+test('incomplete barycenters inherit their members shared host and report it', () => {
+    const { nodes, roots, dataQualityWarnings } = buildSystemTree([
+        { body_id: 1, body_name: 'Example A', type: 'Star', parents: [{ Null: 0 }] },
+        { body_id: 7, body_name: 'Barycenter7', type: 'Barycenter' },
+        { body_id: 8, body_name: 'Example A 4', type: 'Planet', parents: [{ Null: 7 }, { Star: 1 }] },
+        { body_id: 9, body_name: 'Example A 5', type: 'Planet', parents: [{ Null: 7 }, { Star: 1 }] }
+    ]);
+
+    assert.equal(nodes.get(7).parentId, 1);
+    assert.equal(nodes.get(7).parentInferredFromMembers, true);
+    assert.deepEqual(roots.map(node => node.id), [1]);
+    assert.deepEqual(
+        dataQualityWarnings,
+        ['1 parent body record missing', '1 barycenter host inferred']
+    );
+});

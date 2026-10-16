@@ -299,6 +299,7 @@ function buildNodeRecord(body, parentsMeta){
         volcanism: body.volcanism_type ?? body.volcanism ?? null,
         materials: body.materials ?? null,
         directBaryParentId: parentsMeta.directBaryParentId,
+        parentInferredFromMembers: false,
         baryChildren: [],
         baryNodeTarget: null,
         baryConnectorPoint: null,
@@ -311,6 +312,66 @@ function buildNodeRecord(body, parentsMeta){
         hasSurfaceStation: false,
         raw: body
     };
+}
+
+// Some EDDN body snapshots include a barycenter record without its own parent
+// chain, while its member bodies retain a shared, known host. Attach that
+// barycenter to the shared host for layout only; the original record remains
+// untouched and the caller can surface a data-quality warning.
+function inferMissingBarycenterParents(nodes){
+    const membersByBarycenter = new Map();
+    [...nodes.values()].forEach(node => {
+        const barycenterId = node.directBaryParentId;
+        if(barycenterId == null || !nodes.has(barycenterId)) return;
+        if(!membersByBarycenter.has(barycenterId)){
+            membersByBarycenter.set(barycenterId, []);
+        }
+        membersByBarycenter.get(barycenterId).push(node);
+    });
+
+    const inferred = [];
+    membersByBarycenter.forEach((members, barycenterId) => {
+        const barycenter = nodes.get(barycenterId);
+        if(!isBarycenter(barycenter) || barycenter.parentId != null) return;
+        const hostIds = new Set(
+            members
+                .map(member => member.parentId)
+                .filter(hostId => hostId != null && nodes.has(hostId))
+        );
+        if(hostIds.size !== 1) return;
+        barycenter.parentId = [...hostIds][0];
+        barycenter.parentInferredFromMembers = true;
+        inferred.push(barycenter);
+    });
+    return inferred;
+}
+
+function collectDataQualityWarnings(nodes, inferredBarycenters = []){
+    const missingParentIds = new Set();
+    [...nodes.values()].forEach(node => {
+        const parents = node.raw?.parents;
+        if(!Array.isArray(parents)) return;
+        parents.forEach(parent => {
+            if(!parent || typeof parent !== 'object') return;
+            const [type, id] = Object.entries(parent)[0] || [];
+            if(!['star', 'planet', 'null', 'barycenter', 'barycentre'].includes(String(type).toLowerCase())){
+                return;
+            }
+            const numericId = toId(id);
+            if(numericId != null && !nodes.has(numericId)){
+                missingParentIds.add(numericId);
+            }
+        });
+    });
+
+    const warnings = [];
+    if(missingParentIds.size){
+        warnings.push(`${missingParentIds.size} parent body record${missingParentIds.size === 1 ? '' : 's'} missing`);
+    }
+    if(inferredBarycenters.length){
+        warnings.push(`${inferredBarycenters.length} barycenter host${inferredBarycenters.length === 1 ? '' : 's'} inferred`);
+    }
+    return warnings;
 }
 
 // Recover the member names of a barycenter from its own name:
@@ -666,9 +727,14 @@ function buildSystemTree(bodies, stations = [], surfaceStations = []){
         }
     });
 
+    const inferredBarycenters = inferMissingBarycenterParents(nodes);
     associateBarycenterMembers(nodes);
     const roots = buildLayoutTree(nodes);
-    return { nodes, roots };
+    return {
+        nodes,
+        roots,
+        dataQualityWarnings: collectDataQualityWarnings(nodes, inferredBarycenters)
+    };
 }
 
 function buildRootIds(bodies){
@@ -727,6 +793,8 @@ const api = {
     hasStarDescendant,
     getNodeMass,
     normalizeMassToUnit,
+    inferMissingBarycenterParents,
+    collectDataQualityWarnings,
     pairKey,
     EARTH_MASS_TO_SOLAR,
     SPEED_OF_LIGHT_METRES_PER_SECOND
