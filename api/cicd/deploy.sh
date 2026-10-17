@@ -49,6 +49,7 @@ TMP_CHANGED_FILE_LIST=$(mktemp)
     echo static/js/sysmap_roots.js
     echo static/js/sysmap_materials.js
     echo static/js/sysmap.js
+    echo static/js/sysmap_architect.js
     echo static/assets/fleetcarrierstation.svg
     echo static/assets/fleetcarrierstack.svg
     echo static/assets/installationstation.svg
