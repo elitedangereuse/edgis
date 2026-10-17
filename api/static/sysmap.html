@@ -80,10 +80,14 @@
 
         const svgOnly = parseBoolQueryParam(getQueryParam(['svgOnly', 'svg_only']));
         const fixture = getQueryParam(['fixture']);
+        const architectModeEnabled = document.cookie
+          .split(';')
+          .some((entry) => entry.trim() === 'ARCHITECT=1');
         const defaultSystemName = 'Maia';
         document.documentElement.dataset.svgOnly = svgOnly ? 'true' : 'false';
         window.EDGIS_SYSMAP_CONFIG = {
           svgOnly,
+          architectModeEnabled: architectModeEnabled && !svgOnly,
           defaultSystemName,
         };
         if (fixture === 'body-palette') {
@@ -233,5 +237,13 @@
     <script src="/static/js/sysmap_roots.js?v=20261017a" defer></script>
     <script src="/static/js/sysmap_materials.js?v=20261013c" defer></script>
     <script src="/static/js/sysmap.js?v=20261017f" defer></script>
+    <script>
+      if (window.EDGIS_SYSMAP_CONFIG?.architectModeEnabled) {
+        const architectScript = document.createElement('script');
+        architectScript.src = '/static/js/sysmap_architect.js?v=20261017a';
+        architectScript.defer = true;
+        document.head.appendChild(architectScript);
+      }
+    </script>
   </body>
 </html>
