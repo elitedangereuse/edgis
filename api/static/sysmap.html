@@ -83,11 +83,14 @@
         const architectModeEnabled = document.cookie
           .split(';')
           .some((entry) => entry.trim() === 'ARCHITECT=1');
+        const architectDraft = architectModeEnabled
+          && getQueryParam(['architect']) === 'draft';
         const defaultSystemName = 'Maia';
         document.documentElement.dataset.svgOnly = svgOnly ? 'true' : 'false';
         window.EDGIS_SYSMAP_CONFIG = {
           svgOnly,
           architectModeEnabled: architectModeEnabled && !svgOnly,
+          architectDraft: architectDraft && !svgOnly,
           defaultSystemName,
         };
         if (fixture === 'body-palette') {
@@ -236,13 +239,17 @@
     </script>
     <script src="/static/js/sysmap_roots.js?v=20261017a" defer></script>
     <script src="/static/js/sysmap_materials.js?v=20261013c" defer></script>
-    <script src="/static/js/sysmap.js?v=20261017f" defer></script>
+  <script src="/static/js/sysmap.js?v=20261019a" defer></script>
     <script>
       if (window.EDGIS_SYSMAP_CONFIG?.architectModeEnabled) {
         const architectScript = document.createElement('script');
-        architectScript.src = '/static/js/sysmap_architect.js?v=20261017a';
+        architectScript.src = '/static/js/sysmap_architect.js?v=20261019b';
         architectScript.defer = true;
         document.head.appendChild(architectScript);
+        const colonyScript = document.createElement('script');
+        colonyScript.src = '/static/js/sysmap_colony.js?v=20261019c';
+        colonyScript.defer = true;
+        document.head.appendChild(colonyScript);
       }
     </script>
   </body>
