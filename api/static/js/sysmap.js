@@ -13,6 +13,7 @@
     const svg = document.getElementById('svg');
     const config = globalThis.EDGIS_SYSMAP_CONFIG || {};
     const svgOnlyMode = Boolean(config.svgOnly);
+    const architectDraftFromURL = Boolean(config.architectDraft);
     const defaultSystemName = config.defaultSystemName || 'Maia';
     const fixtureUrl = typeof config.fixtureUrl === 'string' ? config.fixtureUrl : null;
     const showAllLabels = Boolean(config.showAllLabels);
@@ -768,7 +769,7 @@
         return defaultSystemName;
     }
 
-    const initialSystem = resolveActiveSystemName();
+    const initialSystem = architectDraftFromURL ? null : resolveActiveSystemName();
     if (initialSystem) {
         const initialRender = renderSystem(initialSystem, {
             bodyId: bodyIdFromURL,
@@ -995,6 +996,17 @@
         const surfaceStations = allStations.filter(SysmapRoots.isSurfaceStation);
         const systemMetadata = data?.system || {};
         if(!bodyData || !Array.isArray(bodyData)) return false;
+        if(config.architectModeEnabled && globalThis.EDGIS_ARCHITECT_DRAFT_ACTIVE){
+            const architectSource = {
+                systemName: data?.system?.name || normalizedSystemName,
+                bodies: bodyData,
+            };
+            globalThis.EDGIS_ARCHITECT_SOURCE_SYSTEM = architectSource;
+            globalThis.dispatchEvent(new CustomEvent('edgis:architect-source-system', {
+                detail: architectSource,
+            }));
+            return true;
+        }
         let requestedBodyId = null;
         if(bodyId !== null && bodyId !== undefined){
             const bodyIdNumber = Number(bodyId);
@@ -1018,6 +1030,18 @@
             bodyData, [...stations, ...carriers], surfaceStations
         );
         setDataQualityWarning(dataQualityWarnings);
+        if(config.architectModeEnabled){
+            // The Architect module is loaded only for the private feature flag.
+            // Keep its source snapshot separate from the read-only Sysmap data.
+            const architectSource = {
+                systemName: resolvedSystemName,
+                bodies: bodyData,
+            };
+            globalThis.EDGIS_ARCHITECT_SOURCE_SYSTEM = architectSource;
+            globalThis.dispatchEvent(new CustomEvent('edgis:architect-source-system', {
+                detail: architectSource,
+            }));
+        }
 
         // First pass: compute subtree sizes
         roots.forEach(r => computeSize(r, 1));
@@ -1051,11 +1075,19 @@
             }
         }
 
+        if(config.architectModeEnabled && globalThis.EDGIS_ARCHITECT_DRAFT_ACTIVE){
+            return true;
+        }
         const bounds = computeBounds([...nodes.values()]);
         draw(
             [...nodes.values()], bounds, resolvedSystemName, requestedBodyId,
             systemMetadata, requestedStationId
         );
+        if(config.architectModeEnabled){
+            globalThis.dispatchEvent(new CustomEvent('edgis:sysmap-rendered', {
+                detail: { systemName: resolvedSystemName }
+            }));
+        }
         if(isEmbedPanelVisible()){
             updateEmbedLinkField();
         }
@@ -1085,7 +1117,7 @@
     }
 
     // Recursively compute subtree size (width, height)
-    function computeSize(node, depth){
+    function computeSize(node, depth, childAxis = null){
         node.radiusScaled = scaleRadius(node.radius, node.type, node.subType);
         node.layoutRadius = node.radiusScaled;
         if(isStellarRingNode(node)){
@@ -1101,10 +1133,11 @@
 
         let totalW = 0, totalH = 0;
 
-        if(depth % 2 === 1){  // horizontal layout
+        const horizontal = childAxis ? childAxis(node, depth) : depth % 2 === 1;
+        if(horizontal){  // horizontal layout
             let maxH = 0;
             node.children.forEach(c => {
-                const sz = computeSize(c, depth+1);
+                const sz = computeSize(c, depth+1, childAxis);
                 totalW += sz.width + hGap;
                 if(sz.height > maxH) maxH = sz.height;
             });
@@ -1125,10 +1158,11 @@
     }
 
     // Place nodes based on computed sizes
-    function placeChildren(parent, depth){
+    function placeChildren(parent, depth, childAxis = null){
         const kids = parent.children.filter(child => !isBarycenter(child));
         if(kids.length === 0) return;
-        if(depth % 2 === 1){ // horizontal
+        const horizontal = childAxis ? childAxis(parent, depth) : depth % 2 === 1;
+        if(horizontal){ // horizontal
             let xCursor = parent.x + parent.radiusScaled + hGap;
             if (depth > 1) {
                 xCursor = parent.x + hGap * 0.8;
@@ -1136,7 +1170,7 @@
             kids.forEach(c => {
                 c.y = parent.y;
                 c.x = xCursor + c.radiusScaled;
-                placeChildren(c, depth+1);
+                placeChildren(c, depth+1, childAxis);
                 if (c.rings) {
                     xCursor += c.width * 1.3 + hGap;
                 } else {
@@ -1148,7 +1182,7 @@
             kids.forEach(c => {
                 c.x = parent.x;
                 c.y = yCursor + c.radiusScaled;
-                placeChildren(c, depth+1);
+                placeChildren(c, depth+1, childAxis);
                 yCursor += c.height * 0.5 + vGap;
             });
         }
@@ -1163,6 +1197,111 @@
             if(n.y > maxY) maxY = n.y;
         }
         return { maxX: maxX + 120, maxY: maxY + 120 };
+    }
+
+    // Architect drafts use the same alternating subtree-size and placement
+    // algorithm as survey data.  They retain their own lightweight parentId
+    // representation, so adapt it here rather than duplicating layout rules.
+    function layoutArchitectBodies(bodies){
+        const sourceBodies = Array.isArray(bodies) ? bodies : [];
+        const numericIds = new Map(sourceBodies.map((body, index) => [body.id, index + 1]));
+        const sourceByNumericId = new Map(sourceBodies.map((body) => [numericIds.get(body.id), body]));
+        const rawBodies = sourceBodies.map((body) => {
+            const parent = body.parentId ? sourceByNumericId.get(numericIds.get(body.parentId)) : null;
+            const parentId = body.parentId ? numericIds.get(body.parentId) : null;
+            const parentType = parent?.type === 'Barycenter' ? 'Null' : 'Planet';
+            return {
+                body_id: numericIds.get(body.id),
+                body_name: body.name,
+                type: body.type,
+                star_type: body.starType,
+                planet_class: body.subtype,
+                radius: body.type === 'Barycenter' ? 2916 : body.radius,
+                stellar_mass: body.type === 'Star' ? body.mass : undefined,
+                mass_em: body.type === 'Planet' ? body.mass : undefined,
+                surface_temperature: body.temperature,
+                rotation_period: body.rotationalPeriod,
+                axial_tilt: body.axialTilt,
+                orbital_period: body.orbitalPeriod,
+                semi_major_axis: body.semiMajorAxis,
+                orbital_eccentricity: body.eccentricity,
+                orbital_inclination: body.inclination,
+                surface_pressure: body.surfacePressure,
+                parents: parentId ? [{ [parentType]: parentId }] : [],
+                architectDraftId: body.id,
+            };
+        });
+        const tree = SysmapRoots.buildSystemTree(rawBodies);
+        const nodes = [...tree.nodes.values()];
+        const byId = new Map(nodes.map((node) => [node.raw?.architectDraftId, node]));
+        const roots = tree.roots;
+        // Direct star orbiters use the familiar right-hand orbital rail.
+        // Once a planet is selected as a parent, Architect keeps its children
+        // below it so the on-canvas child control has a stable visual meaning.
+        const architectChildAxis = (parent) => parent.type === 'Star';
+        roots.forEach((root) => computeSize(root, 1, architectChildAxis));
+        let yCursor = 80;
+        roots.forEach((root) => {
+            root.x = rootX * 3;
+            root.y = yCursor + root.radiusScaled;
+            root.layoutPositioned = true;
+            placeChildren(root, 1, architectChildAxis);
+            yCursor += root.height + vGap * 3.5;
+        });
+
+        // Keep direct manipulation spatially predictable.  A body created
+        // below another remains below it; one inserted at either side remains
+        // on that side.  Drafts created before these hints existed infer the
+        // same pattern from their child order.
+        const sourceById = new Map(sourceBodies.map((body) => [body.id, body]));
+        const sourceChildren = new Map(sourceBodies.map((body) => [body.id, []]));
+        sourceBodies.forEach((body) => {
+            if(body.parentId && sourceChildren.has(body.parentId)){
+                sourceChildren.get(body.parentId).push(body);
+            }
+        });
+        const placeRelative = (node, anchor, direction) => {
+            if(direction === 'left'){
+                node.x = anchor.x - anchor.radiusScaled - hGap - node.radiusScaled;
+                node.y = anchor.y;
+            } else if(direction === 'below'){
+                node.x = anchor.x;
+                node.y = anchor.y + anchor.radiusScaled + vGap + node.radiusScaled;
+            } else {
+                node.x = anchor.x + anchor.radiusScaled + hGap + node.radiusScaled;
+                node.y = anchor.y;
+            }
+        };
+        const placeDraftChildren = (parent, seen = new Set()) => {
+            if(!parent || seen.has(parent.id)) return;
+            const nextSeen = new Set(seen);
+            nextSeen.add(parent.id);
+            const parentNode = byId.get(parent.id);
+            const children = sourceChildren.get(parent.id) || [];
+            children.forEach((child, index) => {
+                const childNode = byId.get(child.id);
+                if(!childNode || !parentNode) return;
+                const fallbackAnchor = index === 0 ? parent : children[index - 1];
+                const anchor = sourceById.get(child.layoutAnchorId) || fallbackAnchor;
+                const anchorNode = byId.get(anchor.id) || parentNode;
+                const fallbackDirection = index === 0
+                    ? (parent.type === 'Star' ? 'right' : 'below')
+                    : 'right';
+                placeRelative(childNode, anchorNode, child.layoutDirection || fallbackDirection);
+                placeDraftChildren(child, nextSeen);
+            });
+        };
+        sourceBodies
+            // A star which is part of a barycentre is still the local root of
+            // its own planetary branch.  Give that branch its explicit draft
+            // placements too (rather than leaving it on the barycentre rail).
+            .filter((body) => {
+                const parent = body.parentId ? sourceById.get(body.parentId) : null;
+                return (!body.parentId || parent?.type === 'Barycenter') && body.type !== 'Barycenter';
+            })
+            .forEach((root) => placeDraftChildren(root));
+
+        return { nodes, byId, roots, bounds: computeBounds(nodes) };
     }
 
     function addAtmosphere(n, group) {
@@ -1690,6 +1829,51 @@
         group.appendChild(mask);
 
         addRings(n, group, maskId);
+    }
+
+    function appendBarycenterGlyph(group){
+        const outerCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        outerCircle.setAttribute('r', BARY_ICON_RADIUS);
+        outerCircle.setAttribute('stroke', '#8d9bc2');
+        outerCircle.setAttribute('stroke-width', '.4');
+
+        const innerCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        innerCircle.setAttribute('r', 3);
+        innerCircle.setAttribute('stroke', '#eef2ff');
+        innerCircle.setAttribute('stroke-width', '.4');
+
+        const leftDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        leftDot.setAttribute('cx', -3);
+        leftDot.setAttribute('cy', 0);
+        leftDot.setAttribute('r', 1.5);
+        leftDot.setAttribute('fill', '#eef2ff');
+
+        const rightDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        rightDot.setAttribute('cx', BARY_ICON_RADIUS);
+        rightDot.setAttribute('cy', 0);
+        rightDot.setAttribute('r', .8);
+        rightDot.setAttribute('fill', '#8d9bc2');
+        group.append(outerCircle, innerCircle, leftDot, rightDot);
+    }
+
+    if(config.architectModeEnabled){
+        globalThis.EDGIS_SYSMAP_ARCHITECT_RENDERER = {
+            starTypes: Object.entries(starTypeMap).map(([code, label]) => ({ code, label })),
+            planetTypes: [
+                'Earthlike body', 'Ammonia world', 'Water world', 'High metal content world',
+                'Metal-rich body', 'Rocky body', 'Rocky ice world', 'Icy body',
+                'Class I gas giant', 'Class II gas giant', 'Class III gas giant',
+                'Class IV gas giant', 'Class V gas giant',
+                'Gas giant with water-based life', 'Gas giant with ammonia-based life',
+                'Helium-rich gas giant',
+            ],
+            ringTypes: [...new Set(Object.values(ringTypeInfo).map((ring) => ring.label))],
+            prepareCanvas: () => addSvgDefs(0),
+            drawStar: (node, group) => addStar(node, group),
+            drawPlanet: (node, group) => addPlanet(node, group),
+            drawBarycenterIcon: (group) => appendBarycenterGlyph(group),
+            layoutDraftBodies: (bodies) => layoutArchitectBodies(bodies),
+        };
     }
 
     function addStellarRingBody(n, group){
@@ -2320,35 +2504,7 @@
             group.setAttribute('role', 'button');
             group.setAttribute('aria-label', baryNode?.name ? `Barycenter ${baryNode.name}` : 'Barycenter');
 
-            const outerRadius = BARY_ICON_RADIUS;
-            const innerRadius = 3;
-
-            const outerCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-            outerCircle.setAttribute('r', outerRadius);
-            outerCircle.setAttribute('stroke', '#8d9bc2');
-            outerCircle.setAttribute('stroke-width', '.4');
-
-            const innerCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-            innerCircle.setAttribute('r', innerRadius);
-            innerCircle.setAttribute('stroke', '#eef2ff');
-            innerCircle.setAttribute('stroke-width', '.4');
-
-            const leftDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-            leftDot.setAttribute('cx', -innerRadius);
-            leftDot.setAttribute('cy', 0);
-            leftDot.setAttribute('r', 1.5);
-            leftDot.setAttribute('fill', '#eef2ff');
-
-            const rightDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-            rightDot.setAttribute('cx', outerRadius);
-            rightDot.setAttribute('cy', 0);
-            rightDot.setAttribute('r', .8);
-            rightDot.setAttribute('fill', '#8d9bc2');
-
-            group.appendChild(outerCircle);
-            group.appendChild(innerCircle);
-            group.appendChild(leftDot);
-            group.appendChild(rightDot);
+            appendBarycenterGlyph(group);
             group.style.cursor = 'pointer';
             group.style.pointerEvents = 'auto';
             group.style.touchAction = 'manipulation';
