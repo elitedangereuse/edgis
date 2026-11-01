@@ -85,6 +85,12 @@
     let showCarriers = ['1', 'true', 'yes', 'on'].includes(
         (urlParams.get('carrier') ?? urlParams.get('carriers') ?? '').toLowerCase()
     );
+    // Embedded views (e.g. the Galactic Hunt iframe) can preselect a body without
+    // its info card popping open over a small viewport: pass info=0 (or panel=0).
+    // The body stays selected/marked and the info toggle button reopens the card.
+    const autoShowInfoPanel = !['0', 'false', 'no', 'off'].includes(
+        (urlParams.get('info') ?? urlParams.get('panel') ?? '').toLowerCase()
+    );
     const parseBodyIdParam = (value) => {
         if(value === null || value === undefined || value === ''){
             return null;
@@ -2502,6 +2508,10 @@
             const matched = selectBodyById(normalizedPreselectId);
             if(!matched){
                 handleSelectionChange();
+            } else if(!autoShowInfoPanel){
+                // Keep the body selected and marked, but don't let its card cover
+                // the map; the info toggle button reopens it on demand.
+                hideInfoPanel();
             }
         }
         const normalizedStationMarketId = parseStationMarketId(preselectStationMarketId);
