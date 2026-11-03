@@ -3169,13 +3169,32 @@ async def auth_me(request: Request):
     }
 
 
+_route_trace_logger = logging.getLogger("edgis.route_trace")
+if not _route_trace_logger.handlers:
+    _route_trace_logger.propagate = False
+    _route_trace_logger.setLevel(logging.INFO)
+    _rt_path = os.getenv("ROUTE_TRACE_FILE") or os.path.join(
+        os.path.dirname(__file__), "route_trace.jsonl"
+    )
+    try:
+        from logging.handlers import RotatingFileHandler
+
+        _rt_handler = RotatingFileHandler(
+            _rt_path, maxBytes=5_000_000, backupCount=3
+        )
+        _rt_handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+        _route_trace_logger.addHandler(_rt_handler)
+    except Exception:  # pragma: no cover - tracing must never break startup
+        pass
+
+
 def _log_route_trace(kind: str, **fields: Any) -> None:
-    """One structured line per plot/compare for comparison + failure triage
-    (grep ``ROUTE_TRACE`` in journalctl)."""
+    """One structured JSON line per plot/compare, for side-by-side comparison
+    and failure triage. Written to ROUTE_TRACE_FILE (default
+    api/route_trace.jsonl, rotated at 5 MB x3)."""
 
     try:
-        # request_logger (uvicorn.error) is the one wired to stdout/journald.
-        request_logger.info("ROUTE_TRACE %s", json.dumps({"kind": kind, **fields}))
+        _route_trace_logger.info(json.dumps({"kind": kind, **fields}))
     except Exception:  # pragma: no cover - logging must never break a request
         pass
 
