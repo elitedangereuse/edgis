@@ -1027,7 +1027,7 @@ def test_apply_mode_scaling_edsm_handles_units():
 
 
 def test_bodies_mode_query_passthrough(monkeypatch):
-    def fake_fetch_bodies_from_db(name_or_id, mode=None):
+    def fake_fetch_bodies_from_db(name_or_id, mode=None, body_id=None):
         return [{"name_or_id": name_or_id, "mode": mode}]
 
     monkeypatch.setattr(
