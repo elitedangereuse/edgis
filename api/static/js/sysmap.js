@@ -1,4 +1,4 @@
-(async function(){
+void (async function(){
     const SysmapRoots = globalThis.SysmapRoots;
     if(!SysmapRoots){
         throw new Error('sysmap_roots.js must be loaded before sysmap.js');
@@ -277,7 +277,7 @@
 
     if (loadButton && systemInput) {
         loadButton.addEventListener('click', () => {
-            renderSystem(systemInput.value.trim());
+            void renderSystem(systemInput.value.trim());
         });
     }
 
@@ -317,11 +317,11 @@
                 clearTimeout(systemAutocompleteTimer);
             }
             systemAutocompleteTimer = setTimeout(() => {
-                fetchSystemSuggestions(systemInput.value);
+                void fetchSystemSuggestions(systemInput.value);
             }, SYSTEM_AUTOCOMPLETE_DELAY_MS);
         });
         systemInput.addEventListener('focus', () => {
-            fetchSystemSuggestions(systemInput.value);
+            void fetchSystemSuggestions(systemInput.value);
         });
     }
 
@@ -349,7 +349,7 @@
             if(!showStations && resolveNodeStationMarketId(selectedBodyNode) != null){
                 clearSelection({ updateShareState: false });
             }
-            renderSystem(resolveActiveSystemName(), {
+            void renderSystem(resolveActiveSystemName(), {
                 bodyId: resolveNodeBodyId(selectedBodyNode)
             });
         });
@@ -362,7 +362,7 @@
             if(!showCarriers && isNodeCarrier(selectedBodyNode)){
                 clearSelection({ updateShareState: false });
             }
-            renderSystem(resolveActiveSystemName(), {
+            void renderSystem(resolveActiveSystemName(), {
                 bodyId: resolveNodeBodyId(selectedBodyNode)
             });
         });
@@ -427,7 +427,7 @@
         systemInput.addEventListener('keydown', (event) => {
             if (event.key === 'Enter') {
                 event.preventDefault(); // avoid form submit/reload
-                renderSystem(systemInput.value.trim());
+                void renderSystem(systemInput.value.trim());
             }
         });
         systemInput.addEventListener('input', () => {
@@ -774,15 +774,15 @@
             bodyId: bodyIdFromURL,
             stationId: stationIdFromURL
         });
-        loadSysmapCssForExport();
+        void loadSysmapCssForExport();
         if (downloadMode === 'svg') {
-            initialRender.then((success) => {
+            void initialRender.then((success) => {
                 if (success) {
-                    downloadSVG();
+                    void downloadSVG();
                 }
             });
         } else if (downloadMode === 'png') {
-            initialRender.then((success) => {
+            void initialRender.then((success) => {
                 if (success) {
                     downloadPNG().catch((err) => console.error('PNG export failed', err));
                 }
