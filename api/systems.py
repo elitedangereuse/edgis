@@ -240,6 +240,9 @@ ADMIN_HTML_PATH = os.path.join(STATIC_DIR, ADMIN_HTML_FILENAME)
 REDIS_HOST = os.getenv("REDIS_HOST") or "localhost"
 REDIS_PORT = int(os.getenv("REDIS_PORT") or "6379")
 ONE_DAY_SECONDS = 60 * 60 * 24
+# TTL for the per-system /bodies and /system-map caches (env-tunable). Short by
+# default so a re-scanned system refreshes quickly; first view is always a miss.
+BODIES_CACHE_TTL = int(os.getenv("BODIES_CACHE_TTL") or str(10 * 60))
 AUTOCOMPLETE_LIMIT = 15
 DB_POOL_MAX_SIZE = max(1, int(os.getenv("DB_POOL_MAX_SIZE") or "12"))
 DB_POOL_WAIT_TIMEOUT_SECONDS = max(
@@ -2470,16 +2473,41 @@ def fetch_system_map_from_db(
     }
 
 
-# @cached(
-#     cache=RedisCache,
-#     endpoint="localhost",
-#     port=6379,
-#     ttl=86400,  # one day cache
-#     namespace="bodies",
-#     serializer=PickleSerializer(),
-# )
+_bodies_cache = RedisCache(
+    endpoint=REDIS_HOST, port=REDIS_PORT, namespace="bodies",
+    serializer=PickleSerializer(),
+)
+
+
+async def _fetch_bodies_cached(
+    name_or_id: str, mode: Optional[str], body_id: Optional[int]
+):
+    """Best-effort Redis cache for the heavy per-system bodies query.
+
+    Keyed by (name_or_id, mode, body_id). If Redis is unavailable the query
+    still runs (we skip the cache), so a cache outage can never take the
+    endpoint down. Not-found (None) results are not cached. The first view of a
+    system is a miss (fresh); later views within BODIES_CACHE_TTL hit Redis.
+    """
+    cache_key = f"{name_or_id}|{mode}|{body_id}"
+    try:
+        cached_value = await _bodies_cache.get(cache_key)
+    except Exception:
+        logger.warning("bodies cache read failed; using DB", exc_info=True)
+        cached_value = None
+    if cached_value is not None:
+        return cached_value
+    result = await _run_db_task(fetch_bodies_from_db, name_or_id, mode, body_id)
+    if result is not None:
+        try:
+            await _bodies_cache.set(cache_key, result, ttl=BODIES_CACHE_TTL)
+        except Exception:
+            logger.warning("bodies cache write failed", exc_info=True)
+    return result
+
+
 @app.get("/bodies", include_in_schema=True)
-def bodies(
+async def bodies(
     name_or_id: str = Query(..., description="The name or id64 of the system"),
     body_id: Optional[int] = Query(
         None, description="Optional body_id to narrow to a single body"
@@ -2488,10 +2516,7 @@ def bodies(
         None, description="Optional response mode adjustments"
     ),
 ):
-    if body_id is None:
-        result = fetch_bodies_from_db(name_or_id, mode=mode)
-    else:
-        result = fetch_bodies_from_db(name_or_id, mode=mode, body_id=body_id)
+    result = await _fetch_bodies_cached(name_or_id, mode, body_id)
     if result is None:
         return JSONResponse(
             content={"error": SYSTEM_NOT_FOUND}, status_code=404
@@ -2499,15 +2524,40 @@ def bodies(
     return result
 
 
+_system_map_cache = RedisCache(
+    endpoint=REDIS_HOST, port=REDIS_PORT, namespace="system_map",
+    serializer=PickleSerializer(),
+)
+
+
+async def _fetch_system_map_cached(name_or_id: str, mode: Optional[str]):
+    """Best-effort Redis cache for /system-map (same heavy query as /bodies)."""
+    cache_key = f"{name_or_id}|{mode}"
+    try:
+        cached_value = await _system_map_cache.get(cache_key)
+    except Exception:
+        logger.warning("system_map cache read failed; using DB", exc_info=True)
+        cached_value = None
+    if cached_value is not None:
+        return cached_value
+    result = await _run_db_task(fetch_system_map_from_db, name_or_id, mode)
+    if result is not None:
+        try:
+            await _system_map_cache.set(cache_key, result, ttl=BODIES_CACHE_TTL)
+        except Exception:
+            logger.warning("system_map cache write failed", exc_info=True)
+    return result
+
+
 @app.get("/system-map", include_in_schema=True)
-def system_map(
+async def system_map(
     name_or_id: str = Query(..., description="The name or id64 of the system"),
     mode: Optional[str] = Query(
         None, description="Optional response mode adjustments for bodies"
     ),
 ):
     """Return the system-map data without changing the established /bodies API."""
-    result = fetch_system_map_from_db(name_or_id, mode=mode)
+    result = await _fetch_system_map_cached(name_or_id, mode)
     if result is None:
         return JSONResponse(
             content={"error": SYSTEM_NOT_FOUND}, status_code=404
