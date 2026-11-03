@@ -3203,6 +3203,67 @@ async def plot_route(
     return result
 
 
+@app.get("/spansh/route", include_in_schema=False)
+async def spansh_route(
+    from_: str = Query(..., alias="from", min_length=1),
+    to: str = Query(..., min_length=1),
+    jump_range: float = Query(50.0, alias="range", gt=0, le=200),
+    efficiency: int = Query(60, ge=1, le=100),
+    access: dict = Depends(entitlements.require_entitlement("route")),
+):
+    """Proxy spansh's neutron plotter (POST job + poll) for side-by-side
+    comparison. Returns the real physical jump count (sum of per-leg `jumps`),
+    since spansh's `total_jumps` is a waypoint count."""
+
+    payload = {
+        "efficiency": str(efficiency),
+        "range": f"{jump_range:g}",
+        "from": from_,
+        "to": to,
+        "supercharge_multiplier": "4",
+    }
+    headers = {"User-Agent": EXTERNAL_USER_AGENT, "Accept": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=15, headers=headers) as client:
+            submit = await client.post(
+                "https://spansh.co.uk/api/route", data=payload
+            )
+            submit.raise_for_status()
+            job = submit.json().get("job")
+            if not job:
+                raise HTTPException(502, "spansh did not return a job")
+            for _ in range(40):
+                await asyncio.sleep(1.0)
+                poll = await client.get(
+                    f"https://spansh.co.uk/api/results/{job}"
+                )
+                poll.raise_for_status()
+                data = poll.json()
+                if data.get("result"):
+                    res = data["result"]
+                    legs = res.get("system_jumps", [])
+                    total = sum(int(x.get("jumps", 0)) for x in legs)
+                    flown = sum(
+                        float(x.get("distance_jumped", 0)) for x in legs
+                    )
+                    return {
+                        "source": res.get("source_system", from_),
+                        "destination": res.get("destination_system", to),
+                        "total_jumps": total,
+                        "waypoints": res.get("total_jumps"),
+                        "distance_ly": res.get("distance"),
+                        "total_distance_ly": flown,
+                        "efficiency": efficiency,
+                        "jump_range": jump_range,
+                        "job": job,
+                    }
+                if str(data.get("status")) in ("error", "failed"):
+                    raise HTTPException(502, "spansh job failed")
+            raise HTTPException(504, "spansh plot timed out")
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"spansh request failed: {exc}")
+
+
 @app.post("/admin/route/rebuild-index", include_in_schema=False)
 def rebuild_route_index(request: Request):
     _require_admin_token(request)
