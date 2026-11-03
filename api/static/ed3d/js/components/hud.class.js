@@ -43,7 +43,7 @@ var HUD = {
             $('#hud').append(
                 '<div>'+
                     '  <div id="hud-infos">'+
-                    '    <h8>Infos</h8>'+
+                    '    <h6>Infos</h6>'+
                     '     Dist. Sol <span id="distsol"></span>'+
                     '    <div id="coords" class="coords">'+
                     '      <span id="cx"></span><span id="cy"></span><span id="cz"></span></div>'+
@@ -363,7 +363,7 @@ var HUD = {
                 var count = 0;
                 var visible = true;
 
-                $('#filters').append('<h8>'+typeFilter+'</h8>');
+                $('#filters').append('<h6>'+typeFilter+'</h6>');
                 $('#filters').append('<div id="'+groupId+'"></div>');
 
                 $.each(values, function(key, val) {
@@ -495,7 +495,7 @@ var HUD = {
     'setInfoPanel' : function(index, point) {
 
         $('#systemDetails').html(
-            '<h8>'+point.name+'</h8>'+
+            '<h6>'+point.name+'</h6>'+
                 '<div class="coords">'+
                 '  <span>'+point.x+'</span><span>'+point.y+'</span><span>'+(-point.z)+'</span></div>'+
                 '  <p id="infos"></p>'+

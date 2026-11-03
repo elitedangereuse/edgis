@@ -642,7 +642,7 @@
       applyPendingSharedFacetSelection();
       applyActivePointColorMode();
       if (boxelOverlayEnabled) {
-        refreshBoxelOverlay();
+        void refreshBoxelOverlay();
       }
     }
 
@@ -663,7 +663,7 @@
     }
 
     function applyHudFilterPanelTitle() {
-      const filterTitle = document.querySelector('#hud #filters > h8');
+      const filterTitle = document.querySelector('#hud #filters > h6');
       if (!filterTitle) {
         return;
       }
@@ -768,7 +768,7 @@
         existing.remove();
       }
 
-      const filterTitle = filtersRoot.querySelector(':scope > h8');
+      const filterTitle = filtersRoot.querySelector(':scope > h6');
       if (!filterTitle) {
         return;
       }
@@ -1145,7 +1145,7 @@
         existing.remove();
       }
 
-      const filterTitle = filtersRoot.querySelector(':scope > h8');
+      const filterTitle = filtersRoot.querySelector(':scope > h6');
       if (!filterTitle) {
         return;
       }
@@ -3589,7 +3589,7 @@
       setEdgisHomeLoadingState(true);
       cameraRefreshTimer = setTimeout(() => {
         cameraRefreshTimer = null;
-        reloadSystemsAroundCurrentCamera(center, options);
+        void reloadSystemsAroundCurrentCamera(center, options);
       }, debounceMs);
     }
 
@@ -3891,7 +3891,7 @@
         systemData = { name: targetName, bodies: [] };
       }
 
-      queueAutoSelectByName(targetEntry.name, targetEntry.infos ?? { name: targetName });
+      void queueAutoSelectByName(targetEntry.name, targetEntry.infos ?? { name: targetName });
     }
 
     function calculatePositionsFromSystems(systems) {
@@ -4127,7 +4127,7 @@
        return dst.toString();
      }
 
-     (async function() {
+     void (async function() {
        const params = urlParams;
        const raw = {
          x: params.get('x'),
@@ -4240,7 +4240,7 @@
 
        edgisHref.href = convertEdUrl(window.location.href);
        updateEdgisLinks(resolvedCenter);
-       drawSystems(
+       void drawSystems(
          resolvedCenter.x,
          resolvedCenter.y,
          resolvedCenter.z,
@@ -4642,7 +4642,7 @@
 
       if (loadButton) {
         loadButton.addEventListener('click', () => {
-          runSystemSearch();
+          void runSystemSearch();
         });
       }
 
@@ -4650,7 +4650,7 @@
         systemInput.addEventListener('keydown', (event) => {
           if (event.key === 'Enter') {
             event.preventDefault();
-            runSystemSearch();
+            void runSystemSearch();
           }
         });
         systemInput.addEventListener('input', () => {
@@ -4658,11 +4658,11 @@
             clearTimeout(systemAutocompleteTimer);
           }
           systemAutocompleteTimer = setTimeout(() => {
-            fetchSystemSuggestions(systemInput.value);
+            void fetchSystemSuggestions(systemInput.value);
           }, SYSTEM_AUTOCOMPLETE_DELAY_MS);
         });
         systemInput.addEventListener('focus', () => {
-          fetchSystemSuggestions(systemInput.value);
+          void fetchSystemSuggestions(systemInput.value);
         });
       }
 
@@ -4864,13 +4864,13 @@
 
       if (radiusDownButton) {
         radiusDownButton.addEventListener('click', () => {
-          adjustRadiusByFactor(0.9);
+          void adjustRadiusByFactor(0.9);
         });
       }
 
       if (radiusUpButton) {
         radiusUpButton.addEventListener('click', () => {
-          adjustRadiusByFactor(1.1);
+          void adjustRadiusByFactor(1.1);
         });
       }
 
