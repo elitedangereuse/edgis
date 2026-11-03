@@ -114,6 +114,76 @@ def test_route_success_path(monkeypatch):
     assert len(body["jumps"]) == 2
 
 
+def test_route_patron_access(monkeypatch):
+    _gate_future(monkeypatch)
+    monkeypatch.delenv("ENTITLEMENT_KEYS", raising=False)
+    monkeypatch.delenv("ROUTE_ACCESS_KEYS", raising=False)
+    monkeypatch.delenv("ADMIN_TOKEN", raising=False)
+    monkeypatch.setattr(systems, "_neutron_index", object())
+
+    async def fake_resolve(value):
+        return {"Sol": (0.0, 0.0, 0.0), "X": (0.0, 0.0, 10.0)}[value], value
+
+    monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
+    monkeypatch.setattr(
+        systems,
+        "_solve_route_sync",
+        lambda *a: {
+            "jump_range": 50.0,
+            "boost_range": 200.0,
+            "straight_line_ly": 10.0,
+            "total_jumps": 1,
+            "neutron_jumps": 1,
+            "bridge_jumps": 0,
+            "total_distance_ly": 10.0,
+            "efficiency": 1.0,
+            "beam_width": 3,
+            "solve_ms": 0.1,
+            "jumps": [
+                {
+                    "system": None,
+                    "id64": None,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 10.0,
+                    "type": "boost",
+                    "neutron_star": False,
+                    "distance_jumped": 10.0,
+                    "distance_left": 0.0,
+                }
+            ],
+        },
+    )
+
+    async def patron(_request):
+        return {"entitled": True, "name": "CMDR Jameson", "tier": "supporter"}
+
+    monkeypatch.setattr(systems.entitlements, "_patron_resolver", patron)
+    resp = client.get("/route", params={"from": "Sol", "to": "X"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["access"] == "patron"
+
+
+def test_auth_me_guest_and_patron(monkeypatch):
+    async def guest(_request):
+        return None
+
+    monkeypatch.setattr(systems.patreon_auth, "resolve_patron", guest)
+    body = client.get("/auth/me").json()
+    assert body["authenticated"] is False
+    assert body["patron"] is False
+    assert body["login_url"]
+
+    async def patron(_request):
+        return {"entitled": True, "name": "CMDR Jameson", "tier": "supporter"}
+
+    monkeypatch.setattr(systems.patreon_auth, "resolve_patron", patron)
+    body = client.get("/auth/me").json()
+    assert body["authenticated"] is True
+    assert body["patron"] is True
+    assert body["name"] == "CMDR Jameson"
+
+
 def test_route_status_is_public_and_ungated(monkeypatch):
     monkeypatch.setattr(systems, "_neutron_index", None)
     resp = client.get("/route/status")
