@@ -136,10 +136,11 @@ async function autocomplete(ev) {
   acTimer = setTimeout(async () => {
     try {
       const r = await fetch("/systems/autocomplete?q=" + encodeURIComponent(term));
-      const names = await r.json();
+      const data = await r.json();
+      const names = Array.isArray(data?.suggestions) ? data.suggestions : [];
       const dl = $("sysopts");
-      dl.innerHTML = (Array.isArray(names) ? names : []).slice(0, 10)
-        .map(n => `<option value="${String(n).replace(/"/g, "&quot;")}">`).join("");
+      dl.innerHTML = names.slice(0, 10)
+        .map(n => `<option value="${String(n).replace(/"/g, "&quot;")}"></option>`).join("");
     } catch (e) {}
   }, 150);
 }
