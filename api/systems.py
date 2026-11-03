@@ -3174,7 +3174,8 @@ def _log_route_trace(kind: str, **fields: Any) -> None:
     (grep ``ROUTE_TRACE`` in journalctl)."""
 
     try:
-        logger.info("ROUTE_TRACE %s", json.dumps({"kind": kind, **fields}))
+        # request_logger (uvicorn.error) is the one wired to stdout/journald.
+        request_logger.info("ROUTE_TRACE %s", json.dumps({"kind": kind, **fields}))
     except Exception:  # pragma: no cover - logging must never break a request
         pass
 
