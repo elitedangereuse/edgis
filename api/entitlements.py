@@ -151,18 +151,32 @@ def entitlement_status(feature_key: str) -> dict:
     }
 
 
-def _patron_is_entitled(request: Request, feature: Feature) -> bool:
-    """Layer 2 seam: a Patreon OAuth session sets ``request.state.patron``.
+# Layer 2 seam: a resolver that maps a request to the caller's patron status
+# ``{"entitled": bool, "tier": str|None, "name": str|None}`` (or ``None`` for a
+# guest). Registered by patreon_auth at import; kept here so entitlements.py
+# stays free of HTTP/site specifics and remains trivially unit-testable.
+_patron_resolver = None  # Optional[Callable[[Request], Awaitable[Optional[dict]]]]
 
-    Expected shape once Layer 2 lands::
 
-        request.state.patron = {"entitled": bool, "tier": str, "name": str}
+def set_patron_resolver(resolver) -> None:
+    global _patron_resolver
+    _patron_resolver = resolver
 
-    Until then this is always falsy and the access key carries the gate.
-    """
 
+async def _resolve_patron(request: Request) -> Optional[dict]:
+    # A middleware (or prior dependency) may have stamped it already.
     patron = getattr(request.state, "patron", None)
-    return bool(patron and patron.get("entitled"))
+    if patron is not None:
+        return patron
+    if _patron_resolver is None:
+        return None
+    try:
+        patron = await _patron_resolver(request)
+    except Exception:  # never let an identity hiccup 500 the request
+        logger.exception("patron resolver failed; treating caller as guest")
+        patron = None
+    request.state.patron = patron
+    return patron
 
 
 def require_entitlement(feature_key: str):
@@ -176,19 +190,20 @@ def require_entitlement(feature_key: str):
     if feature_key not in FEATURES:
         raise KeyError(f"Unknown entitlement feature {feature_key!r}")
 
-    def dependency(request: Request) -> dict:
+    async def dependency(request: Request) -> dict:
         feature = FEATURES[feature_key]
         if is_public(feature):
             return {"via": "public", "feature": feature_key}
-        if _patron_is_entitled(request, feature):
-            patron = getattr(request.state, "patron", {}) or {}
+        # Local key check first (no network); then the patron identity call.
+        if _key_is_valid(_extract_key(request)):
+            return {"via": "key", "feature": feature_key}
+        patron = await _resolve_patron(request)
+        if patron and patron.get("entitled"):
             return {
                 "via": "patron",
                 "feature": feature_key,
                 "tier": patron.get("tier"),
             }
-        if _key_is_valid(_extract_key(request)):
-            return {"via": "key", "feature": feature_key}
         raise HTTPException(
             status_code=403,
             detail={

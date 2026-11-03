@@ -36,10 +36,16 @@ except ImportError:
 from dotenv import load_dotenv
 
 try:
-    from . import routing, entitlements
+    from . import routing, entitlements, patreon_auth
 except ImportError:  # running as a script / tests with api/ on sys.path
     import routing  # type: ignore[no-redef]
     import entitlements  # type: ignore[no-redef]
+    import patreon_auth  # type: ignore[no-redef]
+
+# Patreon identity (Layer 2) backs the entitlement gate: patrons who linked on
+# the main site are recognised here via the shared cookie. No-op until
+# EDGIS_IDENTITY_URL is configured.
+entitlements.set_patron_resolver(patreon_auth.resolve_patron)
 
 _SPANSH_IMPORT_ERROR: str | None = None
 try:
@@ -3126,6 +3132,26 @@ def route_status():
     if _neutron_index_error:
         status["index_error"] = _neutron_index_error
     return status
+
+
+@app.get("/auth/me", include_in_schema=True)
+async def auth_me(request: Request):
+    """Who is the caller — used by the UI to show patron/login state."""
+
+    patron = await patreon_auth.resolve_patron(request)
+    if not patron or not patron.get("name"):
+        return {
+            "authenticated": False,
+            "patron": False,
+            "login_url": entitlements.PATREON_URL,
+            "identity_configured": patreon_auth.is_configured(),
+        }
+    return {
+        "authenticated": True,
+        "patron": bool(patron.get("entitled")),
+        "name": patron.get("name"),
+        "tier": patron.get("tier"),
+    }
 
 
 @app.get("/route", response_model=RouteResponse)
