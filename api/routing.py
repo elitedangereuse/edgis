@@ -251,6 +251,15 @@ def solve_route(
     else:
         bridge_visited: set[str] = set()
         start = None
+        # Head toward the nearest neutron that makes progress toward the
+        # destination, not straight at the (possibly very distant) target:
+        # boarding a neutron ASAP is what minimises jumps out of a
+        # neutron-sparse start (the bubble / the x~=0 / z~=0 voids).
+        knn = np.atleast_1d(tree.query(pos, k=min(200, index.count))[1])
+        forward = [
+            int(n) for n in knn if _dist(coords[int(n)], dst_v) < straight - 1e-6
+        ]
+        entry_target = tuple(coords[forward[0]]) if forward else tuple(coords[int(knn[0])])
         while True:
             _check_caps()
             near = tree.query_ball_point(pos, jump_range)
@@ -270,7 +279,7 @@ def solve_route(
                 pos = list(coords[start])
                 break
             nxt = _nearest_star_toward(
-                fetch_stars_within, tuple(pos), dst, jump_range, bridge_visited
+                fetch_stars_within, tuple(pos), entry_target, jump_range, bridge_visited
             )
             bridge_star_count += 1
             if nxt is None:
