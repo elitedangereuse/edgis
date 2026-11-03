@@ -773,47 +773,69 @@ def test_fetch_system_names_from_db_handles_timeout(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_fetch_system_name_suggestions_uses_edsm_after_spansh(monkeypatch):
-    async def fake_edsm(term):
-        return ["HIP 1", "HIP 2"]
+async def test_fetch_system_name_suggestions_uses_local_db_first(monkeypatch):
+    def fake_local(term):
+        return ["Sol", "Solace"]
 
     async def fake_spansh(term):
-        return []
-
-    def fake_local(term):
         raise AssertionError(
-            "Local fallback should not run when EDSM succeeds"
+            "Spansh should not run when the local DB answers"
         )
 
-    monkeypatch.setattr(systems, "_fetch_edsm_autocomplete", fake_edsm)
-    monkeypatch.setattr(systems, "_fetch_spansh_autocomplete", fake_spansh)
+    async def fake_edsm(term):
+        raise AssertionError(
+            "EDSM should not run when the local DB answers"
+        )
+
     monkeypatch.setattr(systems, "_local_system_name_suggestions", fake_local)
+    monkeypatch.setattr(systems, "_fetch_spansh_autocomplete", fake_spansh)
+    monkeypatch.setattr(systems, "_fetch_edsm_autocomplete", fake_edsm)
 
-    result = await systems.fetch_system_name_suggestions.__wrapped__("Hip")  # type: ignore[attr-defined]
+    result = await systems.fetch_system_name_suggestions.__wrapped__("Sol")  # type: ignore[attr-defined]
 
-    assert result == ["HIP 1", "HIP 2"]
+    assert result == ["Sol", "Solace"]
 
 
 @pytest.mark.anyio
-async def test_fetch_system_name_suggestions_uses_spansh(monkeypatch):
-    async def fake_edsm(term):
+async def test_fetch_system_name_suggestions_falls_back_to_spansh(monkeypatch):
+    def fake_local(term):
         return []
 
     async def fake_spansh(term):
         return ["Spansh One", "Spansh Two"]
 
-    def fake_local(term):
+    async def fake_edsm(term):
         raise AssertionError(
-            "Local fallback should not run when Spansh succeeds"
+            "EDSM should not run when Spansh succeeds"
         )
 
-    monkeypatch.setattr(systems, "_fetch_edsm_autocomplete", fake_edsm)
-    monkeypatch.setattr(systems, "_fetch_spansh_autocomplete", fake_spansh)
     monkeypatch.setattr(systems, "_local_system_name_suggestions", fake_local)
+    monkeypatch.setattr(systems, "_fetch_spansh_autocomplete", fake_spansh)
+    monkeypatch.setattr(systems, "_fetch_edsm_autocomplete", fake_edsm)
 
     result = await systems.fetch_system_name_suggestions.__wrapped__("Span")  # type: ignore[attr-defined]
 
     assert result == ["Spansh One", "Spansh Two"]
+
+
+@pytest.mark.anyio
+async def test_fetch_system_name_suggestions_falls_back_to_edsm(monkeypatch):
+    def fake_local(term):
+        return []
+
+    async def fake_spansh(term):
+        return []
+
+    async def fake_edsm(term):
+        return ["HIP 1", "HIP 2"]
+
+    monkeypatch.setattr(systems, "_local_system_name_suggestions", fake_local)
+    monkeypatch.setattr(systems, "_fetch_spansh_autocomplete", fake_spansh)
+    monkeypatch.setattr(systems, "_fetch_edsm_autocomplete", fake_edsm)
+
+    result = await systems.fetch_system_name_suggestions.__wrapped__("Hip")  # type: ignore[attr-defined]
+
+    assert result == ["HIP 1", "HIP 2"]
 
 
 @pytest.mark.anyio
