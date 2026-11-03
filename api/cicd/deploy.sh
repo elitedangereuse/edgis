@@ -37,6 +37,11 @@ esac
 TMP_CHANGED_FILE_LIST=$(mktemp)
 {
     echo systems.py
+    echo routing.py
+    echo entitlements.py
+    echo patreon_auth.py
+    echo requirements.txt
+    echo static/route.html
     echo static/index.html
     echo static/galaxymap.html
     echo static/sysmap.html
