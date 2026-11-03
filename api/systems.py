@@ -3059,8 +3059,8 @@ def _solve_route_sync(
             cursor = conn.cursor()
             try:
                 cursor.execute(
-                    "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name "
-                    "FROM systems_big "
+                    "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name, "
+                    "mainstar FROM systems_big "
                     "WHERE ST_3DDWithin(coords, ST_MakePoint(%s, %s, %s), %s)",
                     (pos[0], pos[1], pos[2], radius),
                 )
@@ -3082,7 +3082,11 @@ async def _resolve_route_endpoint(
     record = await fetch_system_from_db(value)
     if record and record.get("coords"):
         coords = record["coords"]
-        return (coords["x"], coords["y"], coords["z"]), record["name"]
+        return (
+            (coords["x"], coords["y"], coords["z"]),
+            record["name"],
+            record.get("mainstar"),
+        )
     loop = asyncio.get_event_loop()
     try:
         sys_obj = await loop.run_in_executor(
@@ -3092,16 +3096,21 @@ async def _resolve_route_endpoint(
         sys_obj = None
     if sys_obj is not None and getattr(sys_obj, "position", None):
         return (
-            float(sys_obj.position[0]),
-            float(sys_obj.position[1]),
-            float(sys_obj.position[2]),
-        ), getattr(sys_obj, "name", value)
+            (
+                float(sys_obj.position[0]),
+                float(sys_obj.position[1]),
+                float(sys_obj.position[2]),
+            ),
+            getattr(sys_obj, "name", value),
+            getattr(sys_obj, "mainstar", None),
+        )
     raise HTTPException(status_code=404, detail=f"System not found: {value}")
 
 
 class RouteJump(BaseModel):
     system: Optional[str] = None
     id64: Optional[int] = None
+    spectral: Optional[str] = None
     x: float
     y: float
     z: float
@@ -3160,6 +3169,16 @@ async def auth_me(request: Request):
     }
 
 
+def _log_route_trace(kind: str, **fields: Any) -> None:
+    """One structured line per plot/compare for comparison + failure triage
+    (grep ``ROUTE_TRACE`` in journalctl)."""
+
+    try:
+        logger.info("ROUTE_TRACE %s", json.dumps({"kind": kind, **fields}))
+    except Exception:  # pragma: no cover - logging must never break a request
+        pass
+
+
 @app.get("/route", response_model=RouteResponse)
 async def plot_route(
     from_: str = Query(..., alias="from", min_length=1),
@@ -3171,16 +3190,28 @@ async def plot_route(
     global _route_solve_semaphore
     if _neutron_index is None:
         _kick_neutron_index_build()
+        _log_route_trace(
+            "route", frm=from_, to=to, range=jump_range, status="warming"
+        )
         raise HTTPException(
             status_code=503,
             detail="Route index is warming up, please retry shortly.",
             headers={"Retry-After": "15"},
         )
 
-    (src, src_name), (dst, dst_name) = await asyncio.gather(
-        _resolve_route_endpoint(from_),
-        _resolve_route_endpoint(to),
-    )
+    try:
+        (src, src_name, _src_star), (dst, dst_name, dst_star) = (
+            await asyncio.gather(
+                _resolve_route_endpoint(from_),
+                _resolve_route_endpoint(to),
+            )
+        )
+    except HTTPException as exc:
+        _log_route_trace(
+            "route", frm=from_, to=to, range=jump_range,
+            status="not-found", detail=str(exc.detail),
+        )
+        raise
 
     if _route_solve_semaphore is None:
         _route_solve_semaphore = asyncio.Semaphore(
@@ -3192,14 +3223,34 @@ async def plot_route(
                 _solve_route_sync, src, dst, jump_range, beam_width
             )
         except routing.RouteError as exc:
+            _log_route_trace(
+                "route", frm=src_name, to=dst_name, range=jump_range,
+                status=exc.status, detail=exc.detail,
+                access=access.get("via"),
+            )
             raise HTTPException(
                 status_code=422,
                 detail={"error": exc.status, "message": exc.detail},
             )
 
+    # The final leg is the arrival at the destination: label it with the
+    # destination's name and spectral type.
+    if result["jumps"]:
+        last = result["jumps"][-1]
+        if last.get("system") is None:
+            last["system"] = dst_name
+        if not last.get("spectral"):
+            last["spectral"] = dst_star
+
     result["source"] = src_name
     result["destination"] = dst_name
     result["access"] = access.get("via")
+    _log_route_trace(
+        "route", frm=src_name, to=dst_name, range=jump_range, status="ok",
+        total_jumps=result["total_jumps"], neutron=result["neutron_jumps"],
+        bridge=result["bridge_jumps"], eff=round(result["efficiency"], 4),
+        solve_ms=round(result["solve_ms"], 1), access=access.get("via"),
+    )
     return result
 
 
@@ -3245,6 +3296,11 @@ async def spansh_route(
                     total = sum(int(x.get("jumps", 0)) for x in legs)
                     flown = sum(
                         float(x.get("distance_jumped", 0)) for x in legs
+                    )
+                    _log_route_trace(
+                        "spansh", frm=from_, to=to, range=jump_range,
+                        efficiency=efficiency, status="ok", total_jumps=total,
+                        waypoints=res.get("total_jumps"),
                     )
                     return {
                         "source": res.get("source_system", from_),
