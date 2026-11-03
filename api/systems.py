@@ -8,11 +8,11 @@ import base64
 import json
 from contextlib import contextmanager
 from queue import Empty, LifoQueue
-from threading import Lock
+from threading import Lock, Thread
 import httpx
 from decimal import Decimal
 from fastapi import HTTPException
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Depends
 from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -34,6 +34,12 @@ except ImportError:
     else:
         raise
 from dotenv import load_dotenv
+
+try:
+    from . import routing, entitlements
+except ImportError:  # running as a script / tests with api/ on sys.path
+    import routing  # type: ignore[no-redef]
+    import entitlements  # type: ignore[no-redef]
 
 _SPANSH_IMPORT_ERROR: str | None = None
 try:
@@ -2969,6 +2975,217 @@ def read_admin():
 @app.get("/", include_in_schema=False)
 def read_index():
     return FileResponse(INDEX_HTML_PATH)
+
+
+# ---------------------------------------------------------------------------
+# Route plotter (neutron-boosted). The KD-tree of ~5M neutrons lives resident
+# in this worker; the solver and entitlement gate live in routing.py /
+# entitlements.py. See docs/route-endpoint-plan.md.
+# ---------------------------------------------------------------------------
+
+_neutron_index: "routing.NeutronIndex | None" = None
+_neutron_index_error: str | None = None
+_neutron_index_building = False
+_neutron_index_lock = Lock()
+_route_solve_semaphore: asyncio.Semaphore | None = None
+
+
+def _fetch_neutron_rows_sync():
+    with _db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), id64, name "
+                "FROM systems_big WHERE mainstar IN ('N', 'Neutron Star')"
+            )
+            return cursor.fetchall()
+        finally:
+            cursor.close()
+
+
+def _build_neutron_index() -> None:
+    global _neutron_index, _neutron_index_error, _neutron_index_building
+    try:
+        index = routing.NeutronIndex.build(_fetch_neutron_rows_sync)
+        _neutron_index = index
+        _neutron_index_error = None
+        logger.info("Neutron route index built: %d stars", index.count)
+    except Exception as exc:  # pragma: no cover - logged, non-fatal
+        _neutron_index_error = str(exc)
+        logger.exception("Neutron route index build failed")
+    finally:
+        with _neutron_index_lock:
+            _neutron_index_building = False
+
+
+def _kick_neutron_index_build() -> bool:
+    """Start a background index build if one isn't already running/done."""
+
+    global _neutron_index_building
+    with _neutron_index_lock:
+        if _neutron_index is not None or _neutron_index_building:
+            return False
+        _neutron_index_building = True
+    Thread(
+        target=_build_neutron_index, name="neutron-index-build", daemon=True
+    ).start()
+    return True
+
+
+def _solve_route_sync(
+    src: tuple[float, float, float],
+    dst: tuple[float, float, float],
+    jump_range: float,
+    beam_width: int | None,
+):
+    index = _neutron_index
+    if index is None:  # pragma: no cover - guarded by caller
+        raise routing.RouteError("not-ready", "route index not built")
+    with _db_connection() as conn:
+
+        def fetch_stars_within(pos, radius):
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name "
+                    "FROM systems_big "
+                    "WHERE ST_3DDWithin(coords, ST_MakePoint(%s, %s, %s), %s)",
+                    (pos[0], pos[1], pos[2], radius),
+                )
+                return cursor.fetchall()
+            finally:
+                cursor.close()
+
+        return routing.solve_route(
+            index, src, dst, jump_range, fetch_stars_within, width=beam_width
+        )
+
+
+async def _resolve_route_endpoint(
+    value: str,
+) -> tuple[tuple[float, float, float], str]:
+    """Resolve a system name/id64 to coordinates, predicting via EDTS for
+    procedural systems that aren't scanned into the DB yet."""
+
+    record = await fetch_system_from_db(value)
+    if record and record.get("coords"):
+        coords = record["coords"]
+        return (coords["x"], coords["y"], coords["z"]), record["name"]
+    loop = asyncio.get_event_loop()
+    try:
+        sys_obj = await loop.run_in_executor(
+            None, system.from_name, value, False, False
+        )
+    except Exception:
+        sys_obj = None
+    if sys_obj is not None and getattr(sys_obj, "position", None):
+        return (
+            float(sys_obj.position[0]),
+            float(sys_obj.position[1]),
+            float(sys_obj.position[2]),
+        ), getattr(sys_obj, "name", value)
+    raise HTTPException(status_code=404, detail=f"System not found: {value}")
+
+
+class RouteJump(BaseModel):
+    system: Optional[str] = None
+    id64: Optional[int] = None
+    x: float
+    y: float
+    z: float
+    type: str
+    neutron_star: bool
+    distance_jumped: float
+    distance_left: float
+
+
+class RouteResponse(BaseModel):
+    source: str
+    destination: str
+    jump_range: float
+    boost_range: float
+    straight_line_ly: float
+    total_jumps: int
+    neutron_jumps: int
+    bridge_jumps: int
+    total_distance_ly: float
+    efficiency: float
+    beam_width: int
+    solve_ms: float
+    access: Optional[str] = None
+    jumps: list[RouteJump]
+
+
+@app.get("/route/status", include_in_schema=True)
+def route_status():
+    status = entitlements.entitlement_status("route")
+    status["index_ready"] = _neutron_index is not None
+    status["index_stars"] = (
+        _neutron_index.count if _neutron_index is not None else 0
+    )
+    if _neutron_index_error:
+        status["index_error"] = _neutron_index_error
+    return status
+
+
+@app.get("/route", response_model=RouteResponse)
+async def plot_route(
+    from_: str = Query(..., alias="from", min_length=1),
+    to: str = Query(..., min_length=1),
+    jump_range: float = Query(50.0, alias="range", gt=0, le=200),
+    beam_width: Optional[int] = Query(None, ge=1, le=100),
+    access: dict = Depends(entitlements.require_entitlement("route")),
+):
+    global _route_solve_semaphore
+    if _neutron_index is None:
+        _kick_neutron_index_build()
+        raise HTTPException(
+            status_code=503,
+            detail="Route index is warming up, please retry shortly.",
+            headers={"Retry-After": "15"},
+        )
+
+    (src, src_name), (dst, dst_name) = await asyncio.gather(
+        _resolve_route_endpoint(from_),
+        _resolve_route_endpoint(to),
+    )
+
+    if _route_solve_semaphore is None:
+        _route_solve_semaphore = asyncio.Semaphore(
+            max(1, int(os.getenv("ROUTE_CONCURRENCY") or "2"))
+        )
+    async with _route_solve_semaphore:
+        try:
+            result = await _run_db_task(
+                _solve_route_sync, src, dst, jump_range, beam_width
+            )
+        except routing.RouteError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"error": exc.status, "message": exc.detail},
+            )
+
+    result["source"] = src_name
+    result["destination"] = dst_name
+    result["access"] = access.get("via")
+    return result
+
+
+@app.post("/admin/route/rebuild-index", include_in_schema=False)
+def rebuild_route_index(request: Request):
+    _require_admin_token(request)
+    global _neutron_index
+    with _neutron_index_lock:
+        _neutron_index = None
+    started = _kick_neutron_index_build()
+    return {"rebuilding": started}
+
+
+@app.on_event("startup")
+def _prebuild_neutron_index() -> None:
+    if (os.getenv("ROUTE_PREBUILD") or "1").strip() not in ("1", "true", "yes"):
+        return
+    _kick_neutron_index_build()
 
 
 @app.on_event("shutdown")
