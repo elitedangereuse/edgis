@@ -499,7 +499,7 @@ AUTOCOMPLETE_QUERY = """
     SELECT name
     FROM systems_big
     WHERE lower(name) LIKE %s
-    ORDER BY name
+    ORDER BY lower(name) USING ~<~
     LIMIT %s
 """
 
@@ -633,15 +633,20 @@ def _fetch_system_names_from_db(term: str, limit: int) -> list[str]:
     serializer=PickleSerializer(),
 )
 async def fetch_system_name_suggestions(term: str) -> list[str]:
+    # Local DB first: idx_systems_big_name_lower_prefix answers any prefix in
+    # ~0.2-6 ms (ORDER BY ... USING ~<~ keeps it index-native), so there is no
+    # reason to round-trip to spansh/EDSM on every keystroke. Fall back to the
+    # external typeaheads only when our own data has nothing to offer (e.g. a
+    # system not yet ingested).
+    db_results = await _run_db_task(_local_system_name_suggestions, term)
+    if db_results:
+        return db_results
+
     spansh_results = await _fetch_spansh_autocomplete(term)
     if spansh_results:
         return spansh_results
 
-    edsm_results = await _fetch_edsm_autocomplete(term)
-    if edsm_results:
-        return edsm_results
-
-    return await _run_db_task(_local_system_name_suggestions, term)
+    return await _fetch_edsm_autocomplete(term)
 
 
 def _local_system_name_suggestions(term: str) -> list[str]:
