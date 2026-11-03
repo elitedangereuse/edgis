@@ -192,3 +192,12 @@ def test_route_status_is_public_and_ungated(monkeypatch):
     assert body["feature"] == "route"
     assert body["index_ready"] is False
     assert "public" in body
+
+
+def test_spansh_route_is_gated(monkeypatch):
+    _gate_future(monkeypatch)
+    monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
+    # No key, no patron -> gate blocks before any outbound spansh call.
+    resp = client.get("/spansh/route", params={"from": "Sol", "to": "Colonia"})
+    assert resp.status_code == 403
+    assert resp.json()["detail"]["error"] == "patron_only"

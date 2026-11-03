@@ -35,6 +35,11 @@
   button { background:var(--accent); color:#04121f; border:0; border-radius:8px;
            padding:9px 18px; font-weight:600; cursor:pointer; font-size:14px; }
   button:disabled { opacity:.5; cursor:default; }
+  button.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  .legend { color:var(--muted); font-size:12px; margin:8px 0 0; }
+  .legend b { color:var(--neutron); }
+  #cmpOut { margin:10px 0 2px; font-size:13px; }
+  .good { color:var(--ok); } .bad { color:var(--err); }
   .keyrow { margin-top:10px; font-size:13px; color:var(--muted); }
   .keyrow summary { cursor:pointer; }
   .summary { display:flex; gap:22px; flex-wrap:wrap; margin:18px 0 10px; }
@@ -77,6 +82,7 @@
         <input id="range" type="number" min="1" max="200" step="0.1" value="50" />
       </div>
       <button id="go">Plot route</button>
+      <button id="cmp" class="ghost" disabled title="Plot a route first">vs spansh</button>
     </div>
     <datalist id="sysopts"></datalist>
     <details class="keyrow">
@@ -149,15 +155,28 @@ $("to").addEventListener("input", autocomplete);
 
 function fmt(n, d = 0) { return Number(n).toLocaleString(undefined, { maximumFractionDigits: d }); }
 
+let lastOurs = null;
+let lastQuery = null;
+
+function legLabel(j, last) {
+  if (last) return "arrive";
+  if (j.type === "boost") return j.neutron_star ? "neutron ★" : "boost";
+  return j.neutron_star ? "board ★" : "bridge";
+}
+
 function renderRoute(r) {
-  const rows = r.jumps.map((j, i) => `
+  lastOurs = r;
+  const rows = r.jumps.map((j, i) => {
+    const last = i === r.jumps.length - 1;
+    return `
     <tr>
       <td class="num">${i + 1}</td>
-      <td class="${j.type === "boost" ? "boost" : ""}">${j.type === "boost" ? "boost" : "jump"}${j.neutron_star ? " ★" : ""}</td>
-      <td>${j.system ?? (i === r.jumps.length - 1 ? r.destination : "—")}</td>
+      <td class="${j.neutron_star ? "boost" : ""}">${legLabel(j, last)}</td>
+      <td>${j.system ?? (last ? r.destination : "—")}</td>
       <td class="num">${fmt(j.distance_jumped, 1)}</td>
       <td class="num">${fmt(j.distance_left, 0)}</td>
-    </tr>`).join("");
+    </tr>`;
+  }).join("");
   $("out").innerHTML = `
     <div class="summary">
       <div class="stat"><b>${fmt(r.total_jumps)}</b><span>jumps</span></div>
@@ -169,16 +188,46 @@ function renderRoute(r) {
       <div class="stat"><b>${fmt(r.solve_ms, 0)} ms</b><span>solve</span></div>
     </div>
     <div class="tiny">${r.source} → ${r.destination} · range ${fmt(r.jump_range,1)} LY (boost ${fmt(r.boost_range,0)}) · beam ${r.beam_width} · access: ${r.access || "public"}</div>
+    <div id="cmpOut"></div>
+    <p class="legend"><b>neutron ★</b> supercharge here (boosted jump) · <b>board ★</b> normal jump onto a neutron · boost = boosted jump · bridge = normal jump across a neutron gap · arrive = final jump</p>
     <div class="tablewrap">
       <table><thead><tr><th class="num">#</th><th>type</th><th>system</th><th class="num">jumped</th><th class="num">left</th></tr></thead>
       <tbody>${rows}</tbody></table>
     </div>`;
+  $("cmp").disabled = false;
+  $("cmp").title = "Run the same query on spansh";
+}
+
+async function compareSpansh() {
+  if (!lastQuery) return;
+  const { from, to, range } = lastQuery;
+  $("cmp").disabled = true;
+  const out = () => document.getElementById("cmpOut");
+  if (out()) out().innerHTML = `<span class="tiny">Querying spansh… (can take ~10–30 s)</span>`;
+  try {
+    const url = `/spansh/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}&efficiency=60`;
+    const res = await fetch(url, { headers: headers(), credentials: "include" });
+    if (!res.ok) { if (out()) out().innerHTML = `<span class="bad">spansh compare failed (HTTP ${res.status})</span>`; return; }
+    const s = await res.json();
+    const ours = lastOurs ? lastOurs.total_jumps : null;
+    let verdict = "";
+    if (ours != null) {
+      const d = s.total_jumps - ours;
+      verdict = d > 0 ? `<span class="good">ours ${d} fewer ✓</span>`
+              : d < 0 ? `<span class="bad">spansh ${-d} fewer</span>` : `tie`;
+    }
+    if (out()) out().innerHTML = `<b>spansh:</b> ${fmt(s.total_jumps)} jumps (efficiency 60)`
+      + (ours != null ? ` · <b>ours:</b> ${fmt(ours)} · ${verdict}` : "");
+  } catch (e) {
+    if (out()) out().innerHTML = `<span class="bad">${e.message || e}</span>`;
+  } finally { $("cmp").disabled = false; }
 }
 
 async function plot() {
   const from = $("from").value.trim(), to = $("to").value.trim();
   if (!from || !to) { $("out").innerHTML = `<div class="msg warn">Enter both a start and destination system.</div>`; return; }
   const range = $("range").value || "50";
+  lastQuery = { from, to, range };
   $("go").disabled = true; $("out").innerHTML = `<div class="msg">Plotting…</div>`;
   try {
     const url = `/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}`;
@@ -204,6 +253,7 @@ async function plot() {
   }
 }
 $("go").addEventListener("click", plot);
+$("cmp").addEventListener("click", compareSpansh);
 [$("from"), $("to"), $("range")].forEach(el => el.addEventListener("keydown", e => { if (e.key === "Enter") plot(); }));
 loadStatus();
 </script>
