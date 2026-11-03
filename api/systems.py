@@ -2983,6 +2983,12 @@ def read_index():
     return FileResponse(INDEX_HTML_PATH)
 
 
+# Route plotter test UI (the JSON API is at GET /route).
+@app.get("/plotter", include_in_schema=False)
+def read_route_plotter():
+    return FileResponse(os.path.join(STATIC_DIR, "route.html"))
+
+
 # ---------------------------------------------------------------------------
 # Route plotter (neutron-boosted). The KD-tree of ~5M neutrons lives resident
 # in this worker; the solver and entitlement gate live in routing.py /

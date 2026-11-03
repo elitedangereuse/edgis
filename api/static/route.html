@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>EDGIS — Neutron Route Plotter</title>
+<style>
+  :root { --bg:#0b0e14; --panel:#141a24; --panel2:#1b2330; --line:#273243;
+          --text:#dce3ec; --muted:#8b97a7; --accent:#53b5ff; --neutron:#ffd36b;
+          --ok:#53d08a; --warn:#ffd36b; --err:#ff6b6b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif; }
+  .wrap { max-width:960px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:22px; margin:0 0 2px; }
+  .sub { color:var(--muted); margin:0 0 18px; }
+  .banner { border:1px solid var(--line); border-radius:10px; padding:10px 14px;
+            margin-bottom:16px; background:var(--panel); font-size:13px; }
+  .banner a { color:var(--accent); }
+  .pill { display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px;
+          border:1px solid var(--line); margin-left:6px; }
+  .pill.ok { color:var(--ok); border-color:#2c5; }
+  .pill.warn { color:var(--neutron); border-color:#a83; }
+  .pill.err { color:var(--err); border-color:#a33; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px;
+          padding:16px; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; }
+  .field { display:flex; flex-direction:column; gap:4px; }
+  .field label { font-size:12px; color:var(--muted); }
+  input { background:var(--panel2); border:1px solid var(--line); color:var(--text);
+          border-radius:8px; padding:8px 10px; font-size:14px; }
+  input#from, input#to { width:230px; }
+  input#range { width:90px; }
+  input#key { width:260px; }
+  button { background:var(--accent); color:#04121f; border:0; border-radius:8px;
+           padding:9px 18px; font-weight:600; cursor:pointer; font-size:14px; }
+  button:disabled { opacity:.5; cursor:default; }
+  .keyrow { margin-top:10px; font-size:13px; color:var(--muted); }
+  .keyrow summary { cursor:pointer; }
+  .summary { display:flex; gap:22px; flex-wrap:wrap; margin:18px 0 10px; }
+  .stat { display:flex; flex-direction:column; }
+  .stat b { font-size:20px; }
+  .stat span { color:var(--muted); font-size:12px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line);
+          white-space:nowrap; }
+  th { color:var(--muted); font-weight:600; position:sticky; top:0; background:var(--panel); }
+  .tablewrap { max-height:52vh; overflow:auto; border:1px solid var(--line);
+               border-radius:10px; margin-top:6px; }
+  .boost { color:var(--neutron); }
+  .msg { margin-top:16px; padding:12px 14px; border-radius:10px; border:1px solid var(--line); }
+  .msg.err { border-color:#a33; background:#241416; }
+  .msg.warn { border-color:#a83; background:#241f14; }
+  .num { text-align:right; font-variant-numeric:tabular-nums; }
+  .tiny { color:var(--muted); font-size:12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Neutron Route Plotter <span id="accessPill" class="pill">…</span></h1>
+  <p class="sub">Neutron-boosted routing with automatic regular-jump bridging across the galaxy's neutron voids.</p>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <div class="card">
+    <div class="row">
+      <div class="field">
+        <label for="from">From</label>
+        <input id="from" list="sysopts" placeholder="Sol" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label for="to">To</label>
+        <input id="to" list="sysopts" placeholder="Colonia" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label for="range">Jump range (LY)</label>
+        <input id="range" type="number" min="1" max="200" step="0.1" value="50" />
+      </div>
+      <button id="go">Plot route</button>
+    </div>
+    <datalist id="sysopts"></datalist>
+    <details class="keyrow">
+      <summary>Early-access key</summary>
+      <div style="margin-top:8px">
+        <input id="key" type="password" placeholder="x-route-key (from Patreon / maintainer)" />
+        <span class="tiny">Stored in this browser only. Not needed once the feature is public, or if you're a signed-in patron.</span>
+      </div>
+    </details>
+  </div>
+
+  <div id="out"></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const KEY_LS = "edgis_route_key";
+$("key").value = localStorage.getItem(KEY_LS) || "";
+$("key").addEventListener("input", () => localStorage.setItem(KEY_LS, $("key").value.trim()));
+
+function headers() {
+  const k = ($("key").value || "").trim();
+  return k ? { "x-route-key": k } : {};
+}
+
+async function loadStatus() {
+  try {
+    const [st, me] = await Promise.all([
+      fetch("/route/status").then(r => r.json()),
+      fetch("/auth/me", { credentials: "include" }).then(r => r.json()).catch(() => ({})),
+    ]);
+    const pill = $("accessPill");
+    if (st.public) { pill.textContent = "public"; pill.className = "pill ok"; }
+    else if (me && me.patron) { pill.textContent = "patron ✓"; pill.className = "pill ok"; }
+    else { pill.textContent = "early access"; pill.className = "pill warn"; }
+
+    const b = $("banner");
+    const parts = [];
+    if (!st.public) {
+      parts.push(`<b>Patron early access</b> — opens to everyone on <b>${st.public_after || "soon"}</b>.`);
+      if (!(me && me.patron)) {
+        parts.push(`Become a patron on <a href="${st.patreon}" target="_blank" rel="noopener">Patreon</a>, or enter an access key below.`);
+      } else {
+        parts.push(`Signed in as <b>${me.name || "patron"}</b>.`);
+      }
+    }
+    if (!st.index_ready) parts.push(`<span class="pill warn">index warming up…</span>`);
+    if (parts.length) { b.innerHTML = parts.join(" "); b.hidden = false; }
+  } catch (e) { /* non-fatal */ }
+}
+
+let acTimer;
+async function autocomplete(ev) {
+  clearTimeout(acTimer);
+  const term = ev.target.value.trim();
+  if (term.length < 2) return;
+  acTimer = setTimeout(async () => {
+    try {
+      const r = await fetch("/systems/autocomplete?q=" + encodeURIComponent(term));
+      const names = await r.json();
+      const dl = $("sysopts");
+      dl.innerHTML = (Array.isArray(names) ? names : []).slice(0, 10)
+        .map(n => `<option value="${String(n).replace(/"/g, "&quot;")}">`).join("");
+    } catch (e) {}
+  }, 150);
+}
+$("from").addEventListener("input", autocomplete);
+$("to").addEventListener("input", autocomplete);
+
+function fmt(n, d = 0) { return Number(n).toLocaleString(undefined, { maximumFractionDigits: d }); }
+
+function renderRoute(r) {
+  const rows = r.jumps.map((j, i) => `
+    <tr>
+      <td class="num">${i + 1}</td>
+      <td class="${j.type === "boost" ? "boost" : ""}">${j.type === "boost" ? "boost" : "jump"}${j.neutron_star ? " ★" : ""}</td>
+      <td>${j.system ?? (i === r.jumps.length - 1 ? r.destination : "—")}</td>
+      <td class="num">${fmt(j.distance_jumped, 1)}</td>
+      <td class="num">${fmt(j.distance_left, 0)}</td>
+    </tr>`).join("");
+  $("out").innerHTML = `
+    <div class="summary">
+      <div class="stat"><b>${fmt(r.total_jumps)}</b><span>jumps</span></div>
+      <div class="stat"><b>${fmt(r.neutron_jumps)}</b><span>neutron boosts</span></div>
+      <div class="stat"><b>${fmt(r.bridge_jumps)}</b><span>regular bridges</span></div>
+      <div class="stat"><b>${fmt(r.total_distance_ly)}</b><span>LY flown</span></div>
+      <div class="stat"><b>${fmt(r.straight_line_ly)}</b><span>LY direct</span></div>
+      <div class="stat"><b>${fmt(r.efficiency * 100, 1)}%</b><span>efficiency</span></div>
+      <div class="stat"><b>${fmt(r.solve_ms, 0)} ms</b><span>solve</span></div>
+    </div>
+    <div class="tiny">${r.source} → ${r.destination} · range ${fmt(r.jump_range,1)} LY (boost ${fmt(r.boost_range,0)}) · beam ${r.beam_width} · access: ${r.access || "public"}</div>
+    <div class="tablewrap">
+      <table><thead><tr><th class="num">#</th><th>type</th><th>system</th><th class="num">jumped</th><th class="num">left</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+    </div>`;
+}
+
+async function plot() {
+  const from = $("from").value.trim(), to = $("to").value.trim();
+  if (!from || !to) { $("out").innerHTML = `<div class="msg warn">Enter both a start and destination system.</div>`; return; }
+  const range = $("range").value || "50";
+  $("go").disabled = true; $("out").innerHTML = `<div class="msg">Plotting…</div>`;
+  try {
+    const url = `/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}`;
+    const res = await fetch(url, { headers: headers(), credentials: "include" });
+    if (res.status === 403) {
+      const d = (await res.json()).detail || {};
+      $("out").innerHTML = `<div class="msg warn"><b>Patron early access.</b> ${d.message || ""}
+        Opens on <b>${d.public_after || "soon"}</b>.
+        ${d.patreon ? `Join on <a href="${d.patreon}" target="_blank" rel="noopener">Patreon</a>` : ""}
+        or add an access key above.</div>`;
+      return;
+    }
+    if (res.status === 503) { $("out").innerHTML = `<div class="msg warn">Route index is warming up — try again in ~15 s.</div>`; setTimeout(loadStatus, 4000); return; }
+    if (res.status === 404) { $("out").innerHTML = `<div class="msg err">${(await res.json()).detail || "System not found."}</div>`; return; }
+    if (res.status === 422) { const d = (await res.json()).detail || {}; $("out").innerHTML = `<div class="msg err">No route: ${d.error || ""} ${d.message || ""}</div>`; return; }
+    if (!res.ok) { $("out").innerHTML = `<div class="msg err">Error ${res.status}.</div>`; return; }
+    renderRoute(await res.json());
+  } catch (e) {
+    $("out").innerHTML = `<div class="msg err">${e.message || e}</div>`;
+  } finally {
+    $("go").disabled = false;
+    loadStatus();
+  }
+}
+$("go").addEventListener("click", plot);
+[$("from"), $("to"), $("range")].forEach(el => el.addEventListener("keydown", e => { if (e.key === "Enter") plot(); }));
+loadStatus();
+</script>
+</body>
+</html>
