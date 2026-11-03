@@ -56,7 +56,7 @@ def test_route_success_path(monkeypatch):
 
     async def fake_resolve(value):
         coords = {"Sol": (0.0, 0.0, 0.0), "Colonia": (0.0, 0.0, 1000.0)}
-        return coords[value], value
+        return coords[value], value, None
 
     monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
 
@@ -122,7 +122,7 @@ def test_route_patron_access(monkeypatch):
     monkeypatch.setattr(systems, "_neutron_index", object())
 
     async def fake_resolve(value):
-        return {"Sol": (0.0, 0.0, 0.0), "X": (0.0, 0.0, 10.0)}[value], value
+        return {"Sol": (0.0, 0.0, 0.0), "X": (0.0, 0.0, 10.0)}[value], value, None
 
     monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
     monkeypatch.setattr(

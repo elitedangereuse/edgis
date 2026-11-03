@@ -24,7 +24,7 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 NeutronRow = tuple[float, float, float, int, str]
-StarRow = tuple[float, float, float, str]
+StarRow = tuple  # (x, y, z, name[, mainstar])
 FetchNeutrons = Callable[[], Iterable[NeutronRow]]
 FetchStarsWithin = Callable[[tuple[float, float, float], float], Iterable[StarRow]]
 
@@ -160,13 +160,15 @@ def _nearest_star_toward(
     tx, ty, tz = target
     best: Optional[StarRow] = None
     best_d: Optional[float] = None
-    for x, y, z, name in fetch_stars_within(pos, jump_range):
+    for row in fetch_stars_within(pos, jump_range):
+        x, y, z, name = row[0], row[1], row[2], row[3]
+        mainstar = row[4] if len(row) > 4 else None
         if name in visited:
             continue
         d = (x - tx) ** 2 + (y - ty) ** 2 + (z - tz) ** 2
         if best_d is None or d < best_d:
             best_d = d
-            best = (x, y, z, name)
+            best = (x, y, z, name, mainstar)
     return best
 
 
@@ -178,11 +180,13 @@ def _leg(
     is_neutron: bool,
     left: float,
     id64: Optional[int] = None,
+    spectral: Optional[str] = None,
 ) -> dict:
     return {
         "type": leg_type,
         "system": name,
         "id64": id64,
+        "spectral": spectral,
         "x": float(coord[0]),
         "y": float(coord[1]),
         "z": float(coord[2]),
@@ -293,6 +297,7 @@ def solve_route(
                     _dist(np.asarray(pos), np.asarray(nxt[:3])),
                     False,
                     _dist(np.asarray(nxt[:3]), dst_v),
+                    spectral=(nxt[4] if len(nxt) > 4 else None),
                 )
             )
             pos = [nxt[0], nxt[1], nxt[2]]
@@ -405,6 +410,7 @@ def solve_route(
                     _dist(np.asarray(pos), np.asarray(nxt[:3])),
                     False,
                     _dist(np.asarray(nxt[:3]), dst_v),
+                    spectral=(nxt[4] if len(nxt) > 4 else None),
                 )
             )
             pos = [nxt[0], nxt[1], nxt[2]]
@@ -428,6 +434,11 @@ def _finalize(
     width: int,
     start_time: float,
 ) -> dict:
+    # Neutron hops carry no catalogued spectral type here; they are, by
+    # construction, neutron stars.
+    for leg in legs:
+        if leg["neutron_star"] and not leg.get("spectral"):
+            leg["spectral"] = "N"
     total_flown = sum(leg["distance_jumped"] for leg in legs)
     neutron_jumps = sum(1 for leg in legs if leg["type"] == "boost")
     bridge_jumps = sum(1 for leg in legs if leg["type"] == "regular")
