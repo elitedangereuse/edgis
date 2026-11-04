@@ -81,6 +81,54 @@
        }
      }
 
+     /* "Don't Panic" preloader, shown until the first map load completes. */
+     #bootOverlay {
+       position: fixed;
+       inset: 0;
+       z-index: 10000;
+       display: flex;
+       flex-direction: column;
+       align-items: center;
+       justify-content: center;
+       gap: 16px;
+       background: #05070b;
+       transition: opacity 0.6s ease;
+     }
+     #bootOverlay.is-hidden {
+       opacity: 0;
+       pointer-events: none;
+     }
+     #bootOverlay .boot-dontpanic {
+       font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+       font-size: clamp(2.5rem, 9vw, 6rem);
+       font-weight: 800;
+       letter-spacing: 0.08em;
+       text-transform: uppercase;
+       color: #fa6d00;
+       text-shadow: 0 0 28px rgba(250, 109, 0, 0.55);
+       animation: boot-pulse 1.6s ease-in-out infinite;
+     }
+     #bootOverlay .boot-sub {
+       color: #8b97a7;
+       font-size: 0.9rem;
+       letter-spacing: 0.14em;
+       text-transform: uppercase;
+     }
+     #bootOverlay .boot-sub::after {
+       content: "";
+       animation: boot-dots 1.6s steps(1, end) infinite;
+     }
+     @keyframes boot-pulse {
+       0%, 100% { opacity: 0.85; transform: scale(1); }
+       50% { opacity: 1; transform: scale(1.03); }
+     }
+     @keyframes boot-dots {
+       0% { content: ""; }
+       25% { content: "."; }
+       50% { content: ".."; }
+       75% { content: "..."; }
+     }
+
      #openEdgisButton.is-loading {
        animation: toolbar-home-refresh 0.9s ease-in-out infinite;
      }
@@ -789,6 +837,10 @@
     </style>
   </head>
   <body>
+    <div id="bootOverlay">
+      <div class="boot-dontpanic">Don't Panic</div>
+      <div class="boot-sub">Charting the galaxy</div>
+    </div>
     <div class="controls-panel" id="controlsPanel" style="display:none">
       <div class="form-grid">
         <label for="system">System</label>
@@ -985,5 +1037,16 @@
     <script src="/static/ed3d/js/components/heat.class.js?v=20260521-1"></script>
     <script src="/static/ed3d/vendor/tween-js/Tween.js?v=20260521-1"></script>
     <script src="/static/js/galaxymap.js?v=20260525-7"></script>
+    <script>
+      // Safety net: never let the "Don't Panic" preloader get stuck if the map
+      // errors before its first load cycle fires.
+      setTimeout(function () {
+        var overlay = document.getElementById('bootOverlay');
+        if (overlay && !overlay.classList.contains('is-hidden')) {
+          overlay.classList.add('is-hidden');
+          setTimeout(function () { overlay.style.display = 'none'; }, 700);
+        }
+      }, 25000);
+    </script>
   </body>
 </html>
