@@ -4,62 +4,84 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>EDGIS — Neutron Route Plotter</title>
+<link rel="stylesheet" href="/static/milkyway.css" />
 <style>
-  :root { --bg:#0b0e14; --panel:#141a24; --panel2:#1b2330; --line:#273243;
-          --text:#dce3ec; --muted:#8b97a7; --accent:#53b5ff; --neutron:#ffd36b;
-          --ok:#53d08a; --warn:#ffd36b; --err:#ff6b6b; }
+  :root {
+    --accent:#80c4e6; --dim:#3b5059; --dim-a:#3b505966;
+    --text:#dce3ec; --muted:#8b97a7; --neutron:#ffd36b; --ok:#53d08a; --err:#ff6b6b;
+    --line:rgba(255,255,255,.10); --line2:rgba(255,255,255,.06);
+    --panel:rgba(8,12,18,.72); --head:rgba(255,255,255,.04); --field:rgba(255,255,255,.05);
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
   * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--text);
-         font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif; }
-  .wrap { max-width:960px; margin:0 auto; padding:24px 16px 64px; }
-  h1 { font-size:22px; margin:0 0 2px; }
-  .sub { color:var(--muted); margin:0 0 18px; }
+  body { color:var(--text); font:14px/1.55 system-ui,Segoe UI,Roboto,sans-serif; }
+  .wrap { max-width:1000px; margin:0 auto; padding:26px 16px 48px; position:relative; z-index:1; }
+  h1 { font-size:20px; font-weight:600; letter-spacing:.3px; margin:0 0 2px; display:flex; align-items:center; gap:10px; }
+  .sub { color:var(--muted); margin:0 0 18px; font-size:13px; }
+  a { color:var(--accent); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+
+  .pill { display:inline-block; padding:3px 12px; border-radius:999px; font-size:11px;
+          text-transform:uppercase; letter-spacing:.6px; border:1px solid var(--dim);
+          color:var(--muted); background:rgba(255,255,255,.03); }
+  .pill.ok { color:var(--ok); border-color:#2c6b48; }
+  .pill.warn { color:var(--neutron); border-color:#7a5f27; }
+
   .banner { border:1px solid var(--line); border-radius:10px; padding:10px 14px;
             margin-bottom:16px; background:var(--panel); font-size:13px; }
-  .banner a { color:var(--accent); }
-  .pill { display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px;
-          border:1px solid var(--line); margin-left:6px; }
-  .pill.ok { color:var(--ok); border-color:#2c5; }
-  .pill.warn { color:var(--neutron); border-color:#a83; }
-  .pill.err { color:var(--err); border-color:#a33; }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px;
-          padding:16px; }
-  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; }
-  .field { display:flex; flex-direction:column; gap:4px; }
-  .field label { font-size:12px; color:var(--muted); }
-  input { background:var(--panel2); border:1px solid var(--line); color:var(--text);
-          border-radius:8px; padding:8px 10px; font-size:14px; }
-  input#from, input#to { width:230px; }
-  input#range { width:90px; }
-  input#key { width:260px; }
-  button { background:var(--accent); color:#04121f; border:0; border-radius:8px;
-           padding:9px 18px; font-weight:600; cursor:pointer; font-size:14px; }
-  button:disabled { opacity:.5; cursor:default; }
-  button.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent); }
-  .legend { color:var(--muted); font-size:12px; margin:8px 0 0; }
-  .legend b { color:var(--neutron); }
-  #cmpOut { margin:10px 0 2px; font-size:13px; }
-  .good { color:var(--ok); } .bad { color:var(--err); }
-  .fuel { color:var(--ok); margin-right:4px; vertical-align:-1px; }
-  .spec { color:var(--muted); }
-  .keyrow { margin-top:10px; font-size:13px; color:var(--muted); }
-  .keyrow summary { cursor:pointer; }
-  .summary { display:flex; gap:22px; flex-wrap:wrap; margin:18px 0 10px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px;
+          backdrop-filter:blur(2px); }
+  .row { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; }
+  .field { display:flex; flex-direction:column; gap:5px; }
+  .field label { font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--accent); }
+  input { background:var(--field); border:1px solid var(--line); color:var(--text);
+          border-radius:8px; padding:9px 11px; font-size:14px; outline:none; }
+  input:focus { border-color:var(--accent); box-shadow:0 0 0 2px var(--dim-a); }
+  input#from, input#to { width:240px; font-family:var(--mono); }
+  input#range { width:92px; } input#key { width:280px; }
+
+  button { font:inherit; cursor:pointer; border-radius:999px; padding:8px 18px; font-size:13px;
+           text-transform:uppercase; letter-spacing:.6px; border:1px solid var(--accent);
+           background:rgba(128,196,230,.12); color:var(--accent); transition:all .15s; }
+  button:hover:not(:disabled) { background:rgba(128,196,230,.22); box-shadow:0 0 10px var(--dim-a); }
+  button:disabled { opacity:.4; cursor:default; }
+  button.ghost { border-color:var(--dim); color:var(--muted); background:rgba(255,255,255,.03); }
+
+  .keyrow { margin-top:12px; font-size:12px; color:var(--muted); }
+  .keyrow summary { cursor:pointer; color:var(--accent); text-transform:uppercase; letter-spacing:.5px; font-size:11px; }
+
+  .summary { display:flex; gap:24px; flex-wrap:wrap; margin:20px 0 8px; align-items:flex-end; }
   .stat { display:flex; flex-direction:column; }
-  .stat b { font-size:20px; }
-  .stat span { color:var(--muted); font-size:12px; }
+  .stat b { font-size:20px; font-family:var(--mono); color:var(--accent-white,#f8f8ff); }
+  .stat span { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.5px; }
+  .meta { color:var(--muted); font-size:12px; font-family:var(--mono); }
+  #cmpOut { margin:12px 0 2px; font-size:13px; }
+  .good { color:var(--ok); } .bad { color:var(--err); }
+  .legend { color:var(--muted); font-size:12px; margin:8px 0 2px; }
+  .legend b { color:var(--neutron); }
+
+  .tablewrap { max-height:56vh; overflow:auto; border:1px solid var(--line); border-radius:10px; margin-top:8px;
+               scrollbar-width:thin; scrollbar-color:var(--dim-a) #1a1a1a; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
-  th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line);
-          white-space:nowrap; }
-  th { color:var(--muted); font-weight:600; position:sticky; top:0; background:var(--panel); }
-  .tablewrap { max-height:52vh; overflow:auto; border:1px solid var(--line);
-               border-radius:10px; margin-top:6px; }
+  thead th { position:sticky; top:0; background:var(--head); color:var(--accent);
+             text-transform:uppercase; letter-spacing:.6px; font-size:11px; font-weight:600;
+             text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }
+  tbody td { padding:6px 10px; border-bottom:1px solid var(--line2); white-space:nowrap; }
+  tbody tr:hover { background:rgba(255,255,255,.03); }
+  .num { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .sys { font-family:var(--mono); }
   .boost { color:var(--neutron); }
-  .msg { margin-top:16px; padding:12px 14px; border-radius:10px; border:1px solid var(--line); }
-  .msg.err { border-color:#a33; background:#241416; }
-  .msg.warn { border-color:#a83; background:#241f14; }
-  .num { text-align:right; font-variant-numeric:tabular-nums; }
+  .spec { color:var(--muted); font-family:var(--mono); }
+  .fuel { color:var(--ok); margin-right:5px; vertical-align:-2px; }
+
+  .copy-btn { all:unset; cursor:pointer; color:var(--accent); opacity:.35; margin-left:8px;
+              vertical-align:-2px; transition:opacity .15s; }
+  tr:hover .copy-btn, .copy-btn:hover, .copy-btn:focus { opacity:1; }
+
+  .msg { margin-top:16px; padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:var(--panel); }
+  .msg.err { border-color:#7a2f33; } .msg.warn { border-color:#7a5f27; }
   .tiny { color:var(--muted); font-size:12px; }
+  footer { margin-top:28px; color:var(--muted); font-size:12px; border-top:1px solid var(--line2); padding-top:14px; }
 </style>
 </head>
 <body>
@@ -71,32 +93,29 @@
 
   <div class="card">
     <div class="row">
-      <div class="field">
-        <label for="from">From</label>
-        <input id="from" list="sysopts" placeholder="Sol" autocomplete="off" />
-      </div>
-      <div class="field">
-        <label for="to">To</label>
-        <input id="to" list="sysopts" placeholder="Colonia" autocomplete="off" />
-      </div>
-      <div class="field">
-        <label for="range">Jump range (LY)</label>
-        <input id="range" type="number" min="1" max="200" step="0.1" value="50" />
-      </div>
+      <div class="field"><label for="from">From</label><input id="from" list="sysopts" placeholder="Sol" autocomplete="off" /></div>
+      <div class="field"><label for="to">To</label><input id="to" list="sysopts" placeholder="Colonia" autocomplete="off" /></div>
+      <div class="field"><label for="range">Jump range (LY)</label><input id="range" type="number" min="1" max="200" step="0.1" value="50" /></div>
       <button id="go">Plot route</button>
       <button id="cmp" class="ghost" disabled title="Plot a route first">vs spansh</button>
     </div>
     <datalist id="sysopts"></datalist>
     <details class="keyrow">
       <summary>Early-access key</summary>
-      <div style="margin-top:8px">
+      <div style="margin-top:10px">
         <input id="key" type="password" placeholder="x-route-key (from Patreon / maintainer)" />
-        <span class="tiny">Stored in this browser only. Not needed once the feature is public, or if you're a signed-in patron.</span>
+        <span class="tiny">Stored in this browser only. Not needed once public, or if you're a signed-in patron.</span>
       </div>
     </details>
   </div>
 
   <div id="out"></div>
+
+  <footer>
+    <a href="/docs" target="_blank">API docs</a> ·
+    <a href="https://www.patreon.com/cw/EliteDangereuse" target="_blank" rel="noopener">Patreon</a> ·
+    <a href="https://sauron.elitedangereuse.fr/status/edgis" target="_blank" rel="noopener">Status</a>
+  </footer>
 </div>
 
 <script>
@@ -104,11 +123,37 @@ const $ = (id) => document.getElementById(id);
 const KEY_LS = "edgis_route_key";
 $("key").value = localStorage.getItem(KEY_LS) || "";
 $("key").addEventListener("input", () => localStorage.setItem(KEY_LS, $("key").value.trim()));
+function headers() { const k = ($("key").value || "").trim(); return k ? { "x-route-key": k } : {}; }
 
-function headers() {
-  const k = ($("key").value || "").trim();
-  return k ? { "x-route-key": k } : {};
+// Bootstrap "bi-copy" icon + clipboard helper (matches the main EDGIS app).
+const copyIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/></svg>`;
+function copyText(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    const prev = btn.innerHTML; btn.innerHTML = '<span class="good" style="font-size:11px">Copied</span>';
+    setTimeout(() => { btn.innerHTML = prev; }, 1200);
+  }).catch(() => {});
 }
+// Bootstrap "fuel-pump" icon (https://icons.getbootstrap.com/icons/fuel-pump/).
+const FUEL = `<svg class="fuel" width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><title>Fuel-scoopable (KGBFOAM)</title><path d="M3 2.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5v5a.5.5 0 0 1-.5.5h-5a.5.5 0 0 1-.5-.5z"/><path d="M1 2a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v8a2 2 0 0 1 2 2v.5a.5.5 0 0 0 1 0V8h-.5a.5.5 0 0 1-.5-.5V4.375a.5.5 0 0 1 .5-.5h1.495c-.011-.476-.053-.894-.201-1.222a.97.97 0 0 0-.394-.458c-.184-.11-.464-.195-.9-.195a.5.5 0 0 1 0-1q.846-.002 1.412.336c.383.228.634.551.794.907.295.655.294 1.465.294 2.081v3.175a.5.5 0 0 1-.5.501H15v4.5a1.5 1.5 0 0 1-3 0V12a1 1 0 0 0-1-1v4h.5a.5.5 0 0 1 0 1H.5a.5.5 0 0 1 0-1H1zm9 0a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v13h8z"/></svg>`;
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmt(n, d = 0) { return Number(n).toLocaleString(undefined, { maximumFractionDigits: d }); }
+function scoopable(s) { return /^[KGBFOAM]($| |\()/.test(String(s || "")); }
+function specShort(s) { return String(s || "").split(/[\s(]/)[0] || ""; }
+function spectralCell(j) {
+  if (!j.spectral) return "";
+  return `${scoopable(j.spectral) ? FUEL : ""}<span class="spec" title="${escapeHtml(j.spectral)}">${escapeHtml(specShort(j.spectral))}</span>`;
+}
+function legLabel(j, last) {
+  if (last) return "arrive";
+  if (j.type === "boost") return j.neutron_star ? "neutron ★" : "boost";
+  return j.neutron_star ? "board ★" : "bridge";
+}
+function copyBtn(name) {
+  return name ? ` <button class="copy-btn" data-copy="${escapeHtml(name)}" title="Copy system name">${copyIconSvg}</button>` : "";
+}
+
+let lastOurs = null, lastQuery = null;
 
 async function loadStatus() {
   try {
@@ -120,20 +165,16 @@ async function loadStatus() {
     if (st.public) { pill.textContent = "public"; pill.className = "pill ok"; }
     else if (me && me.patron) { pill.textContent = "patron ✓"; pill.className = "pill ok"; }
     else { pill.textContent = "early access"; pill.className = "pill warn"; }
-
-    const b = $("banner");
     const parts = [];
     if (!st.public) {
       parts.push(`<b>Patron early access</b> — opens to everyone on <b>${st.public_after || "soon"}</b>.`);
-      if (!(me && me.patron)) {
-        parts.push(`Become a patron on <a href="${st.patreon}" target="_blank" rel="noopener">Patreon</a>, or enter an access key below.`);
-      } else {
-        parts.push(`Signed in as <b>${me.name || "patron"}</b>.`);
-      }
+      if (!(me && me.patron)) parts.push(`Become a patron on <a href="${st.patreon}" target="_blank" rel="noopener">Patreon</a>, or enter an access key below.`);
+      else parts.push(`Signed in as <b>${escapeHtml(me.name || "patron")}</b>.`);
     }
     if (!st.index_ready) parts.push(`<span class="pill warn">index warming up…</span>`);
-    if (parts.length) { b.innerHTML = parts.join(" "); b.hidden = false; }
-  } catch (e) { /* non-fatal */ }
+    const b = $("banner");
+    if (parts.length) { b.innerHTML = parts.join(" "); b.hidden = false; } else { b.hidden = true; }
+  } catch (e) {}
 }
 
 let acTimer;
@@ -146,50 +187,22 @@ async function autocomplete(ev) {
       const r = await fetch("/systems/autocomplete?q=" + encodeURIComponent(term));
       const data = await r.json();
       const names = Array.isArray(data?.suggestions) ? data.suggestions : [];
-      const dl = $("sysopts");
-      dl.innerHTML = names.slice(0, 10)
-        .map(n => `<option value="${String(n).replace(/"/g, "&quot;")}"></option>`).join("");
+      $("sysopts").innerHTML = names.slice(0, 10).map(n => `<option value="${escapeHtml(n)}"></option>`).join("");
     } catch (e) {}
   }, 150);
 }
 $("from").addEventListener("input", autocomplete);
 $("to").addEventListener("input", autocomplete);
 
-function fmt(n, d = 0) { return Number(n).toLocaleString(undefined, { maximumFractionDigits: d }); }
-
-// Bootstrap "fuel-pump" icon (https://icons.getbootstrap.com/icons/fuel-pump/).
-const FUEL = `<svg class="fuel" width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><title>Fuel-scoopable (KGBFOAM)</title><path d="M3 2.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5v5a.5.5 0 0 1-.5.5h-5a.5.5 0 0 1-.5-.5z"/><path d="M1 2a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v8a2 2 0 0 1 2 2v.5a.5.5 0 0 0 1 0V8h-.5a.5.5 0 0 1-.5-.5V4.375a.5.5 0 0 1 .5-.5h1.495c-.011-.476-.053-.894-.201-1.222a.97.97 0 0 0-.394-.458c-.184-.11-.464-.195-.9-.195a.5.5 0 0 1 0-1q.846-.002 1.412.336c.383.228.634.551.794.907.295.655.294 1.465.294 2.081v3.175a.5.5 0 0 1-.5.501H15v4.5a1.5 1.5 0 0 1-3 0V12a1 1 0 0 0-1-1v4h.5a.5.5 0 0 1 0 1H.5a.5.5 0 0 1 0-1H1zm9 0a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v13h8z"/></svg>`;
-
-// Fuel-scoopable iff the spectral class is one of K,G,B,F,O,A,M (class letter
-// followed by end / space / "(" — so "Black Hole", "MS-type", white dwarfs etc.
-// are correctly excluded).
-function scoopable(s) { return /^[KGBFOAM]($| |\()/.test(String(s || "")); }
-function specShort(s) { return String(s || "").split(/[\s(]/)[0] || ""; }
-function spectralCell(j) {
-  const s = j.spectral;
-  if (!s) return "";
-  const esc = String(s).replace(/"/g, "&quot;");
-  return `${scoopable(s) ? FUEL : ""}<span class="spec" title="${esc}">${specShort(s)}</span>`;
-}
-
-let lastOurs = null;
-let lastQuery = null;
-
-function legLabel(j, last) {
-  if (last) return "arrive";
-  if (j.type === "boost") return j.neutron_star ? "neutron ★" : "boost";
-  return j.neutron_star ? "board ★" : "bridge";
-}
-
 function renderRoute(r) {
   lastOurs = r;
   const rows = r.jumps.map((j, i) => {
     const last = i === r.jumps.length - 1;
-    return `
-    <tr>
+    const name = j.system ?? (last ? r.destination : "—");
+    return `<tr>
       <td class="num">${i + 1}</td>
       <td class="${j.neutron_star ? "boost" : ""}">${legLabel(j, last)}</td>
-      <td>${j.system ?? (last ? r.destination : "—")}</td>
+      <td class="sys">${escapeHtml(name)}${copyBtn(j.system ?? r.destination)}</td>
       <td>${spectralCell(j)}</td>
       <td class="num">${fmt(j.distance_jumped, 1)}</td>
       <td class="num">${fmt(j.distance_left, 0)}</td>
@@ -199,46 +212,42 @@ function renderRoute(r) {
     <div class="summary">
       <div class="stat"><b>${fmt(r.total_jumps)}</b><span>jumps</span></div>
       <div class="stat"><b>${fmt(r.neutron_jumps)}</b><span>neutron boosts</span></div>
-      <div class="stat"><b>${fmt(r.bridge_jumps)}</b><span>regular bridges</span></div>
+      <div class="stat"><b>${fmt(r.bridge_jumps)}</b><span>regular jumps</span></div>
       <div class="stat"><b>${fmt(r.total_distance_ly)}</b><span>LY flown</span></div>
-      <div class="stat"><b>${fmt(r.straight_line_ly)}</b><span>LY direct</span></div>
       <div class="stat"><b>${fmt(r.efficiency * 100, 1)}%</b><span>efficiency</span></div>
       <div class="stat"><b>${fmt(r.solve_ms, 0)} ms</b><span>solve</span></div>
+      <button id="copyRoute" class="ghost" style="margin-left:auto" title="Copy all systems, one per line">copy route</button>
     </div>
-    <div class="tiny">${r.source} → ${r.destination} · range ${fmt(r.jump_range,1)} LY (boost ${fmt(r.boost_range,0)}) · beam ${r.beam_width} · access: ${r.access || "public"}</div>
+    <div class="meta">${escapeHtml(r.source)} → ${escapeHtml(r.destination)} · range ${fmt(r.jump_range,1)} LY (boost ${fmt(r.boost_range,0)}) · beam ${r.beam_width} · access ${r.access || "public"}</div>
     <div id="cmpOut"></div>
-    <p class="legend"><b>neutron ★</b> supercharge here (boosted jump) · <b>board ★</b> normal jump onto a neutron · boost = boosted jump · bridge = normal jump across a neutron gap · arrive = final jump</p>
+    <p class="legend"><b>neutron ★</b> supercharge here · <b>board ★</b> normal jump onto a neutron · boost = boosted jump · bridge = normal jump across a gap · arrive = final jump · <span class="fuel" style="position:relative">${FUEL}</span> fuel-scoopable</p>
     <div class="tablewrap">
       <table><thead><tr><th class="num">#</th><th>type</th><th>system</th><th>star</th><th class="num">jumped</th><th class="num">left</th></tr></thead>
       <tbody>${rows}</tbody></table>
     </div>`;
-  $("cmp").disabled = false;
-  $("cmp").title = "Run the same query on spansh";
+  $("cmp").disabled = false; $("cmp").title = "Run the same query on spansh";
 }
 
 async function compareSpansh() {
   if (!lastQuery) return;
   const { from, to, range } = lastQuery;
   $("cmp").disabled = true;
-  const out = () => document.getElementById("cmpOut");
+  const out = () => $("cmpOut");
   if (out()) out().innerHTML = `<span class="tiny">Querying spansh… (can take ~10–30 s)</span>`;
   try {
-    const url = `/spansh/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}&efficiency=60`;
-    const res = await fetch(url, { headers: headers(), credentials: "include" });
+    const res = await fetch(`/spansh/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}&efficiency=60`, { headers: headers(), credentials: "include" });
     if (!res.ok) { if (out()) out().innerHTML = `<span class="bad">spansh compare failed (HTTP ${res.status})</span>`; return; }
     const s = await res.json();
+    const sDur = s.duration_s != null ? `, ${fmt(s.duration_s, 1)} s` : "";
     const ours = lastOurs ? lastOurs.total_jumps : null;
+    const oDur = lastOurs ? `, ${fmt(lastOurs.solve_ms / 1000, 2)} s` : "";
     let verdict = "";
-    if (ours != null) {
-      const d = s.total_jumps - ours;
-      verdict = d > 0 ? `<span class="good">ours ${d} fewer ✓</span>`
-              : d < 0 ? `<span class="bad">spansh ${-d} fewer</span>` : `tie`;
-    }
-    if (out()) out().innerHTML = `<b>spansh:</b> ${fmt(s.total_jumps)} jumps (efficiency 60)`
-      + (ours != null ? ` · <b>ours:</b> ${fmt(ours)} · ${verdict}` : "");
-  } catch (e) {
-    if (out()) out().innerHTML = `<span class="bad">${e.message || e}</span>`;
-  } finally { $("cmp").disabled = false; }
+    if (ours != null) { const d = s.total_jumps - ours;
+      verdict = d > 0 ? `<span class="good">ours ${d} fewer ✓</span>` : d < 0 ? `<span class="bad">spansh ${-d} fewer</span>` : "tie"; }
+    if (out()) out().innerHTML = `<b>spansh:</b> ${fmt(s.total_jumps)} jumps (eff 60${sDur})`
+      + (ours != null ? ` · <b>ours:</b> ${fmt(ours)} jumps (${oDur.replace(/^, /, "")}) · ${verdict}` : "");
+  } catch (e) { if (out()) out().innerHTML = `<span class="bad">${e.message || e}</span>`; }
+  finally { $("cmp").disabled = false; }
 }
 
 async function plot() {
@@ -252,24 +261,28 @@ async function plot() {
     const res = await fetch(url, { headers: headers(), credentials: "include" });
     if (res.status === 403) {
       const d = (await res.json()).detail || {};
-      $("out").innerHTML = `<div class="msg warn"><b>Patron early access.</b> ${d.message || ""}
-        Opens on <b>${d.public_after || "soon"}</b>.
-        ${d.patreon ? `Join on <a href="${d.patreon}" target="_blank" rel="noopener">Patreon</a>` : ""}
-        or add an access key above.</div>`;
+      $("out").innerHTML = `<div class="msg warn"><b>Patron early access.</b> ${d.message || ""} Opens on <b>${d.public_after || "soon"}</b>. ${d.patreon ? `Join on <a href="${d.patreon}" target="_blank" rel="noopener">Patreon</a>` : ""} or add an access key above.</div>`;
       return;
     }
     if (res.status === 503) { $("out").innerHTML = `<div class="msg warn">Route index is warming up — try again in ~15 s.</div>`; setTimeout(loadStatus, 4000); return; }
-    if (res.status === 404) { $("out").innerHTML = `<div class="msg err">${(await res.json()).detail || "System not found."}</div>`; return; }
-    if (res.status === 422) { const d = (await res.json()).detail || {}; $("out").innerHTML = `<div class="msg err">No route: ${d.error || ""} ${d.message || ""}</div>`; return; }
+    if (res.status === 404) { $("out").innerHTML = `<div class="msg err">${escapeHtml((await res.json()).detail || "System not found.")}</div>`; return; }
+    if (res.status === 422) { const d = (await res.json()).detail || {}; $("out").innerHTML = `<div class="msg err">No route: ${escapeHtml(d.error || "")} ${escapeHtml(d.message || "")}</div>`; return; }
     if (!res.ok) { $("out").innerHTML = `<div class="msg err">Error ${res.status}.</div>`; return; }
     renderRoute(await res.json());
-  } catch (e) {
-    $("out").innerHTML = `<div class="msg err">${e.message || e}</div>`;
-  } finally {
-    $("go").disabled = false;
-    loadStatus();
-  }
+  } catch (e) { $("out").innerHTML = `<div class="msg err">${escapeHtml(e.message || String(e))}</div>`; }
+  finally { $("go").disabled = false; loadStatus(); }
 }
+
+// Delegated clicks for the per-row copy buttons and "copy route".
+$("out").addEventListener("click", (e) => {
+  const cb = e.target.closest(".copy-btn");
+  if (cb) { copyText(cb.dataset.copy, cb); return; }
+  if (e.target.closest("#copyRoute") && lastOurs) {
+    const names = lastOurs.jumps.map((j, i) => j.system ?? (i === lastOurs.jumps.length - 1 ? lastOurs.destination : null)).filter(Boolean);
+    copyText(names.join("\n"), e.target.closest("#copyRoute"));
+  }
+});
+
 $("go").addEventListener("click", plot);
 $("cmp").addEventListener("click", compareSpansh);
 [$("from"), $("to"), $("range")].forEach(el => el.addEventListener("keydown", e => { if (e.key === "Enter") plot(); }));
