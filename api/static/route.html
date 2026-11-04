@@ -34,9 +34,10 @@
   .row { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; }
   .field { display:flex; flex-direction:column; gap:5px; }
   .field label { font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--accent); }
-  input { background:var(--field); border:1px solid var(--line); color:var(--text);
+  input, select { background:var(--field); border:1px solid var(--line); color:var(--text);
           border-radius:8px; padding:9px 11px; font-size:14px; outline:none; }
-  input:focus { border-color:var(--accent); box-shadow:0 0 0 2px var(--dim-a); }
+  input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 2px var(--dim-a); }
+  select { cursor:pointer; }
   input#from, input#to { width:240px; font-family:var(--mono); }
   input#range { width:92px; } input#key { width:280px; }
 
@@ -116,6 +117,12 @@
       <div class="field"><label for="from">From</label><input id="from" list="sysopts" placeholder="Sol" autocomplete="off" /></div>
       <div class="field"><label for="to">To</label><input id="to" list="sysopts" placeholder="Colonia" autocomplete="off" /></div>
       <div class="field"><label for="range">Jump range (LY)</label><input id="range" type="number" min="1" max="200" step="0.1" value="50" /></div>
+      <div class="field"><label for="ship">Supercharge</label>
+        <select id="ship" title="Neutron supercharge: standard ships 4x, Caspian Explorer Mk II SCO drive 6x">
+          <option value="4">Standard (4x)</option>
+          <option value="6">Caspian SCO (6x)</option>
+        </select>
+      </div>
       <button id="go">Plot route</button>
       <button id="cmp" class="ghost" disabled title="Plot a route first">vs spansh</button>
     </div>
@@ -144,6 +151,11 @@ const KEY_LS = "edgis_route_key";
 $("key").value = localStorage.getItem(KEY_LS) || "";
 $("key").addEventListener("input", () => localStorage.setItem(KEY_LS, $("key").value.trim()));
 function headers() { const k = ($("key").value || "").trim(); return k ? { "x-route-key": k } : {}; }
+
+// Remember the ship / supercharge choice between visits.
+const SHIP_LS = "edgis_route_ship";
+$("ship").value = localStorage.getItem(SHIP_LS) || "4";
+$("ship").addEventListener("change", () => localStorage.setItem(SHIP_LS, $("ship").value));
 
 // Bootstrap "bi-copy" icon + clipboard helper (matches the main EDGIS app).
 const copyIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/></svg>`;
@@ -312,7 +324,7 @@ function renderRoute(r) {
 
 async function compareSpansh() {
   if (!lastQuery) return;
-  const { from, to, range } = lastQuery;
+  const { from, to, range, supercharge } = lastQuery;
   $("cmp").disabled = true;
   // A cmpOut div exists after a successful plot; create one if EDGIS failed
   // (so you can still check whether spansh finds a route).
@@ -323,7 +335,7 @@ async function compareSpansh() {
   };
   out().innerHTML = `<span class="tiny">Querying spansh… (can take ~10–30 s)</span>`;
   try {
-    const res = await fetch(`/spansh/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}&efficiency=60`, { headers: headers(), credentials: "include" });
+    const res = await fetch(`/spansh/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}&efficiency=60&supercharge=${encodeURIComponent(supercharge || 4)}`, { headers: headers(), credentials: "include" });
     if (!res.ok) { if (out()) out().innerHTML = `<span class="bad">spansh compare failed (HTTP ${res.status})</span>`; return; }
     const s = await res.json();
     const sDur = s.duration_s != null ? `, ${fmt(s.duration_s, 1)} s` : "";
@@ -351,11 +363,12 @@ async function plot() {
   const from = $("from").value.trim(), to = $("to").value.trim();
   if (!from || !to) { $("out").innerHTML = `<div class="msg warn">Enter both a start and destination system.</div>`; return; }
   const range = $("range").value || "50";
-  lastQuery = { from, to, range };
+  const supercharge = $("ship").value || "4";
+  lastQuery = { from, to, range, supercharge };
   lastOurs = null;  // so a post-failure spansh compare doesn't show a stale "ours"
   $("go").disabled = true; $("out").innerHTML = `<div class="msg">Plotting…</div>`;
   try {
-    const url = `/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}`;
+    const url = `/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}&supercharge=${encodeURIComponent(supercharge)}`;
     const res = await fetch(url, { headers: headers(), credentials: "include" });
     if (res.status === 403) {
       const d = (await res.json()).detail || {};

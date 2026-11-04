@@ -3058,6 +3058,7 @@ def _solve_route_sync(
     dst: tuple[float, float, float],
     jump_range: float,
     beam_width: int | None,
+    boost_mult: float = 4.0,
 ):
     index = _neutron_index
     if index is None:  # pragma: no cover - guarded by caller
@@ -3141,11 +3142,13 @@ def _solve_route_sync(
             time_cap=60.0 + math.dist(src, dst) / 500.0,
             locked_mask=permit_zones.locked_mask,
             is_locked=permit_zones.is_locked,
+            boost_mult=boost_mult,
         )
         if result is not None:
             return result
         return routing.solve_route(
-            index, src, dst, jump_range, fetch_stars_within, width=beam_width
+            index, src, dst, jump_range, fetch_stars_within, width=beam_width,
+            boost_mult=boost_mult,
         )
 
 
@@ -3281,6 +3284,11 @@ async def plot_route(
     to: str = Query(..., min_length=1),
     jump_range: float = Query(50.0, alias="range", gt=0, le=200),
     beam_width: Optional[int] = Query(None, ge=1, le=100),
+    supercharge: float = Query(
+        4.0, ge=1.0, le=6.0,
+        description="Neutron supercharge multiplier: 4 normal, 6 for a "
+        "Caspian Explorer's Mk II SCO drive.",
+    ),
     access: dict = Depends(entitlements.require_entitlement("route")),
 ):
     global _route_solve_semaphore
@@ -3297,7 +3305,7 @@ async def plot_route(
 
     cache_key = (
         f"{from_.strip().lower()}|{to.strip().lower()}"
-        f"|{jump_range:g}|{beam_width}|v{_neutron_index.count}"
+        f"|{jump_range:g}|{beam_width}|sc{supercharge:g}|v{_neutron_index.count}"
     )
     try:
         cached = await _route_cache.get(cache_key)
@@ -3334,7 +3342,7 @@ async def plot_route(
     async with _route_solve_semaphore:
         try:
             result = await _run_db_task(
-                _solve_route_sync, src, dst, jump_range, beam_width
+                _solve_route_sync, src, dst, jump_range, beam_width, supercharge
             )
         except routing.RouteError as exc:
             _log_route_trace(
@@ -3380,6 +3388,7 @@ async def spansh_route(
     to: str = Query(..., min_length=1),
     jump_range: float = Query(50.0, alias="range", gt=0, le=200),
     efficiency: int = Query(60, ge=1, le=100),
+    supercharge: float = Query(4.0, ge=1.0, le=6.0),
     access: dict = Depends(entitlements.require_entitlement("route")),
 ):
     """Proxy spansh's neutron plotter (POST job + poll) for side-by-side
@@ -3391,7 +3400,7 @@ async def spansh_route(
         "range": f"{jump_range:g}",
         "from": from_,
         "to": to,
-        "supercharge_multiplier": "4",
+        "supercharge_multiplier": f"{supercharge:g}",
     }
     headers = {"User-Agent": EXTERNAL_USER_AGENT, "Accept": "application/json"}
     try:
