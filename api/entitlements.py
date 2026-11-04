@@ -63,10 +63,20 @@ class Feature:
     key: str
     public_after: Optional[datetime]
     # Minimum Patreon tier that unlocks the feature during the gated window.
-    # Enforced in Layer 2; recorded now so the registry is the single source
-    # of truth. Tiers follow the PHP app: follower < supporter < elite <
-    # triple_elite.
+    # Tiers follow the PHP app: follower < supporter < elite < triple_elite.
     min_tier: str = "supporter"
+    # Phased rollout: access level -> unlock datetime. A caller unlocks the
+    # feature once now >= the earliest date among the levels they qualify for
+    # (see ``_caller_levels``). ``public_after`` is the final, open-to-all wave.
+    # Empty tuple = legacy behaviour (any entitled patron is in immediately).
+    waves: tuple[tuple[str, Optional[datetime]], ...] = ()
+
+
+# Paid Patreon tiers (all unlock at the "supporter" wave; follower is free).
+_PAID_TIERS = frozenset({"supporter", "elite", "triple_elite"})
+# Galactic Hunters need at least this many confirmed submissions (see
+# galactic-hunters-access): once the identity endpoint reports the count.
+HUNTER_MIN_SUBMISSIONS = int(os.getenv("ROUTE_HUNTER_MIN_SUBMISSIONS") or "5")
 
 
 # The one place features are declared. Add a row per gated feature.
@@ -75,8 +85,49 @@ FEATURES: dict[str, Feature] = {
         key="route",
         public_after=_parse_cutover(os.getenv("ROUTE_PUBLIC_AFTER", "2026-11-30")),
         min_tier=os.getenv("ROUTE_MIN_TIER", "supporter"),
+        waves=(
+            # Paid patrons (tier 1 and up).
+            ("supporter", _parse_cutover(
+                os.getenv("ROUTE_WAVE_SUPPORTER", "2026-11-07"))),
+            # Free Patreon followers.
+            ("follower", _parse_cutover(
+                os.getenv("ROUTE_WAVE_FOLLOWER", "2026-11-13"))),
+            # Galactic Hunters with >= HUNTER_MIN_SUBMISSIONS confirmed targets.
+            ("hunter", _parse_cutover(
+                os.getenv("ROUTE_WAVE_HUNTER", "2026-11-13"))),
+        ),
     ),
 }
+
+
+def _caller_levels(patron: dict) -> set[str]:
+    """Access levels a resolved patron qualifies for, matched to wave names.
+
+    Reads optional enriched identity fields; degrades gracefully when the site
+    endpoint only returns the legacy ``entitled`` boolean (-> "supporter")."""
+
+    levels: set[str] = set()
+    tier = str(patron.get("tier") or "").strip().lower()
+    if tier in _PAID_TIERS or (patron.get("entitled") and tier not in {"follower"}):
+        levels.add("supporter")
+    if tier == "follower" or patron.get("follower"):
+        levels.add("follower")
+    subs = patron.get("hunter_submissions")
+    if patron.get("hunter") or (
+        isinstance(subs, (int, float)) and subs >= HUNTER_MIN_SUBMISSIONS
+    ):
+        levels.add("hunter")
+    return levels
+
+
+def _earliest_wave_unlock(
+    feature: Feature, levels: set[str]
+) -> Optional[datetime]:
+    """Earliest unlock datetime among the waves the caller qualifies for, or
+    ``None`` if they qualify for no dated wave."""
+
+    dates = [d for (lvl, d) in feature.waves if lvl in levels and d is not None]
+    return min(dates) if dates else None
 
 
 def _now() -> datetime:
@@ -148,6 +199,11 @@ def entitlement_status(feature_key: str) -> dict:
         "requires": None if public else "patron",
         "min_tier": None if public else feature.min_tier,
         "patreon": None if public else PATREON_URL,
+        "waves": None if public else [
+            {"level": lvl, "after": d.date().isoformat()}
+            for (lvl, d) in feature.waves
+            if d is not None
+        ],
     }
 
 
@@ -198,22 +254,41 @@ def require_entitlement(feature_key: str):
         if _key_is_valid(_extract_key(request)):
             return {"via": "key", "feature": feature_key}
         patron = await _resolve_patron(request)
-        if patron and patron.get("entitled"):
-            return {
-                "via": "patron",
-                "feature": feature_key,
-                "tier": patron.get("tier"),
-            }
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error": "patron_only",
-                "message": (
-                    "This feature is in early access for patrons. "
-                    "It opens to everyone soon."
-                ),
-                **entitlement_status(feature_key),
-            },
-        )
+        your_wave: Optional[datetime] = None
+        if patron:
+            if feature.waves:
+                # Phased rollout: the caller is in once their earliest
+                # qualifying wave has opened.
+                your_wave = _earliest_wave_unlock(
+                    feature, _caller_levels(patron)
+                )
+                if your_wave is not None and _now() >= your_wave:
+                    return {
+                        "via": "patron",
+                        "feature": feature_key,
+                        "tier": patron.get("tier"),
+                    }
+            elif patron.get("entitled"):  # legacy: no wave schedule
+                return {
+                    "via": "patron",
+                    "feature": feature_key,
+                    "tier": patron.get("tier"),
+                }
+        detail = {
+            "error": "patron_only",
+            "message": (
+                "This feature is in early access. It opens to everyone soon."
+            ),
+            **entitlement_status(feature_key),
+        }
+        if your_wave is not None:
+            # The caller qualifies for a wave that hasn't opened yet; tell them
+            # exactly when they're in.
+            detail["your_access_after"] = your_wave.date().isoformat()
+            detail["message"] = (
+                "You're in early access. Your access opens on "
+                f"{your_wave.date().isoformat()}."
+            )
+        raise HTTPException(status_code=403, detail=detail)
 
     return dependency
