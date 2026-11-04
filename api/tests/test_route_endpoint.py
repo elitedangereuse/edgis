@@ -60,7 +60,7 @@ def test_route_success_path(monkeypatch):
 
     monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
 
-    def fake_solve(src, dst, jump_range, beam_width):
+    def fake_solve(src, dst, jump_range, beam_width, boost_mult=4.0):
         return {
             "jump_range": jump_range,
             "boost_range": 4 * jump_range,

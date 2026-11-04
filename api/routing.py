@@ -98,6 +98,7 @@ def _beam(
     dst: np.ndarray,
     jump_range: float,
     width: int,
+    boost_mult: float = 4.0,
 ) -> tuple[str, list[int]]:
     """Layered beam search over neutrons; returns ("ok"|"stuck", path).
 
@@ -109,7 +110,7 @@ def _beam(
 
     coords = index.coords
     tree = index.tree
-    boost = 4.0 * jump_range
+    boost = boost_mult * jump_range
 
     def dto(node: int) -> float:
         return float(np.linalg.norm(coords[node] - dst))
@@ -213,19 +214,21 @@ def solve_route(
     jump_range: float,
     fetch_stars_within: FetchStarsWithin,
     width: Optional[int] = None,
+    boost_mult: float = 4.0,
 ) -> dict:
     """Plot a neutron-boosted route from ``src`` to ``dst``.
 
     Returns a dict with ``jumps`` (one per hop) and totals. Raises
     :class:`RouteError` when no legal route exists (e.g. the destination sits
-    in a void with no star within one jump).
+    in a void with no star within one jump). ``boost_mult`` is the neutron
+    supercharge multiplier (4.0 normal, 6.0 Caspian).
     """
 
     coords = index.coords
     tree = index.tree
     names = index.names
     id64 = index.id64
-    boost = 4.0 * jump_range
+    boost = boost_mult * jump_range
     src_v = np.asarray(src, dtype=np.float64)
     dst_v = np.asarray(dst, dtype=np.float64)
     straight = _dist(src_v, dst_v)
@@ -316,7 +319,7 @@ def solve_route(
 
     # ---- Boost march, bridging across voids until we arrive.
     for _safety in range(_MAX_TOTAL_JUMPS):
-        status, path = _beam(index, starts, dst_v, jump_range, width)
+        status, path = _beam(index, starts, dst_v, jump_range, width, boost_mult)
 
         prev = coords[path[0]]
         for node in path[1:]:
@@ -451,9 +454,10 @@ def _is_neutron_star(mainstar) -> bool:
     return mainstar in ("N", "Neutron Star")
 
 
-def _boosted_jumps(d: float, jump_range: float) -> int:
-    """Jumps to cover ``d`` starting supercharged: one 4J jump, then J-hops."""
-    boost = 4.0 * jump_range
+def _boosted_jumps(d: float, jump_range: float, boost_mult: float = 4.0) -> int:
+    """Jumps to cover ``d`` starting supercharged: one boosted jump
+    (``boost_mult``*J, 4x normal, 6x on a Caspian), then J-hops."""
+    boost = boost_mult * jump_range
     if d <= boost:
         return 1
     return 1 + int(math.ceil((d - boost) / jump_range))
@@ -493,16 +497,17 @@ def _graph_search(
     blacklist: set[tuple[int, int]],
     badzones: list[tuple[np.ndarray, float]],
     deadline: float,
+    boost_mult: float = 4.0,
 ) -> Optional[list[int]]:
-    """Min-jumps A* over the corridor neutrons. Boost edges (<=4J) cost 1; gap
-    edges (fired only where no boost neighbor makes forward progress) and the
-    tail/direct edges use the analytic supercharged cost. Returns the neutron
-    sequence as GLOBAL index ids, or ``None``. ``blacklist`` holds proven
-    unbridgeable (from, to) edges (-1 = SRC, -2 = DST); ``badzones`` are
-    (center, radius) spheres around proven-starless segments."""
+    """Min-jumps A* over the corridor neutrons. Boost edges (<=``boost_mult``*J)
+    cost 1; gap edges (fired only where no boost neighbor makes forward
+    progress) and the tail/direct edges use the analytic supercharged cost.
+    Returns the neutron sequence as GLOBAL index ids, or ``None``. ``blacklist``
+    holds proven unbridgeable (from, to) edges (-1 = SRC, -2 = DST); ``badzones``
+    are (center, radius) spheres around proven-starless segments."""
 
     J = jump_range
-    boost = 4.0 * J
+    boost = boost_mult * J
     straight = float(np.linalg.norm(dv - sv))
     n = len(cand)
     cc = index.coords[cand] if n else np.zeros((0, 3))
@@ -571,7 +576,7 @@ def _graph_search(
         if (int(cand[u]), -2) not in blacklist and zone_ok(cu, dv):
             relax(
                 DST,
-                gg + _boosted_jumps(float(dd_dst[u]), J),
+                gg + _boosted_jumps(float(dd_dst[u]), J, boost_mult),
                 gd[u] + float(dd_dst[u]),
                 u,
             )
@@ -602,7 +607,7 @@ def _graph_search(
                         continue
                     if not zone_ok(cu, cc[m]):
                         continue
-                    relax(m, gg + _boosted_jumps(float(dms[i]), J),
+                    relax(m, gg + _boosted_jumps(float(dms[i]), J, boost_mult),
                           gd[u] + float(dms[i]), u)
                     relaxed += 1
                 if relaxed:
@@ -629,13 +634,14 @@ def _bridge_greedy(
     visited: set[str],
     max_steps: int,
     is_locked: Optional[Callable[[tuple], bool]] = None,
+    boost_mult: float = 4.0,
 ) -> Optional[tuple[list[dict], np.ndarray, bool]]:
     """Greedy star-walk toward ``target`` (excluded); returns the intermediate
     legs + final position/boost state, or ``None`` on a dead end. Fast and
     almost always sufficient in dense space. Bridge stars inside a permit zone
     (``is_locked``) are skipped: you can never arrive at a locked system."""
 
-    boost = 4.0 * jump_range
+    boost = boost_mult * jump_range
     legs: list[dict] = []
     cur = np.array(pos, dtype=np.float64)
     on_boost = boosted
@@ -686,6 +692,7 @@ def _bridge_capsule(
     jump_range: float,
     dst_v: np.ndarray,
     is_locked: Optional[Callable[[tuple], bool]] = None,
+    boost_mult: float = 4.0,
 ) -> Optional[tuple[list[dict], np.ndarray, bool]]:
     """Min-jump bridge via BFS over one capsule star fetch around the segment.
     Slower than the greedy walk but immune to its local dead ends; used only
@@ -693,7 +700,7 @@ def _bridge_capsule(
     Stars inside a permit zone (``is_locked``) are dropped before the BFS."""
 
     J = jump_range
-    boost = 4.0 * J
+    boost = boost_mult * J
     for width in (max(3.0 * J, 200.0), max(9.0 * J, 600.0)):
         rows = list(fetch_stars_near_segment(tuple(pos), tuple(target), width))
         if is_locked is not None:
@@ -775,12 +782,13 @@ def _realize_graph(
     fetch_stars_near_segment: Optional[FetchStarsNearSegment],
     fetch_stars_toward: Optional[FetchStarsToward],
     is_locked: Optional[Callable[[tuple], bool]] = None,
+    boost_mult: float = 4.0,
 ):
     """Realize a neutron sequence into legs. Returns ``(legs, None)`` or
     ``(None, (edge, midpoint, seg_d))`` naming the unbridgeable edge."""
 
     J = jump_range
-    boost = 4.0 * J
+    boost = boost_mult * J
     coords = index.coords
     names = index.names
     id64 = index.id64
@@ -801,6 +809,7 @@ def _realize_graph(
             br = _bridge_greedy(
                 fetch_stars_within, fetch_stars_toward, pos, boosted, tgt,
                 J, dst_v, set(), max_steps, is_locked=is_locked,
+                boost_mult=boost_mult,
             )
             if fetch_stars_near_segment is not None:
                 # Quality guard: greedy can SUCCEED badly, wandering around an
@@ -808,7 +817,7 @@ def _realize_graph(
                 # small steps. When it clearly exceeds the analytic estimate,
                 # ask the capsule min-jumps BFS too and keep the shorter.
                 analytic = (
-                    _boosted_jumps(d, J) if boosted
+                    _boosted_jumps(d, J, boost_mult) if boosted
                     else max(1, int(math.ceil(d / J)))
                 )
                 if br is None or len(br[0]) + 1 > analytic + max(
@@ -816,7 +825,7 @@ def _realize_graph(
                 ):
                     alt = _bridge_capsule(
                         fetch_stars_near_segment, pos, boosted, tgt, J, dst_v,
-                        is_locked=is_locked,
+                        is_locked=is_locked, boost_mult=boost_mult,
                     )
                     if alt is not None and (
                         br is None or len(alt[0]) < len(br[0])
@@ -859,6 +868,7 @@ def graph_route(
     time_cap: float = 60.0,
     locked_mask: Optional[Callable[[np.ndarray], np.ndarray]] = None,
     is_locked: Optional[Callable[[tuple], bool]] = None,
+    boost_mult: float = 4.0,
 ) -> Optional[dict]:
     """Min-**jumps** route via corridor-bounded neutron-graph A*, realized into
     legs with greedy + capsule-BFS bridging. Edges the realizer proves
@@ -871,12 +881,15 @@ def graph_route(
     candidate set and locked bridge stars are skipped, so no waypoint ever
     lands in a permit zone. ``src``/``dst`` are never checked (the commander
     may hold that permit, and it is their explicit endpoint).
+
+    ``boost_mult`` is the neutron supercharge multiplier (4.0 normal; 6.0 for a
+    Caspian Explorer's Mk II SCO drive).
     """
 
     start_time = time.perf_counter()
     deadline = start_time + time_cap
     J = float(jump_range)
-    boost = 4.0 * J
+    boost = boost_mult * J
     sv = np.asarray(src, dtype=np.float64)
     dv = np.asarray(dst, dtype=np.float64)
     straight = _dist(sv, dv)
@@ -890,13 +903,14 @@ def graph_route(
     for _ in range(rounds):
         seq = _graph_search(
             index, cand, sv, dv, J, entry_r, gap_k, blacklist, badzones,
-            deadline,
+            deadline, boost_mult=boost_mult,
         )
         if seq is None:
             return None
         legs, fail = _realize_graph(
             index, src, dst, J, seq, fetch_stars_within,
             fetch_stars_near_segment, fetch_stars_toward, is_locked=is_locked,
+            boost_mult=boost_mult,
         )
         if legs is not None:
             return _finalize(

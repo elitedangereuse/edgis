@@ -39,12 +39,16 @@ def grid_stars(step=45):
     return fetch
 
 
-def assert_legal(result, jump_range):
-    boost = 4.0 * jump_range
+def assert_legal_boost(result, jump_range, boost_mult):
+    boost = boost_mult * jump_range
     for leg in result["jumps"]:
         cap = jump_range if leg["type"] == "regular" else boost
         assert leg["distance_jumped"] <= cap + 1e-4, leg
     assert result["jumps"][-1]["distance_left"] == pytest.approx(0.0)
+
+
+def assert_legal(result, jump_range):
+    assert_legal_boost(result, jump_range, 4.0)
 
 
 def test_straight_boost_route_no_bridging():
@@ -137,6 +141,24 @@ def test_graph_route_excludes_permit_locked_neutrons():
             and abs(leg["z"] - locked_centre[2]) < 1.0
             and abs(leg["x"]) < 1.0 and abs(leg["y"]) < 1.0
         ), f"boarded a permit-locked neutron: {leg}"
+
+
+def test_graph_route_caspian_boost_reaches_further():
+    # Neutrons spaced 260 LY apart. A normal 4x boost (<=200 at J=50) can't hop
+    # neutron-to-neutron directly, so it bridges across each gap with regular
+    # jumps; a Caspian 6x boost (<=300) chains them directly. Same field, same
+    # neutron count, but the Caspian route is far shorter.
+    index = make_index([(0.0, 0.0, float(40 + 260 * k)) for k in range(6)])
+    args = (index, (0.0, 0.0, 0.0), (0.0, 0.0, 1400.0), 50.0, grid_stars())
+
+    caspian = routing.graph_route(*args, boost_mult=6.0)
+    normal = routing.graph_route(*args, boost_mult=4.0)
+    assert caspian is not None and normal is not None
+    assert_legal_boost(caspian, 50.0, 6.0)
+    assert_legal_boost(normal, 50.0, 4.0)
+    # Caspian chains the 260 LY-spaced neutrons with almost no bridging.
+    assert caspian["total_jumps"] < normal["total_jumps"]
+    assert caspian["bridge_jumps"] < normal["bridge_jumps"]
 
 
 def test_graph_route_none_when_unbridgeable():
