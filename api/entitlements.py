@@ -73,7 +73,7 @@ class Feature:
 FEATURES: dict[str, Feature] = {
     "route": Feature(
         key="route",
-        public_after=_parse_cutover(os.getenv("ROUTE_PUBLIC_AFTER", "2026-11-14")),
+        public_after=_parse_cutover(os.getenv("ROUTE_PUBLIC_AFTER", "2026-11-30")),
         min_tier=os.getenv("ROUTE_MIN_TIER", "supporter"),
     ),
 }
