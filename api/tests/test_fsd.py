@@ -53,3 +53,26 @@ def test_fuel_cost_capped_and_monotonic():
 
 def test_no_fsd_returns_none():
     assert fsd.parse_loadout('[{"data":{"event":"Loadout","Modules":[]}}]') is None
+
+
+def _jump(dist, neutron=False, spectral=None):
+    return {"distance_jumped": dist, "neutron_star": neutron, "spectral": spectral}
+
+
+def test_simulate_fuel_strands_on_long_neutron_chain():
+    p = fsd.parse_loadout(COBRA_SLEF)  # tank 32, ~3.2 fuel/jump -> ~10 dry jumps
+    chain = [_jump(60, neutron=True, spectral="N") for _ in range(20)]
+    sim = fsd.simulate_fuel(chain, p)
+    assert sim["stranded_at"] is not None and sim["stranded_at"] < 20
+
+
+def test_simulate_fuel_safe_with_periodic_scooping():
+    p = fsd.parse_loadout(COBRA_SLEF)
+    # Every 4th jump lands on a scoopable K star -> never strands.
+    legs = []
+    for i in range(40):
+        legs.append(_jump(55, neutron=(i % 4 != 3),
+                          spectral="N" if i % 4 != 3 else "K (Yellow-Orange) Star"))
+    sim = fsd.simulate_fuel(legs, p)
+    assert sim["stranded_at"] is None
+    assert sim["refuels"] >= 9
