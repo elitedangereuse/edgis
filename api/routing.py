@@ -777,7 +777,6 @@ def _realize_graph(
     id64 = index.id64
     dst_v = np.asarray(dst, dtype=np.float64)
     legs: list[dict] = []
-    visited: set[str] = set()
     pos = np.asarray(src, dtype=np.float64)
     boosted = False
     prev_gid = -1
@@ -792,12 +791,27 @@ def _realize_graph(
             max_steps = int(math.ceil(d / J)) * 4 + 8
             br = _bridge_greedy(
                 fetch_stars_within, fetch_stars_toward, pos, boosted, tgt,
-                J, dst_v, visited, max_steps,
+                J, dst_v, set(), max_steps,
             )
-            if br is None and fetch_stars_near_segment is not None:
-                br = _bridge_capsule(
-                    fetch_stars_near_segment, pos, boosted, tgt, J, dst_v
+            if fetch_stars_near_segment is not None:
+                # Quality guard: greedy can SUCCEED badly, wandering around an
+                # obstacle (e.g. the empty permit sphere at HEN 2-333) in many
+                # small steps. When it clearly exceeds the analytic estimate,
+                # ask the capsule min-jumps BFS too and keep the shorter.
+                analytic = (
+                    _boosted_jumps(d, J) if boosted
+                    else max(1, int(math.ceil(d / J)))
                 )
+                if br is None or len(br[0]) + 1 > analytic + max(
+                    2, int(0.25 * analytic)
+                ):
+                    alt = _bridge_capsule(
+                        fetch_stars_near_segment, pos, boosted, tgt, J, dst_v
+                    )
+                    if alt is not None and (
+                        br is None or len(alt[0]) < len(br[0])
+                    ):
+                        br = alt
             if br is None:
                 mid = (pos + tgt) / 2.0
                 return None, ((prev_gid, gid), mid, d)
