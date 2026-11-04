@@ -1,0 +1,189 @@
+"""Elite Dangerous FSD fuel + jump-range model, for fuel-aware routing.
+
+Jump range grows as the tank empties (lighter ship). Formula, validated against
+EDSY/spansh for a Caspian-class build (max range 67.7 ly):
+
+    range(fuel) = optimal_mass / (base_mass + fuel)
+                  * (max_fuel_per_jump / fuel_multiplier) ** (1 / fuel_power)
+                  + range_boost                       # Guardian FSD booster (flat)
+
+    fuel_cost(d, fuel) = fuel_multiplier
+                  * ((max(0, d - range_boost) * (base_mass + fuel)) / optimal_mass)
+                    ** fuel_power                      # capped at max_fuel_per_jump
+
+Base FSD constants (fuelmul, fuelpower, maxfuel, optmass) are the Coriolis module
+table extracted from spansh's exact-plotter bundle; Guardian FSD booster boosts
+are the jumpboost-by-size values. ``parse_loadout`` turns an EDSY/SLEF Loadout
+(Journal shape) into a ``FuelParams`` the router can use.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from typing import Optional
+
+# symbol(lowercase) -> [fuel_multiplier, fuel_power, max_fuel_per_jump, optimal_mass]
+FSD_TABLE = {
+    'int_hyperdrive_overcharge_size2_class1': [0.008, 2.0, 0.6, 60.0],
+    'int_hyperdrive_overcharge_size2_class2': [0.012, 2.0, 0.9, 90.0],
+    'int_hyperdrive_overcharge_size2_class3': [0.012, 2.0, 0.9, 90.0],
+    'int_hyperdrive_overcharge_size2_class4': [0.012, 2.0, 0.9, 90.0],
+    'int_hyperdrive_overcharge_size2_class5': [0.013, 2.0, 1.0, 100.0],
+    'int_hyperdrive_overcharge_size3_class1': [0.008, 2.15, 1.2, 100.0],
+    'int_hyperdrive_overcharge_size3_class2': [0.012, 2.15, 1.8, 150.0],
+    'int_hyperdrive_overcharge_size3_class3': [0.012, 2.15, 1.8, 150.0],
+    'int_hyperdrive_overcharge_size3_class4': [0.012, 2.15, 1.8, 150.0],
+    'int_hyperdrive_overcharge_size3_class5': [0.013, 2.15, 1.9, 167.0],
+    'int_hyperdrive_overcharge_size4_class1': [0.008, 2.3, 2.0, 350.0],
+    'int_hyperdrive_overcharge_size4_class2': [0.012, 2.3, 3.0, 525.0],
+    'int_hyperdrive_overcharge_size4_class3': [0.012, 2.3, 3.0, 525.0],
+    'int_hyperdrive_overcharge_size4_class4': [0.012, 2.3, 3.0, 525.0],
+    'int_hyperdrive_overcharge_size4_class5': [0.013, 2.3, 3.2, 585.0],
+    'int_hyperdrive_overcharge_size5_class1': [0.008, 2.45, 3.3, 700.0],
+    'int_hyperdrive_overcharge_size5_class2': [0.012, 2.45, 5.0, 1050.0],
+    'int_hyperdrive_overcharge_size5_class3': [0.012, 2.45, 5.0, 1050.0],
+    'int_hyperdrive_overcharge_size5_class4': [0.012, 2.45, 5.0, 1050.0],
+    'int_hyperdrive_overcharge_size5_class5': [0.013, 2.45, 5.2, 1175.0],
+    'int_hyperdrive_overcharge_size6_class1': [0.008, 2.6, 5.3, 1200.0],
+    'int_hyperdrive_overcharge_size6_class2': [0.012, 2.6, 8.0, 1800.0],
+    'int_hyperdrive_overcharge_size6_class3': [0.012, 2.6, 8.0, 1800.0],
+    'int_hyperdrive_overcharge_size6_class4': [0.012, 2.6, 8.0, 1800.0],
+    'int_hyperdrive_overcharge_size6_class5': [0.013, 2.6, 8.3, 2.0],
+    'int_hyperdrive_overcharge_size7_class1': [0.008, 2.75, 8.5, 1800.0],
+    'int_hyperdrive_overcharge_size7_class2': [0.012, 2.75, 12.8, 2700.0],
+    'int_hyperdrive_overcharge_size7_class3': [0.012, 2.75, 12.8, 2700.0],
+    'int_hyperdrive_overcharge_size7_class4': [0.012, 2.75, 12.8, 2700.0],
+    'int_hyperdrive_overcharge_size7_class5': [0.013, 2.75, 13.1, 3.0],
+    'int_hyperdrive_overcharge_size8_class1': [0.008, 2.9, 13.6, 2800.0],
+    'int_hyperdrive_overcharge_size8_class2': [0.012, 2.9, 20.4, 4200.0],
+    'int_hyperdrive_overcharge_size8_class3': [0.012, 2.9, 20.4, 4200.0],
+    'int_hyperdrive_overcharge_size8_class4': [0.012, 2.9, 20.4, 4200.0],
+    'int_hyperdrive_overcharge_size8_class5': [0.013, 2.9, 20.7, 4670.0],
+    'int_hyperdrive_overcharge_size8_class5_overchargebooster_mkii': [0.011, 2.5025, 6.8, 4670.0],
+    'int_hyperdrive_size2_class1': [0.011, 2.0, 0.6, 48.0],
+    'int_hyperdrive_size2_class2': [0.01, 2.0, 0.6, 54.0],
+    'int_hyperdrive_size2_class3': [0.008, 2.0, 0.6, 60.0],
+    'int_hyperdrive_size2_class4': [0.01, 2.0, 0.8, 75.0],
+    'int_hyperdrive_size2_class5': [0.012, 2.0, 0.9, 90.0],
+    'int_hyperdrive_size3_class1': [0.011, 2.15, 1.2, 80.0],
+    'int_hyperdrive_size3_class2': [0.01, 2.15, 1.2, 90.0],
+    'int_hyperdrive_size3_class3': [0.008, 2.15, 1.2, 100.0],
+    'int_hyperdrive_size3_class4': [0.01, 2.15, 1.5, 125.0],
+    'int_hyperdrive_size3_class5': [0.012, 2.15, 1.8, 150.0],
+    'int_hyperdrive_size4_class1': [0.011, 2.3, 2.0, 280.0],
+    'int_hyperdrive_size4_class2': [0.01, 2.3, 2.0, 315.0],
+    'int_hyperdrive_size4_class3': [0.008, 2.3, 2.0, 350.0],
+    'int_hyperdrive_size4_class4': [0.01, 2.3, 2.5, 437.5],
+    'int_hyperdrive_size4_class5': [0.012, 2.3, 3.0, 525.0],
+    'int_hyperdrive_size5_class1': [0.011, 2.45, 3.3, 560.0],
+    'int_hyperdrive_size5_class2': [0.01, 2.45, 3.3, 630.0],
+    'int_hyperdrive_size5_class3': [0.008, 2.45, 3.3, 700.0],
+    'int_hyperdrive_size5_class4': [0.01, 2.45, 4.1, 875.0],
+    'int_hyperdrive_size5_class5': [0.012, 2.45, 5.0, 1050.0],
+    'int_hyperdrive_size6_class1': [0.011, 2.6, 5.3, 960.0],
+    'int_hyperdrive_size6_class2': [0.01, 2.6, 5.3, 1080.0],
+    'int_hyperdrive_size6_class3': [0.008, 2.6, 5.3, 1200.0],
+    'int_hyperdrive_size6_class4': [0.01, 2.6, 6.6, 1500.0],
+    'int_hyperdrive_size6_class5': [0.012, 2.6, 8.0, 1800.0],
+    'int_hyperdrive_size7_class1': [0.011, 2.75, 8.5, 1440.0],
+    'int_hyperdrive_size7_class2': [0.01, 2.75, 8.5, 1620.0],
+    'int_hyperdrive_size7_class3': [0.008, 2.75, 8.5, 1800.0],
+    'int_hyperdrive_size7_class4': [0.01, 2.75, 10.6, 2250.0],
+    'int_hyperdrive_size7_class5': [0.012, 2.75, 12.8, 2700.0],
+}
+
+# Guardian FSD booster: module size -> flat jump-range boost (ly).
+GUARDIAN_BOOSTER = {1: 4.0, 2: 6.0, 3: 7.75, 4: 9.25, 5: 10.5}
+
+
+@dataclass(frozen=True)
+class FuelParams:
+    fuel_power: float
+    fuel_multiplier: float
+    optimal_mass: float
+    base_mass: float            # unladen + reserve
+    max_fuel_per_jump: float
+    range_boost: float          # Guardian booster flat add
+    tank_size: float
+    reserve_size: float
+    has_scoop: bool
+    max_jump_range: float       # from the loadout, for display/validation
+
+    def jump_range(self, fuel: float) -> float:
+        """Max single-jump distance (ly) at this main-tank fuel level."""
+        mass = self.base_mass + max(0.0, fuel)
+        base = (self.optimal_mass / mass
+                * (self.max_fuel_per_jump / self.fuel_multiplier)
+                ** (1.0 / self.fuel_power))
+        return base + self.range_boost
+
+    def fuel_cost(self, dist: float, fuel: float) -> float:
+        """Fuel (tons) to jump ``dist`` ly at this fuel level (uncapped)."""
+        mass = self.base_mass + max(0.0, fuel)
+        d = max(0.0, dist - self.range_boost)
+        return self.fuel_multiplier * ((d * mass) / self.optimal_mass) ** self.fuel_power
+
+    def max_range_full(self) -> float:
+        return self.jump_range(self.tank_size)
+
+    def max_range_light(self) -> float:
+        return self.jump_range(self.max_fuel_per_jump)
+
+
+def _modifier(module: dict, label: str) -> Optional[float]:
+    eng = module.get("Engineering") or {}
+    for mod in eng.get("Modifiers", []):
+        if mod.get("Label") == label:
+            return mod.get("Value")
+    return None
+
+
+def parse_loadout(slef) -> Optional[FuelParams]:
+    """Parse an EDSY/SLEF export (list wrapper or bare Journal Loadout dict)
+    into FuelParams, or None if no FSD is found."""
+    if isinstance(slef, str):
+        slef = json.loads(slef)
+    if isinstance(slef, list):
+        slef = slef[0]
+    data = slef.get("data", slef) if isinstance(slef, dict) else {}
+    modules = data.get("Modules", [])
+
+    fsd_mod = next((m for m in modules if m.get("Slot") == "FrameShiftDrive"), None)
+    if not fsd_mod:
+        return None
+    base = FSD_TABLE.get(str(fsd_mod.get("Item", "")).lower())
+    if not base:
+        return None
+    fuel_multiplier, fuel_power, max_fuel, optmass = base
+    optmass = _modifier(fsd_mod, "FSDOptimalMass") or optmass
+    max_fuel = _modifier(fsd_mod, "MaxFuelPerJump") or max_fuel
+
+    range_boost = 0.0
+    for m in modules:
+        item = str(m.get("Item", "")).lower()
+        if "guardianfsdbooster" in item:
+            try:
+                size = int(item.rsplit("size", 1)[1][0])
+            except (IndexError, ValueError):
+                size = 0
+            range_boost = max(range_boost, GUARDIAN_BOOSTER.get(size, 0.0))
+
+    fuel_cap = data.get("FuelCapacity", {}) or {}
+    tank = float(fuel_cap.get("Main", 0.0))
+    reserve = float(fuel_cap.get("Reserve", 0.0))
+    unladen = float(data.get("UnladenMass", 0.0))
+    has_scoop = any("fuelscoop" in str(m.get("Item", "")).lower() for m in modules)
+
+    return FuelParams(
+        fuel_power=float(fuel_power),
+        fuel_multiplier=float(fuel_multiplier),
+        optimal_mass=float(optmass),
+        base_mass=unladen + reserve,
+        max_fuel_per_jump=float(max_fuel),
+        range_boost=float(range_boost),
+        tank_size=tank,
+        reserve_size=reserve,
+        has_scoop=has_scoop,
+        max_jump_range=float(data.get("MaxJumpRange", 0.0)),
+    )
