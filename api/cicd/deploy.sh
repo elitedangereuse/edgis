@@ -40,6 +40,7 @@ TMP_CHANGED_FILE_LIST=$(mktemp)
     echo routing.py
     echo entitlements.py
     echo patreon_auth.py
+    echo permit_zones.py
     echo requirements.txt
     echo static/route.html
     echo static/index.html
