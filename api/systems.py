@@ -3396,9 +3396,23 @@ async def spansh_route(
                         "results_url": results_url,
                     }
                 if str(data.get("status")) in ("error", "failed"):
+                    _log_route_trace(
+                        "spansh", frm=from_, to=to, range=jump_range,
+                        efficiency=efficiency, status="failed",
+                    )
                     raise HTTPException(502, "spansh job failed")
+            _log_route_trace(
+                "spansh", frm=from_, to=to, range=jump_range,
+                efficiency=efficiency, status="timeout",
+            )
             raise HTTPException(504, "spansh plot timed out")
+    except HTTPException:
+        raise
     except httpx.HTTPError as exc:
+        _log_route_trace(
+            "spansh", frm=from_, to=to, range=jump_range,
+            efficiency=efficiency, status="error", detail=str(exc),
+        )
         raise HTTPException(502, f"spansh request failed: {exc}")
 
 
