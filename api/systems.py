@@ -3092,8 +3092,29 @@ def _solve_route_sync(
                 cursor.close()
 
         def fetch_stars_toward(pos, radius, target, limit):
+            # Sorting the full reach-ball is ~6 s/step in the bubble; a small
+            # ball around the "ahead point" (toward the target, still fully
+            # inside reach) is ~40 ms and contains the stars greedy wants.
+            # Fall back to the full sorted ball only when it comes up empty
+            # (sparse space, where that ball is small anyway).
+            d = math.dist(pos, target)
+            r = radius / 4.0
+            f = (radius - r) / d if d > 0 else 0.0
+            ahead = tuple(p + (t - p) * f for p, t in zip(pos, target))
             cursor = conn.cursor()
             try:
+                cursor.execute(
+                    "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name, "
+                    "mainstar FROM systems_big "
+                    "WHERE ST_3DDWithin(coords, ST_MakePoint(%s, %s, %s), %s) "
+                    "ORDER BY ST_3DDistance(coords, ST_MakePoint(%s, %s, %s)) "
+                    "LIMIT %s",
+                    (ahead[0], ahead[1], ahead[2], r,
+                     target[0], target[1], target[2], limit),
+                )
+                rows = cursor.fetchall()
+                if rows:
+                    return rows
                 cursor.execute(
                     "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name, "
                     "mainstar FROM systems_big "
@@ -3110,11 +3131,13 @@ def _solve_route_sync(
         # Corridor graph A* is the primary engine: min-jumps by construction,
         # measured to match or beat the beam on every benchmarked route. The
         # beam stays as the fallback when the graph can't realize a route
-        # within its time cap.
+        # within its time cap (scaled with route length: a 65 kly rim route
+        # legitimately needs several blacklist rounds).
         result = routing.graph_route(
             index, src, dst, jump_range, fetch_stars_within,
             fetch_stars_near_segment=fetch_stars_near_segment,
             fetch_stars_toward=fetch_stars_toward,
+            time_cap=60.0 + math.dist(src, dst) / 500.0,
         )
         if result is not None:
             return result
