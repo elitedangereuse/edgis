@@ -3000,6 +3000,14 @@ _neutron_index_error: str | None = None
 _neutron_index_building = False
 _neutron_index_lock = Lock()
 _route_solve_semaphore: asyncio.Semaphore | None = None
+# Best-effort Redis cache for whole routes. Keyed by (from, to, range, width,
+# index version) so an index rebuild (changed neutron count) invalidates
+# naturally. Caller-specific fields (access) are set fresh on every hit.
+ROUTE_CACHE_TTL = int(os.getenv("ROUTE_CACHE_TTL") or str(24 * 60 * 60))
+_route_cache = RedisCache(
+    endpoint=REDIS_HOST, port=REDIS_PORT, namespace="route",
+    serializer=PickleSerializer(),
+)
 # Short, beam-inefficient routes also try a direct greedy march (min jumps wins).
 ROUTE_MARCH_MAX_LY = float(os.getenv("ROUTE_MARCH_MAX_LY") or "4000")
 ROUTE_MARCH_EFF = float(os.getenv("ROUTE_MARCH_EFF") or "0.75")
@@ -3235,6 +3243,24 @@ async def plot_route(
             headers={"Retry-After": "15"},
         )
 
+    cache_key = (
+        f"{from_.strip().lower()}|{to.strip().lower()}"
+        f"|{jump_range:g}|{beam_width}|v{_neutron_index.count}"
+    )
+    try:
+        cached = await _route_cache.get(cache_key)
+    except Exception:
+        logger.warning("route cache read failed; solving", exc_info=True)
+        cached = None
+    if cached is not None:
+        cached["access"] = access.get("via")
+        _log_route_trace(
+            "route", frm=cached.get("source"), to=cached.get("destination"),
+            range=jump_range, status="ok", total_jumps=cached.get("total_jumps"),
+            cached=True, access=access.get("via"),
+        )
+        return cached
+
     try:
         (src, src_name, _src_star), (dst, dst_name, dst_star) = (
             await asyncio.gather(
@@ -3287,6 +3313,12 @@ async def plot_route(
         bridge=result["bridge_jumps"], eff=round(result["efficiency"], 4),
         solve_ms=round(result["solve_ms"], 1), access=access.get("via"),
     )
+    try:
+        to_cache = dict(result)
+        to_cache.pop("access", None)
+        await _route_cache.set(cache_key, to_cache, ttl=ROUTE_CACHE_TTL)
+    except Exception:
+        logger.warning("route cache write failed", exc_info=True)
     return result
 
 

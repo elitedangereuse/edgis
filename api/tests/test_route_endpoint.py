@@ -52,7 +52,7 @@ def test_route_warming_returns_503(monkeypatch):
 def test_route_success_path(monkeypatch):
     _gate_future(monkeypatch)
     monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
-    monkeypatch.setattr(systems, "_neutron_index", object())  # truthy = "ready"
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())  # truthy = "ready"
 
     async def fake_resolve(value):
         coords = {"Sol": (0.0, 0.0, 0.0), "Colonia": (0.0, 0.0, 1000.0)}
@@ -119,7 +119,7 @@ def test_route_patron_access(monkeypatch):
     monkeypatch.delenv("ENTITLEMENT_KEYS", raising=False)
     monkeypatch.delenv("ROUTE_ACCESS_KEYS", raising=False)
     monkeypatch.delenv("ADMIN_TOKEN", raising=False)
-    monkeypatch.setattr(systems, "_neutron_index", object())
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
 
     async def fake_resolve(value):
         return {"Sol": (0.0, 0.0, 0.0), "X": (0.0, 0.0, 10.0)}[value], value, None
