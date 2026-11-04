@@ -41,12 +41,17 @@
   input#from, input#to { width:240px; font-family:var(--mono); }
   input#range { width:92px; } input#key { width:280px; }
 
-  button { font:inherit; cursor:pointer; border-radius:999px; padding:8px 18px; font-size:13px;
-           text-transform:uppercase; letter-spacing:.6px; border:1px solid var(--accent);
-           background:rgba(128,196,230,.12); color:var(--accent); transition:all .15s; }
-  button:hover:not(:disabled) { background:rgba(128,196,230,.22); box-shadow:0 0 10px var(--dim-a); }
+  /* Compact rectangular buttons matching the EDGIS index (.tool-action). */
+  button { font:inherit; cursor:pointer; display:inline-flex; align-items:center; justify-content:center;
+           gap:7px; border-radius:8px; padding:8px 13px; font-size:13px; white-space:nowrap;
+           border:1px solid var(--line); background:rgba(255,255,255,.05); color:var(--text);
+           transition:background .15s, border-color .15s, color .15s; }
+  button:hover:not(:disabled) { background:#107cb2; border-color:#107cb2; color:#fff; }
   button:disabled { opacity:.4; cursor:default; }
-  button.ghost { border-color:var(--dim); color:var(--muted); background:rgba(255,255,255,.03); }
+  button#go { background:#1294d6; border-color:#1294d6; color:#fff; font-weight:600; }
+  button.ghost { color:var(--muted); background:rgba(255,255,255,.04); }
+  .actions { display:flex; gap:10px; align-items:flex-end; }
+  .cmp-logo { width:16px; height:16px; border-radius:50%; }
 
   .keyrow { margin-top:12px; font-size:12px; color:var(--muted); }
   .keyrow summary { cursor:pointer; color:var(--accent); text-transform:uppercase; letter-spacing:.5px; font-size:11px; }
@@ -123,8 +128,15 @@
           <option value="6">Caspian SCO (6x)</option>
         </select>
       </div>
-      <button id="go">Plot route</button>
-      <button id="cmp" class="ghost" disabled title="Plot a route first">vs spansh</button>
+      <div class="actions">
+        <button id="go">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M15.964.686a.5.5 0 0 0-.65-.65L.767 5.855H.766l-.452.18a.5.5 0 0 0-.082.887l.41.26.001.002 4.995 3.178 3.178 4.995.002.002.26.41a.5.5 0 0 0 .886-.083zm-1.833 1.89L6.637 10.07l-.215-.338a.5.5 0 0 0-.154-.154l-.338-.215 7.494-7.494 1.178-.471z"/></svg>
+          Plot route
+        </button>
+        <button id="cmp" class="ghost" disabled title="Plot a route first">
+          <img class="cmp-logo" src="/static/assets/spansh.png" alt="" /> vs spansh
+        </button>
+      </div>
     </div>
     <datalist id="sysopts"></datalist>
     <details class="keyrow">

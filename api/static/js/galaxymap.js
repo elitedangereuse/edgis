@@ -1311,7 +1311,20 @@
       }
     }
 
+    function hideBootOverlay() {
+      const overlay = document.getElementById('bootOverlay');
+      if (!overlay || overlay.classList.contains('is-hidden')) {
+        return;
+      }
+      overlay.classList.add('is-hidden');
+      setTimeout(() => { overlay.style.display = 'none'; }, 700);
+    }
+
     function setEdgisHomeLoadingState(isLoading) {
+      if (!isLoading) {
+        // First load (or any load) finished: lift the "Don't Panic" preloader.
+        hideBootOverlay();
+      }
       const homeButton = document.getElementById('openEdgisButton');
       if (!homeButton) {
         return;
@@ -2564,7 +2577,7 @@
       }
 
       updateBrowserUrlFromCurrentCenter(center);
-      await reloadSystemsAroundCurrentCamera(center, { force: true });
+      await reloadSystemsAroundCurrentCamera(center, { force: true, resetFilters: true });
     }
 
     async function toggleOrSetFilterDimension(nextDimension) {
@@ -3499,8 +3512,18 @@
       Ed3d.loadDatas(solutionjson);
       System.endParticleSystem();
       HUD.init();
-      pendingSharedFilterIds = normalizeSharedFilterIds(selectedFilterIds);
+      // null selectedFilterIds = fresh start: leave the rebuilt filters at their
+      // all-on default (used when switching filter dimension, where carrying the
+      // previous dimension's ids would clear everything -> looks like "None").
+      const resetting = !selectedFilterIds;
+      pendingSharedFilterIds = resetting
+        ? null
+        : normalizeSharedFilterIds(selectedFilterIds);
       syncHudPanelUi();
+      if (resetting) {
+        // Drop any stale filter_ids from the URL so a reload can't re-poison.
+        syncFacetSelectionUrlParam();
+      }
       buildDynamicBaseGridOverlay();
       renderAllegianceVoronoiOverlay();
       updateTrackedSolidSystemNames(solutionjson);
@@ -3542,7 +3565,10 @@
           camera: getCurrentWorldCamera(),
           target: getCurrentInternalTarget()
         };
-        const activeFilterIds = collectActiveFilterIds();
+        // On a dimension switch, start the new dimension's filters all-on
+        // instead of carrying the previous dimension's selection (which would
+        // match nothing and render as "None").
+        const activeFilterIds = options.resetFilters ? null : collectActiveFilterIds();
         const nextResult = initSolutionJson(center.x, center.y, center.z, activeFilterMode, activeFilterDimension);
         populateResult(
           spherejson,
