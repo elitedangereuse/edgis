@@ -36,11 +36,12 @@ except ImportError:
 from dotenv import load_dotenv
 
 try:
-    from . import routing, entitlements, patreon_auth
+    from . import routing, entitlements, patreon_auth, permit_zones
 except ImportError:  # running as a script / tests with api/ on sys.path
     import routing  # type: ignore[no-redef]
     import entitlements  # type: ignore[no-redef]
     import patreon_auth  # type: ignore[no-redef]
+    import permit_zones  # type: ignore[no-redef]
 
 # Patreon identity (Layer 2) backs the entitlement gate: patrons who linked on
 # the main site are recognised here via the shared cookie. No-op until
@@ -3138,6 +3139,8 @@ def _solve_route_sync(
             fetch_stars_near_segment=fetch_stars_near_segment,
             fetch_stars_toward=fetch_stars_toward,
             time_cap=60.0 + math.dist(src, dst) / 500.0,
+            locked_mask=permit_zones.locked_mask,
+            is_locked=permit_zones.is_locked,
         )
         if result is not None:
             return result

@@ -112,6 +112,33 @@ def test_graph_route_reaches_dest():
     assert_legal(result, 50.0)
 
 
+def test_graph_route_excludes_permit_locked_neutrons():
+    # A straight neutron chain where the middle neutron sits in a "permit zone".
+    # With exclusion on, that neutron must not be boarded.
+    pts = [(0.0, 0.0, float(40 + 180 * k)) for k in range(11)]
+    index = make_index(pts)
+    locked_centre = np.asarray(pts[5])  # the 6th neutron
+
+    def locked_mask(coords):
+        return np.linalg.norm(coords - locked_centre, axis=1) <= 1.0
+
+    def is_locked(point):
+        return bool(np.linalg.norm(np.asarray(point) - locked_centre) <= 1.0)
+
+    result = routing.graph_route(
+        index, (0.0, 0.0, 0.0), (0.0, 0.0, 2000.0), 50.0, grid_stars(),
+        locked_mask=locked_mask, is_locked=is_locked,
+    )
+    assert result is not None
+    assert_legal(result, 50.0)
+    for leg in result["jumps"]:
+        assert not (
+            leg["neutron_star"]
+            and abs(leg["z"] - locked_centre[2]) < 1.0
+            and abs(leg["x"]) < 1.0 and abs(leg["y"]) < 1.0
+        ), f"boarded a permit-locked neutron: {leg}"
+
+
 def test_graph_route_none_when_unbridgeable():
     index = make_index([(0.0, 0.0, 40.0)])
     assert routing.graph_route(
