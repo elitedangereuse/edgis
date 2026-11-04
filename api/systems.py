@@ -3333,6 +3333,11 @@ async def spansh_route(
                         efficiency=efficiency, status="ok", total_jumps=total,
                         waypoints=res.get("total_jumps"), duration_s=duration_s,
                     )
+                    results_url = (
+                        "https://spansh.co.uk/plotter/results/"
+                        f"{job}?efficiency={efficiency}&range={jump_range:g}"
+                        f"&from={quote(from_)}&to={quote(to)}"
+                    )
                     return {
                         "source": res.get("source_system", from_),
                         "destination": res.get("destination_system", to),
@@ -3344,6 +3349,7 @@ async def spansh_route(
                         "jump_range": jump_range,
                         "duration_s": duration_s,
                         "job": job,
+                        "results_url": results_url,
                     }
                 if str(data.get("status")) in ("error", "failed"):
                     raise HTTPException(502, "spansh job failed")
