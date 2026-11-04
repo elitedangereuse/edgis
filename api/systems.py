@@ -3001,6 +3001,10 @@ _neutron_index_error: str | None = None
 _neutron_index_building = False
 _neutron_index_lock = Lock()
 _route_solve_semaphore: asyncio.Semaphore | None = None
+# In-flight route solves, keyed by cache_key: a second identical request awaits
+# the first instead of launching a duplicate (a 90 s rim route must not run
+# twice concurrently). Holds the cacheable result dict (no caller "access").
+_route_inflight: dict[str, "asyncio.Future"] = {}
 # Best-effort Redis cache for whole routes. Keyed by (from, to, range, width,
 # index version) so an index rebuild (changed neutron count) invalidates
 # naturally. Caller-specific fields (access) are set fresh on every hit.
@@ -3321,65 +3325,99 @@ async def plot_route(
         )
         return cached
 
-    try:
-        (src, src_name, _src_star), (dst, dst_name, dst_star) = (
-            await asyncio.gather(
-                _resolve_route_endpoint(from_),
-                _resolve_route_endpoint(to),
-            )
-        )
-    except HTTPException as exc:
+    # In-flight coalescing: if an identical solve is already running, await its
+    # result instead of launching a duplicate. No `await` between the lookup
+    # and the registration below, so only one coroutine becomes the "leader".
+    existing = _route_inflight.get(cache_key)
+    if existing is not None:
+        # Mirror whatever the leader produced (result or the same failure).
+        shared = await existing
+        out = dict(shared)
+        out["access"] = access.get("via")
         _log_route_trace(
-            "route", frm=from_, to=to, range=jump_range,
-            status="not-found", detail=str(exc.detail),
+            "route", frm=out.get("source"), to=out.get("destination"),
+            range=jump_range, status="ok", total_jumps=out.get("total_jumps"),
+            coalesced=True, access=access.get("via"),
         )
-        raise
+        return out
 
-    if _route_solve_semaphore is None:
-        _route_solve_semaphore = asyncio.Semaphore(
-            max(1, int(os.getenv("ROUTE_CONCURRENCY") or "2"))
-        )
-    async with _route_solve_semaphore:
-        try:
-            result = await _run_db_task(
-                _solve_route_sync, src, dst, jump_range, beam_width, supercharge
-            )
-        except routing.RouteError as exc:
-            _log_route_trace(
-                "route", frm=src_name, to=dst_name, range=jump_range,
-                status=exc.status, detail=exc.detail,
-                access=access.get("via"),
-            )
-            raise HTTPException(
-                status_code=422,
-                detail={"error": exc.status, "message": exc.detail},
-            )
-
-    # The final leg is the arrival at the destination: label it with the
-    # destination's name and spectral type.
-    if result["jumps"]:
-        last = result["jumps"][-1]
-        if last.get("system") is None:
-            last["system"] = dst_name
-        if not last.get("spectral"):
-            last["spectral"] = dst_star
-
-    result["source"] = src_name
-    result["destination"] = dst_name
-    result["access"] = access.get("via")
-    _log_route_trace(
-        "route", frm=src_name, to=dst_name, range=jump_range, status="ok",
-        total_jumps=result["total_jumps"], neutron=result["neutron_jumps"],
-        bridge=result["bridge_jumps"], eff=round(result["efficiency"], 4),
-        solve_ms=round(result["solve_ms"], 1), access=access.get("via"),
+    loop = asyncio.get_event_loop()
+    inflight: asyncio.Future = loop.create_future()
+    # If no follower awaits a failed solve, retrieve the exception ourselves so
+    # asyncio doesn't log "exception was never retrieved".
+    inflight.add_done_callback(
+        lambda f: f.cancelled() or f.exception()
     )
+    _route_inflight[cache_key] = inflight
     try:
+        try:
+            (src, src_name, _src_star), (dst, dst_name, dst_star) = (
+                await asyncio.gather(
+                    _resolve_route_endpoint(from_),
+                    _resolve_route_endpoint(to),
+                )
+            )
+        except HTTPException as exc:
+            _log_route_trace(
+                "route", frm=from_, to=to, range=jump_range,
+                status="not-found", detail=str(exc.detail),
+            )
+            raise
+
+        if _route_solve_semaphore is None:
+            _route_solve_semaphore = asyncio.Semaphore(
+                max(1, int(os.getenv("ROUTE_CONCURRENCY") or "2"))
+            )
+        async with _route_solve_semaphore:
+            try:
+                result = await _run_db_task(
+                    _solve_route_sync, src, dst, jump_range, beam_width,
+                    supercharge,
+                )
+            except routing.RouteError as exc:
+                _log_route_trace(
+                    "route", frm=src_name, to=dst_name, range=jump_range,
+                    status=exc.status, detail=exc.detail,
+                    access=access.get("via"),
+                )
+                raise HTTPException(
+                    status_code=422,
+                    detail={"error": exc.status, "message": exc.detail},
+                )
+
+        # The final leg is the arrival at the destination: label it with the
+        # destination's name and spectral type.
+        if result["jumps"]:
+            last = result["jumps"][-1]
+            if last.get("system") is None:
+                last["system"] = dst_name
+            if not last.get("spectral"):
+                last["spectral"] = dst_star
+
+        result["source"] = src_name
+        result["destination"] = dst_name
+        result["access"] = access.get("via")
+        _log_route_trace(
+            "route", frm=src_name, to=dst_name, range=jump_range, status="ok",
+            total_jumps=result["total_jumps"], neutron=result["neutron_jumps"],
+            bridge=result["bridge_jumps"], eff=round(result["efficiency"], 4),
+            solve_ms=round(result["solve_ms"], 1), access=access.get("via"),
+        )
         to_cache = dict(result)
         to_cache.pop("access", None)
-        await _route_cache.set(cache_key, to_cache, ttl=ROUTE_CACHE_TTL)
-    except Exception:
-        logger.warning("route cache write failed", exc_info=True)
-    return result
+        if not inflight.done():
+            inflight.set_result(to_cache)  # hand coalesced followers the result
+        try:
+            await _route_cache.set(cache_key, to_cache, ttl=ROUTE_CACHE_TTL)
+        except Exception:
+            logger.warning("route cache write failed", exc_info=True)
+        return result
+    except BaseException as exc:
+        if not inflight.done():
+            inflight.set_exception(exc)
+        raise
+    finally:
+        _route_inflight.pop(cache_key, None)
 
 
 @app.get("/spansh/route", include_in_schema=False)
