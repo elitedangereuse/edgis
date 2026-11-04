@@ -633,7 +633,7 @@ def _bridge_greedy(
     dst_v: np.ndarray,
     visited: set[str],
     max_steps: int,
-    is_locked: Optional[Callable[[tuple], bool]] = None,
+    is_locked: Optional[Callable[[str], bool]] = None,
     boost_mult: float = 4.0,
 ) -> Optional[tuple[list[dict], np.ndarray, bool]]:
     """Greedy star-walk toward ``target`` (excluded); returns the intermediate
@@ -657,7 +657,7 @@ def _bridge_greedy(
         for row in rows:
             if row[3] in visited:
                 continue
-            if is_locked is not None and is_locked((row[0], row[1], row[2])):
+            if is_locked is not None and is_locked(row[3]):
                 continue
             d = (
                 (row[0] - target[0]) ** 2
@@ -691,7 +691,7 @@ def _bridge_capsule(
     target: np.ndarray,
     jump_range: float,
     dst_v: np.ndarray,
-    is_locked: Optional[Callable[[tuple], bool]] = None,
+    is_locked: Optional[Callable[[str], bool]] = None,
     boost_mult: float = 4.0,
 ) -> Optional[tuple[list[dict], np.ndarray, bool]]:
     """Min-jump bridge via BFS over one capsule star fetch around the segment.
@@ -704,7 +704,7 @@ def _bridge_capsule(
     for width in (max(3.0 * J, 200.0), max(9.0 * J, 600.0)):
         rows = list(fetch_stars_near_segment(tuple(pos), tuple(target), width))
         if is_locked is not None:
-            rows = [r for r in rows if not is_locked((r[0], r[1], r[2]))]
+            rows = [r for r in rows if not is_locked(r[3])]
         if not rows:
             continue
         pts = np.asarray([(r[0], r[1], r[2]) for r in rows])
@@ -781,7 +781,7 @@ def _realize_graph(
     fetch_stars_within: FetchStarsWithin,
     fetch_stars_near_segment: Optional[FetchStarsNearSegment],
     fetch_stars_toward: Optional[FetchStarsToward],
-    is_locked: Optional[Callable[[tuple], bool]] = None,
+    is_locked: Optional[Callable[[str], bool]] = None,
     boost_mult: float = 4.0,
 ):
     """Realize a neutron sequence into legs. Returns ``(legs, None)`` or
@@ -866,8 +866,7 @@ def graph_route(
     gap_k: int = 16,
     rounds: int = 5,
     time_cap: float = 60.0,
-    locked_mask: Optional[Callable[[np.ndarray], np.ndarray]] = None,
-    is_locked: Optional[Callable[[tuple], bool]] = None,
+    is_locked: Optional[Callable[[str], bool]] = None,
     boost_mult: float = 4.0,
 ) -> Optional[dict]:
     """Min-**jumps** route via corridor-bounded neutron-graph A*, realized into
@@ -876,11 +875,11 @@ def graph_route(
     re-runs, so the graph routes around genuinely starless regions. Returns
     ``None`` when no realizable route is found (caller falls back to the beam).
 
-    ``locked_mask`` (coords array -> bool mask) and ``is_locked`` (point ->
-    bool) exclude permit-locked systems: locked neutrons are dropped from the
-    candidate set and locked bridge stars are skipped, so no waypoint ever
-    lands in a permit zone. ``src``/``dst`` are never checked (the commander
-    may hold that permit, and it is their explicit endpoint).
+    ``is_locked(system_name) -> bool`` excludes permit-locked systems by name:
+    locked neutrons are dropped from the candidate set and locked bridge stars
+    are skipped, so no waypoint ever lands in a permit-locked system.
+    ``src``/``dst`` are never checked (the commander may hold that permit, and
+    it is their explicit endpoint).
 
     ``boost_mult`` is the neutron supercharge multiplier (4.0 normal; 6.0 for a
     Caspian Explorer's Mk II SCO drive).
@@ -896,8 +895,11 @@ def graph_route(
     entry_r = entry_jumps * J
 
     cand = _corridor_candidates(index, sv, dv, corridor_ly, entry_r)
-    if locked_mask is not None and len(cand):
-        cand = cand[~locked_mask(index.coords[cand])]
+    if is_locked is not None and len(cand):
+        names = index.names
+        cand = cand[np.array(
+            [not is_locked(names[int(c)]) for c in cand], dtype=bool
+        )]
     blacklist: set[tuple[int, int]] = set()
     badzones: list[tuple[np.ndarray, float]] = []
     for _ in range(rounds):
