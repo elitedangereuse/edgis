@@ -210,7 +210,7 @@ function spectralCell(j) {
 }
 function legLabel(j, last) {
   if (last) return "arrive";
-  if (j.type === "boost") return j.neutron_star ? "neutron ★" : "boost";
+  if (j.type === "boost") return j.neutron_star ? "neutron ★" : "supercharged";
   return j.neutron_star ? "board ★" : "bridge";
 }
 function copyBtn(name) {
@@ -328,7 +328,7 @@ function renderRoute(r) {
       ${actsCell(j.system ?? (last ? r.destination : null), j.x, j.y, j.z)}
     </tr>`;
     }).join("");
-    legend = `<b>neutron ★</b> supercharge here · <b>board ★</b> normal jump onto a neutron · boost = boosted jump · bridge = normal jump across a gap · arrive = final jump · <span class="fuel" style="position:relative">${FUEL}</span> fuel-scoopable`;
+    legend = `<b>neutron ★</b> fly the jet cone to supercharge, then jump · <b>supercharged</b> = that boosted jump · <b>board ★</b> normal jump onto a neutron · <b>bridge</b> = normal jump across a gap · <b>arrive</b> = final jump · <span class="fuel" style="position:relative">${FUEL}</span> fuel-scoopable. <span class="tiny">All boosts are neutron supercharges; EDGIS does not use FSD synthesis (injection).</span>`;
   }
   $("out").innerHTML = `
     <div class="summary">
