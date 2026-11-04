@@ -92,10 +92,24 @@ async def resolve_patron(request: Request) -> Optional[dict]:
         return None
 
     entitled = data.get("patreon") is True
+    # Enriched fields are optional: the site endpoint returns `patreon` (bool)
+    # today, and may later add `tier`, `follower`, and a Galactic-Hunter
+    # confirmed-submission count. Map the legacy boolean to the "supporter"
+    # tier so paid patrons land in the right rollout wave either way.
+    tier = data.get("tier")
+    if not tier and entitled:
+        tier = "supporter"
+    hunter_submissions = (
+        data.get("hunter_submissions")
+        or data.get("validated_targets")
+        or data.get("confirmed_submissions")
+    )
     patron = {
         "entitled": entitled,
         "name": data.get("cmdr"),
-        "tier": "supporter" if entitled else None,
+        "tier": tier,
+        "follower": bool(data.get("follower")) or tier == "follower",
+        "hunter_submissions": hunter_submissions,
     }
     _cache_put(token, patron)
     return patron

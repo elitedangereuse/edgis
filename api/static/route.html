@@ -372,7 +372,12 @@ async function plot() {
     const res = await fetch(url, { headers: headers(), credentials: "include" });
     if (res.status === 403) {
       const d = (await res.json()).detail || {};
-      $("out").innerHTML = `<div class="msg warn"><b>Early access.</b> ${d.message || ""} Rolling out in waves (Patreon tier 1 from 7 Nov, free followers and Galactic Hunters from 13 Nov, everyone from <b>${d.public_after || "30 Nov"}</b>). ${d.patreon ? `Join on <a href="${d.patreon}" target="_blank" rel="noopener">Patreon</a>` : ""} or add an access key above.</div>`;
+      // If the backend recognises the caller and their wave just hasn't opened
+      // yet, it returns a personalized date; otherwise show the full schedule.
+      const schedule = d.your_access_after
+        ? `Your access opens on <b>${d.your_access_after}</b>.`
+        : `Rolling out in waves (Patreon tier 1 from 7 Nov, free followers and Galactic Hunters from 13 Nov, everyone from <b>${d.public_after || "30 Nov"}</b>).`;
+      $("out").innerHTML = `<div class="msg warn"><b>Early access.</b> ${escapeHtml(d.message || "")} ${schedule} ${d.patreon ? `Join on <a href="${d.patreon}" target="_blank" rel="noopener">Patreon</a>` : ""} or add an access key above.</div>`;
       return;
     }
     if (res.status === 503) { $("out").innerHTML = `<div class="msg warn">Route index is warming up, try again in ~15 s.</div>`; setTimeout(loadStatus, 4000); return; }
