@@ -663,7 +663,7 @@
     }
 
     function applyHudFilterPanelTitle() {
-      const filterTitle = document.querySelector('#hud #filters > h6');
+      const filterTitle = document.querySelector('#hud #filters > h6, #hud #filters > h8');
       if (!filterTitle) {
         return;
       }
@@ -768,7 +768,7 @@
         existing.remove();
       }
 
-      const filterTitle = filtersRoot.querySelector(':scope > h6');
+      const filterTitle = filtersRoot.querySelector(':scope > h6, :scope > h8');
       if (!filterTitle) {
         return;
       }
@@ -1145,7 +1145,7 @@
         existing.remove();
       }
 
-      const filterTitle = filtersRoot.querySelector(':scope > h6');
+      const filterTitle = filtersRoot.querySelector(':scope > h6, :scope > h8');
       if (!filterTitle) {
         return;
       }

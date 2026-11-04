@@ -52,6 +52,7 @@ TMP_CHANGED_FILE_LIST=$(mktemp)
     echo static/milkyway.css
     echo static/js/panzoom.js
     echo static/js/galaxymap.js
+    echo static/ed3d/js/components/hud.class.js
     echo static/js/sysmap_roots.js
     echo static/js/sysmap_materials.js
     echo static/js/sysmap.js
