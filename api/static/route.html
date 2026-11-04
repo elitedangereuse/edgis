@@ -108,7 +108,7 @@
 <body>
 <div class="wrap">
   <h1>Neutron Route Plotter <span id="accessPill" class="pill">…</span></h1>
-  <p class="sub">Light speed is too slow. We chain the neutron highway at ludicrous speed, so hold onto your canopy.</p>
+  <p class="sub">Plot your route on overclocked Guardian tech. Don't blink: improbably fast, and it will blast your mind.</p>
 
   <div id="banner" class="banner" hidden></div>
 
@@ -238,7 +238,7 @@ async function loadStatus() {
     else { pill.textContent = "early access"; pill.className = "pill warn"; }
     const parts = [];
     if (!st.public) {
-      parts.push(`<b>Patron early access</b>: opens to everyone on <b>${st.public_after || "soon"}</b>.`);
+      parts.push(`<b>Early access, rolling out in waves:</b> key holders now · Patreon tier 1 from <b>7 Nov</b> · free followers and Galactic Hunters (5+ confirmed submissions) from <b>13 Nov</b> · everyone from <b>${st.public_after || "30 Nov"}</b>.`);
       if (!(me && me.patron)) parts.push(`Become a patron on <a href="${st.patreon}" target="_blank" rel="noopener">Patreon</a>, or enter an access key below.`);
       else parts.push(`Signed in as <b>${escapeHtml(me.name || "patron")}</b>.`);
     }
@@ -372,7 +372,7 @@ async function plot() {
     const res = await fetch(url, { headers: headers(), credentials: "include" });
     if (res.status === 403) {
       const d = (await res.json()).detail || {};
-      $("out").innerHTML = `<div class="msg warn"><b>Patron early access.</b> ${d.message || ""} Opens on <b>${d.public_after || "soon"}</b>. ${d.patreon ? `Join on <a href="${d.patreon}" target="_blank" rel="noopener">Patreon</a>` : ""} or add an access key above.</div>`;
+      $("out").innerHTML = `<div class="msg warn"><b>Early access.</b> ${d.message || ""} Rolling out in waves (Patreon tier 1 from 7 Nov, free followers and Galactic Hunters from 13 Nov, everyone from <b>${d.public_after || "30 Nov"}</b>). ${d.patreon ? `Join on <a href="${d.patreon}" target="_blank" rel="noopener">Patreon</a>` : ""} or add an access key above.</div>`;
       return;
     }
     if (res.status === 503) { $("out").innerHTML = `<div class="msg warn">Route index is warming up, try again in ~15 s.</div>`; setTimeout(loadStatus, 4000); return; }
