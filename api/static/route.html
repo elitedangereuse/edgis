@@ -154,6 +154,29 @@ function copyBtn(name) {
 }
 
 let lastOurs = null, lastQuery = null;
+let compactMode = localStorage.getItem("edgis_route_compact") !== "0";  // default compact (like spansh)
+
+// Collapse to the systems you actually plot in-game: neutron supercharge stops
+// + the destination, with the jump count to reach each (the game auto-plots the
+// regular jumps between them).
+function compactRows(r) {
+  const out = []; let jumps = 0, ly = 0;
+  r.jumps.forEach((j, i) => {
+    jumps++; ly += j.distance_jumped;
+    const last = i === r.jumps.length - 1;
+    if (j.neutron_star || last) {
+      out.push({ system: j.system ?? (last ? r.destination : "—"), spectral: j.spectral,
+                 jumps, ly, left: j.distance_left, neutron: j.neutron_star, dest: last });
+      jumps = 0; ly = 0;
+    }
+  });
+  return out;
+}
+function routeSystems() {
+  if (!lastOurs) return [];
+  if (compactMode) return compactRows(lastOurs).map(w => w.dest ? lastOurs.destination : w.system).filter(Boolean);
+  return lastOurs.jumps.map((j, i) => j.system ?? (i === lastOurs.jumps.length - 1 ? lastOurs.destination : null)).filter(Boolean);
+}
 
 async function loadStatus() {
   try {
@@ -196,10 +219,25 @@ $("to").addEventListener("input", autocomplete);
 
 function renderRoute(r) {
   lastOurs = r;
-  const rows = r.jumps.map((j, i) => {
-    const last = i === r.jumps.length - 1;
-    const name = j.system ?? (last ? r.destination : "—");
-    return `<tr>
+  let header, rows, legend;
+  if (compactMode) {
+    const wps = compactRows(r);
+    header = `<th class="num">#</th><th>system</th><th>star</th><th class="num">jumps</th><th class="num">LY</th><th class="num">left</th>`;
+    rows = wps.map((w, i) => `<tr>
+      <td class="num">${i + 1}</td>
+      <td class="sys ${w.neutron ? "boost" : ""}">${escapeHtml(w.system)}${copyBtn(w.dest ? r.destination : w.system)}</td>
+      <td>${spectralCell({ spectral: w.spectral, neutron_star: w.neutron })}</td>
+      <td class="num">${fmt(w.jumps)}</td>
+      <td class="num">${fmt(w.ly, 0)}</td>
+      <td class="num">${fmt(w.left, 0)}</td>
+    </tr>`).join("");
+    legend = `<b>${wps.length}</b> waypoints — the neutron supercharge stops ★ + destination you plot in-game; <b>jumps</b> = hops to reach each (the game auto-plots them). <span class="fuel" style="position:relative">${FUEL}</span> fuel-scoopable.`;
+  } else {
+    header = `<th class="num">#</th><th>type</th><th>system</th><th>star</th><th class="num">jumped</th><th class="num">left</th>`;
+    rows = r.jumps.map((j, i) => {
+      const last = i === r.jumps.length - 1;
+      const name = j.system ?? (last ? r.destination : "—");
+      return `<tr>
       <td class="num">${i + 1}</td>
       <td class="${j.neutron_star ? "boost" : ""}">${legLabel(j, last)}</td>
       <td class="sys">${escapeHtml(name)}${copyBtn(j.system ?? r.destination)}</td>
@@ -207,7 +245,9 @@ function renderRoute(r) {
       <td class="num">${fmt(j.distance_jumped, 1)}</td>
       <td class="num">${fmt(j.distance_left, 0)}</td>
     </tr>`;
-  }).join("");
+    }).join("");
+    legend = `<b>neutron ★</b> supercharge here · <b>board ★</b> normal jump onto a neutron · boost = boosted jump · bridge = normal jump across a gap · arrive = final jump · <span class="fuel" style="position:relative">${FUEL}</span> fuel-scoopable`;
+  }
   $("out").innerHTML = `
     <div class="summary">
       <div class="stat"><b>${fmt(r.total_jumps)}</b><span>jumps</span></div>
@@ -216,13 +256,14 @@ function renderRoute(r) {
       <div class="stat"><b>${fmt(r.total_distance_ly)}</b><span>LY flown</span></div>
       <div class="stat"><b>${fmt(r.efficiency * 100, 1)}%</b><span>efficiency</span></div>
       <div class="stat"><b>${fmt(r.solve_ms, 0)} ms</b><span>solve</span></div>
-      <button id="copyRoute" class="ghost" style="margin-left:auto" title="Copy all systems, one per line">copy route</button>
+      <button id="compactToggle" class="ghost" style="margin-left:auto" title="Toggle compact (waypoints) / all jumps">${compactMode ? "all jumps" : "compact"}</button>
+      <button id="copyRoute" class="ghost" title="Copy the listed systems, one per line">copy</button>
     </div>
     <div class="meta">${escapeHtml(r.source)} → ${escapeHtml(r.destination)} · range ${fmt(r.jump_range,1)} LY (boost ${fmt(r.boost_range,0)}) · beam ${r.beam_width} · access ${r.access || "public"}</div>
     <div id="cmpOut"></div>
-    <p class="legend"><b>neutron ★</b> supercharge here · <b>board ★</b> normal jump onto a neutron · boost = boosted jump · bridge = normal jump across a gap · arrive = final jump · <span class="fuel" style="position:relative">${FUEL}</span> fuel-scoopable</p>
+    <p class="legend">${legend}</p>
     <div class="tablewrap">
-      <table><thead><tr><th class="num">#</th><th>type</th><th>system</th><th>star</th><th class="num">jumped</th><th class="num">left</th></tr></thead>
+      <table><thead><tr>${header}</tr></thead>
       <tbody>${rows}</tbody></table>
     </div>`;
   $("cmp").disabled = false; $("cmp").title = "Run the same query on spansh";
@@ -295,14 +336,19 @@ async function plot() {
   }
 }
 
-// Delegated clicks for the per-row copy buttons and "copy route".
+// Delegated clicks: per-row copy, copy-all, and the compact/all toggle.
 $("out").addEventListener("click", (e) => {
   const cb = e.target.closest(".copy-btn");
   if (cb) { copyText(cb.dataset.copy, cb); return; }
-  if (e.target.closest("#copyRoute") && lastOurs) {
-    const names = lastOurs.jumps.map((j, i) => j.system ?? (i === lastOurs.jumps.length - 1 ? lastOurs.destination : null)).filter(Boolean);
-    copyText(names.join("\n"), e.target.closest("#copyRoute"));
+  const toggle = e.target.closest("#compactToggle");
+  if (toggle && lastOurs) {
+    compactMode = !compactMode;
+    localStorage.setItem("edgis_route_compact", compactMode ? "1" : "0");
+    renderRoute(lastOurs);
+    return;
   }
+  const copyAll = e.target.closest("#copyRoute");
+  if (copyAll && lastOurs) { copyText(routeSystems().join("\n"), copyAll); }
 });
 
 $("go").addEventListener("click", plot);
