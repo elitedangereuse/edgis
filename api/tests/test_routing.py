@@ -89,6 +89,25 @@ def test_unreachable_destination_raises():
         )
 
 
+def test_greedy_march_reaches_dest():
+    index = make_index([(0.0, 0.0, 40.0)])  # index is unused by the march
+    result = routing.greedy_march(
+        index, (0.0, 0.0, 0.0), (0.0, 0.0, 900.0), 50.0, grid_stars()
+    )
+    assert result is not None
+    assert result["jumps"][-1]["distance_left"] == pytest.approx(0.0)
+    # grid has no neutrons -> every hop is a plain (<= J) regular jump.
+    for leg in result["jumps"]:
+        assert leg["distance_jumped"] <= 50.0 + 1e-4
+
+
+def test_greedy_march_returns_none_in_void():
+    index = make_index([(0.0, 0.0, 40.0)])
+    assert routing.greedy_march(
+        index, (0.0, 0.0, 0.0), (0.0, 0.0, 5000.0), 50.0, no_stars
+    ) is None
+
+
 def test_adaptive_beam_width_by_distance():
     pts = [(0.0, 0.0, float(40 + 180 * k)) for k in range(11)]
     index = make_index(pts)
