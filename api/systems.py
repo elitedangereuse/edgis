@@ -3317,10 +3317,21 @@ async def spansh_route(
                     flown = sum(
                         float(x.get("distance_jumped", 0)) for x in legs
                     )
+                    duration_s = None
+                    try:
+                        from datetime import datetime as _dt
+
+                        ca, ua = data.get("created_at"), data.get("updated_at")
+                        if ca and ua:
+                            duration_s = (
+                                _dt.fromisoformat(ua) - _dt.fromisoformat(ca)
+                            ).total_seconds()
+                    except Exception:
+                        duration_s = None
                     _log_route_trace(
                         "spansh", frm=from_, to=to, range=jump_range,
                         efficiency=efficiency, status="ok", total_jumps=total,
-                        waypoints=res.get("total_jumps"),
+                        waypoints=res.get("total_jumps"), duration_s=duration_s,
                     )
                     return {
                         "source": res.get("source_system", from_),
@@ -3331,6 +3342,7 @@ async def spansh_route(
                         "total_distance_ly": flown,
                         "efficiency": efficiency,
                         "jump_range": jump_range,
+                        "duration_s": duration_s,
                         "job": job,
                     }
                 if str(data.get("status")) in ("error", "failed"):
