@@ -424,6 +424,97 @@ def solve_route(
     )
 
 
+def _greedy_march(
+    index: NeutronIndex,
+    src: tuple[float, float, float],
+    dst: tuple[float, float, float],
+    jump_range: float,
+    fetch_stars_within: FetchStarsWithin,
+    cap: int = 400,
+    prefer: float = 0.8,
+) -> Optional[list[dict]]:
+    """A single directed march: step toward ``dst`` each jump, boosting (≤4·J)
+    whenever we're *on* a neutron and plain-jumping (≤J) otherwise, gently
+    preferring to land on on-path neutrons so the next jump can boost. No
+    detours, no phases — strong on short/sparse routes where the neutron beam
+    over-commits to off-axis neutrons. Returns legs, or ``None`` if a gap > J
+    breaks the march or the cap is hit."""
+
+    boost = 4.0 * jump_range
+    dst_v = np.asarray(dst, dtype=np.float64)
+    pos = list(src)
+    on_neutron = False
+    legs: list[dict] = []
+    visited: set[str] = set()
+
+    for _ in range(cap):
+        here = np.asarray(pos)
+        remaining = _dist(here, dst_v)
+        reach = boost if on_neutron else jump_range
+        if remaining <= reach:
+            legs.append(
+                _leg(
+                    "boost" if on_neutron else "regular",
+                    None, dst, remaining, False, 0.0,
+                )
+            )
+            return legs
+
+        best = best_d = neutron = neutron_d = None
+        for row in fetch_stars_within(tuple(pos), reach):
+            x, y, z, name = row[0], row[1], row[2], row[3]
+            mainstar = row[4] if len(row) > 4 else None
+            if name in visited:
+                continue
+            d = (x - dst_v[0]) ** 2 + (y - dst_v[1]) ** 2 + (z - dst_v[2]) ** 2
+            if best_d is None or d < best_d:
+                best_d, best = d, (x, y, z, name, mainstar)
+            if mainstar == "N" and (neutron_d is None or d < neutron_d):
+                neutron_d, neutron = d, (x, y, z, name, mainstar)
+        if best is None:
+            return None  # gap wider than one jump — march can't proceed
+
+        chosen, landed_on_neutron = best, False
+        if neutron is not None:
+            prog_best = remaining - best_d ** 0.5
+            prog_neutron = remaining - neutron_d ** 0.5
+            if prog_best <= 1e-9 or prog_neutron >= prefer * prog_best:
+                chosen, landed_on_neutron = neutron, True
+
+        coord = (chosen[0], chosen[1], chosen[2])
+        legs.append(
+            _leg(
+                "boost" if on_neutron else "regular",
+                chosen[3], coord, _dist(here, np.asarray(coord)),
+                chosen[4] == "N", _dist(np.asarray(coord), dst_v),
+                spectral=chosen[4],
+            )
+        )
+        visited.add(chosen[3])
+        pos = list(coord)
+        on_neutron = chosen[4] == "N"
+    return None  # cap exceeded
+
+
+def greedy_march(
+    index: NeutronIndex,
+    src: tuple[float, float, float],
+    dst: tuple[float, float, float],
+    jump_range: float,
+    fetch_stars_within: FetchStarsWithin,
+    cap: int = 400,
+) -> Optional[dict]:
+    """Finalized :func:`_greedy_march` result, or ``None``."""
+
+    start_time = time.perf_counter()
+    legs = _greedy_march(index, src, dst, jump_range, fetch_stars_within, cap)
+    if not legs:
+        return None
+    boost = 4.0 * jump_range
+    straight = _dist(np.asarray(src, float), np.asarray(dst, float))
+    return _finalize(legs, src, dst, jump_range, boost, straight, 1, start_time)
+
+
 def _finalize(
     legs: list[dict],
     src: tuple[float, float, float],
