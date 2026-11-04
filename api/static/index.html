@@ -1086,7 +1086,19 @@
        const routeItem = toolMenuItems.find(item => item.dataset.tool === 'route');
        if (routeItem && !tabPanels.route) {
          // No embedded route panel: the item opens the standalone plotter.
-         routeItem.dataset.href = '/plotter';
+         // Hidden while the plotter is in early access (testers get the direct
+         // /plotter URL + key); appears automatically once /route/status says
+         // public (ROUTE_PUBLIC_AFTER cutover).
+         routeItem.hidden = true;
+         fetch('/route/status')
+           .then(r => r.json())
+           .then(st => {
+             if (st && st.public) {
+               routeItem.dataset.href = '/plotter';
+               routeItem.hidden = false;
+             }
+           })
+           .catch(() => {});
        }
 
        for (const item of toolMenuItems) {
