@@ -2587,7 +2587,7 @@
         data-label="${labelAttr}"
         data-copy-value="${fullPrecisionAttr}"
       >
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 w-full">
           <span class="text-gray-300 tabular-nums">${formatted}</span>
           <button
             title="Copy coords"
@@ -2619,7 +2619,7 @@
 
        return `
       <td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono cursor-pointer copy-cell" data-label="${labelAttr}" data-copy-value="${attrValue}">
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 w-full">
           <span class="flex-1">${value}</span>
           <button
             title="${copyTitle}"

@@ -49,8 +49,8 @@
   button:hover:not(:disabled) { background:#107CB2; color:#fff; }
   button:disabled { opacity:.4; cursor:default; }
   button#go { background:var(--accent-blue); color:#fff; }
-  .actions { display:flex; gap:10px; align-items:flex-end; margin-left:auto; }
-  .go-logo { width:16px; height:16px; filter:brightness(0) invert(1); }
+  .actions { display:flex; gap:10px; align-items:center; margin-top:16px; }
+  .go-logo { width:16px; height:16px; }
   .cmp-logo { width:16px; height:16px; border-radius:50%; }
 
   .keyrow { margin-top:12px; font-size:12px; color:var(--muted); }
@@ -132,15 +132,15 @@
           <option value="6">Caspian SCO (6x)</option>
         </select>
       </div>
-      <div class="actions">
-        <button id="go">
-          <img class="go-logo" src="/static/edgislogo.svg" alt="" />
-          Plot route
-        </button>
-        <button id="cmp" class="ghost" disabled title="Plot a route first">
-          <img class="cmp-logo" src="/static/assets/spansh.png" alt="" /> vs spansh
-        </button>
-      </div>
+    </div>
+    <div class="actions">
+      <button id="go">
+        <img class="go-logo" src="/static/edgislogo.svg" alt="" />
+        Plot route
+      </button>
+      <button id="cmp" class="ghost" disabled title="Plot a route first">
+        <img class="cmp-logo" src="/static/assets/spansh.png" alt="" /> vs spansh
+      </button>
     </div>
     <datalist id="sysopts"></datalist>
     <details class="keyrow">
