@@ -187,3 +187,53 @@ def parse_loadout(slef) -> Optional[FuelParams]:
         has_scoop=has_scoop,
         max_jump_range=float(data.get("MaxJumpRange", 0.0)),
     )
+
+
+def is_scoopable(spectral: Optional[str]) -> bool:
+    """KGBFOAM main-sequence stars are fuel-scoopable (matches the UI rule)."""
+    return bool(spectral) and str(spectral).strip()[:1].upper() in "KGBFOAM"
+
+
+def simulate_fuel(jumps, params: "FuelParams", start_fuel: Optional[float] = None):
+    """Simulate the tank along a realized route to find fuel stranding.
+
+    Starts full (or ``start_fuel``), burns ``fuel_cost`` per jump, and refuels to
+    full when a leg lands on a scoopable KGBFOAM star (neutrons/white dwarfs are
+    never scoopable). Returns where the tank runs dry (``stranded_at`` leg index
+    or None), the lowest fuel reached, the number of refuels, and the longest run
+    of jumps between scoopable refuels. This is the basis for the default-on
+    'fuel-safe' guarantee (keep margin to divert to a scoopable star).
+    """
+    fuel = params.tank_size if start_fuel is None else float(start_fuel)
+    stranded_at = None
+    fuel_after = []
+    dry = 0
+    max_dry = 0
+    refuels = 0
+    for i, j in enumerate(jumps):
+        d = float(j.get("distance_jumped", 0.0) or 0.0)
+        if d <= 1e-9:
+            fuel_after.append(fuel)
+            continue
+        cost = min(params.fuel_cost(d, fuel), params.max_fuel_per_jump)
+        if cost > fuel + 1e-9:
+            stranded_at = i
+            fuel_after.append(fuel - cost)
+            break
+        fuel -= cost
+        fuel_after.append(fuel)
+        if not j.get("neutron_star") and is_scoopable(j.get("spectral")):
+            fuel = params.tank_size
+            refuels += 1
+            dry = 0
+        else:
+            dry += 1
+            max_dry = max(max_dry, dry)
+    return {
+        "stranded_at": stranded_at,
+        "min_fuel": min(fuel_after) if fuel_after else fuel,
+        "refuels": refuels,
+        "max_dry_jumps": max_dry,
+        "final_fuel": fuel,
+        "fuel_after": fuel_after,
+    }
