@@ -3008,8 +3008,6 @@ _route_cache = RedisCache(
     endpoint=REDIS_HOST, port=REDIS_PORT, namespace="route",
     serializer=PickleSerializer(),
 )
-# Short, beam-inefficient routes also try a direct greedy march (min jumps wins).
-ROUTE_MARCH_MAX_LY = float(os.getenv("ROUTE_MARCH_MAX_LY") or "4000")
 
 
 def _fetch_neutron_rows_sync():
@@ -3078,19 +3076,51 @@ def _solve_route_sync(
             finally:
                 cursor.close()
 
-        result = routing.solve_route(
+        def fetch_stars_near_segment(p0, p1, width):
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name, "
+                    "mainstar FROM systems_big "
+                    "WHERE ST_3DDWithin(coords, ST_MakeLine("
+                    "ST_MakePoint(%s, %s, %s), ST_MakePoint(%s, %s, %s)), %s) "
+                    "LIMIT 250000",
+                    (p0[0], p0[1], p0[2], p1[0], p1[1], p1[2], width),
+                )
+                return cursor.fetchall()
+            finally:
+                cursor.close()
+
+        def fetch_stars_toward(pos, radius, target, limit):
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name, "
+                    "mainstar FROM systems_big "
+                    "WHERE ST_3DDWithin(coords, ST_MakePoint(%s, %s, %s), %s) "
+                    "ORDER BY ST_3DDistance(coords, ST_MakePoint(%s, %s, %s)) "
+                    "LIMIT %s",
+                    (pos[0], pos[1], pos[2], radius,
+                     target[0], target[1], target[2], limit),
+                )
+                return cursor.fetchall()
+            finally:
+                cursor.close()
+
+        # Corridor graph A* is the primary engine: min-jumps by construction,
+        # measured to match or beat the beam on every benchmarked route. The
+        # beam stays as the fallback when the graph can't realize a route
+        # within its time cap.
+        result = routing.graph_route(
+            index, src, dst, jump_range, fetch_stars_within,
+            fetch_stars_near_segment=fetch_stars_near_segment,
+            fetch_stars_toward=fetch_stars_toward,
+        )
+        if result is not None:
+            return result
+        return routing.solve_route(
             index, src, dst, jump_range, fetch_stars_within, width=beam_width
         )
-        # On short routes the neutron beam can be beaten by a min-jumps graph
-        # search or a direct greedy march (it over-commits to off-axis
-        # neutrons). Both are cheap at this scale; take the fewest jumps across
-        # all three. (Long routes: graph_route bails and the beam wins.)
-        if result["straight_line_ly"] < ROUTE_MARCH_MAX_LY:
-            for alt_solver in (routing.graph_route, routing.greedy_march):
-                alt = alt_solver(index, src, dst, jump_range, fetch_stars_within)
-                if alt and alt["total_jumps"] < result["total_jumps"]:
-                    result = alt
-        return result
 
 
 async def _resolve_route_endpoint(

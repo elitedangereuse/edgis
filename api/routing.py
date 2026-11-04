@@ -1,17 +1,25 @@
 """Neutron-boosted route plotter.
 
-A directed **beam search** over an in-memory KD-tree of neutron stars (boosted
-jumps up to ``4 x jump_range``), with **regular-jump bridging** across
-neutron-sparse gaps — notably the galaxy-spanning ``x~=0`` / ``z~=0`` neutron
-voids (the "black cross"). Validated against spansh: matches or beats its
-jump count on dense and bridged routes, ~20-1000x faster to solve.
+Primary engine: :func:`graph_route`, a min-jumps **A\\* over a corridor of
+neutron stars** around the src->dst axis (boost edges cost 1; analytic
+regular-bridging edges where neutrons gap out, notably the galaxy-spanning
+``x~=0`` / ``z~=0`` neutron voids, the "black cross"). The sequence is then
+realized star-by-star: greedy walk first, capsule-BFS where greedy dead-ends,
+and edges proven unbridgeable are blacklisted so the search reroutes.
+Validated against spansh on the benchmark routes: fewer physical jumps on
+every one (e.g. Sol->Colonia 143 vs 166, Sol->Beagle@50 589 vs 631).
+
+Fallback engine: :func:`solve_route`, a directed beam search with greedy
+bridging (fast, but weaker on sparse routes).
 
 The KD-tree (~5M neutrons, ~120 MB) lives in :class:`NeutronIndex`, built once
 at startup. All database access is injected as callables so the solver is pure
 and unit-testable:
 
 * ``fetch_neutron_rows() -> Iterable[(x, y, z, id64, name)]`` (index build)
-* ``fetch_stars_within(pos, radius) -> Iterable[(x, y, z, name)]`` (bridging)
+* ``fetch_stars_within(pos, radius) -> Iterable[(x, y, z, name[, mainstar])]``
+* ``fetch_stars_near_segment(p0, p1, width)`` (capsule bridging, optional)
+* ``fetch_stars_toward(pos, radius, target, limit)`` (greedy KNN, optional)
 """
 
 from __future__ import annotations
@@ -426,170 +434,390 @@ def solve_route(
     )
 
 
-def _greedy_march(
+FetchStarsNearSegment = Callable[
+    [tuple[float, float, float], tuple[float, float, float], float],
+    Iterable[StarRow],
+]
+FetchStarsToward = Callable[
+    [tuple[float, float, float], float, tuple[float, float, float], int],
+    Iterable[StarRow],
+]
+
+_GAP_RADII_J = (8.0, 16.0, 32.0)  # gap-edge search radii, in jump-range units
+_ZONE_RADIUS_CAP = 1200.0  # never ban more than this around a failed bridge
+
+
+def _is_neutron_star(mainstar) -> bool:
+    return mainstar in ("N", "Neutron Star")
+
+
+def _boosted_jumps(d: float, jump_range: float) -> int:
+    """Jumps to cover ``d`` starting supercharged: one 4J jump, then J-hops."""
+    boost = 4.0 * jump_range
+    if d <= boost:
+        return 1
+    return 1 + int(math.ceil((d - boost) / jump_range))
+
+
+def _corridor_candidates(
     index: NeutronIndex,
-    src: tuple[float, float, float],
-    dst: tuple[float, float, float],
+    sv: np.ndarray,
+    dv: np.ndarray,
+    radius: float,
+    entry_r: float,
+) -> np.ndarray:
+    """Neutrons within ``radius`` of the src->dst segment (sampled balls along
+    the axis), plus entry/exit spheres. Bounded even on galaxy-spanning routes,
+    unlike the old src-dst ellipsoid."""
+
+    straight = float(np.linalg.norm(dv - sv))
+    n = max(2, int(straight / radius) + 2)
+    ts = np.linspace(0.0, 1.0, n)
+    pts = sv[None, :] + ts[:, None] * (dv - sv)[None, :]
+    found: set[int] = set()
+    for hit in index.tree.query_ball_point(pts, radius * 1.12):
+        found.update(hit)
+    for p in (sv, dv):
+        found.update(index.tree.query_ball_point(p, entry_r))
+    return np.fromiter(found, dtype=np.int64, count=len(found))
+
+
+def _graph_search(
+    index: NeutronIndex,
+    cand: np.ndarray,
+    sv: np.ndarray,
+    dv: np.ndarray,
     jump_range: float,
+    entry_r: float,
+    gap_k: int,
+    blacklist: set[tuple[int, int]],
+    badzones: list[tuple[np.ndarray, float]],
+    deadline: float,
+) -> Optional[list[int]]:
+    """Min-jumps A* over the corridor neutrons. Boost edges (<=4J) cost 1; gap
+    edges (fired only where no boost neighbor makes forward progress) and the
+    tail/direct edges use the analytic supercharged cost. Returns the neutron
+    sequence as GLOBAL index ids, or ``None``. ``blacklist`` holds proven
+    unbridgeable (from, to) edges (-1 = SRC, -2 = DST); ``badzones`` are
+    (center, radius) spheres around proven-starless segments."""
+
+    J = jump_range
+    boost = 4.0 * J
+    straight = float(np.linalg.norm(dv - sv))
+    n = len(cand)
+    cc = index.coords[cand] if n else np.zeros((0, 3))
+    lt = cKDTree(cc) if n else None
+    dd_dst = np.linalg.norm(cc - dv, axis=1) if n else np.zeros(0)
+    hv = np.ceil(dd_dst / boost).astype(np.int64) if n else np.zeros(0, np.int64)
+
+    def zone_ok(pa, pb) -> bool:
+        if not badzones:
+            return True
+        mid = (pa + pb) / 2.0
+        return all(float(np.linalg.norm(mid - c)) >= r for c, r in badzones)
+
+    SRC, DST = n, n + 1
+    BIG = np.iinfo(np.int64).max // 4
+    g = np.full(n + 2, BIG, dtype=np.int64)
+    gd = np.full(n + 2, np.inf)
+    par = np.full(n + 2, -9, dtype=np.int64)
+    closed = np.zeros(n + 2, dtype=bool)
+    g[SRC] = 0
+    gd[SRC] = 0.0
+    pq: list[tuple[int, int, float, int]] = [
+        (int(math.ceil(straight / boost)), 0, 0.0, SRC)
+    ]
+
+    def relax(v: int, nj: int, nd: float, u: int) -> None:
+        if nj < g[v]:
+            g[v] = nj
+            gd[v] = nd
+            par[v] = u
+            h = 0 if v == DST else int(hv[v])
+            heapq.heappush(pq, (nj + h, -nj, nd, v))
+
+    found = False
+    while pq:
+        _, njneg, _, u = heapq.heappop(pq)
+        if closed[u]:
+            continue
+        closed[u] = True
+        gg = int(g[u])
+        if u == DST:
+            found = True
+            break
+        if time.perf_counter() > deadline:
+            return None
+        if u == SRC:
+            if (-1, -2) not in blacklist and zone_ok(sv, dv):
+                relax(DST, gg + int(math.ceil(straight / J)), straight, u)
+            if lt is not None:
+                ms = np.asarray(lt.query_ball_point(sv, entry_r), dtype=np.int64)
+                ms = np.asarray(
+                    [
+                        m for m in ms
+                        if (-1, int(cand[m])) not in blacklist
+                        and zone_ok(sv, cc[m])
+                    ],
+                    dtype=np.int64,
+                )
+                if len(ms):
+                    dms = np.linalg.norm(cc[ms] - sv, axis=1)
+                    costs = np.maximum(np.ceil(dms / J), 1).astype(np.int64)
+                    for m, dm, c in zip(ms, dms, costs):
+                        relax(int(m), gg + int(c), float(dm), u)
+            continue
+        cu = cc[u]
+        if (int(cand[u]), -2) not in blacklist and zone_ok(cu, dv):
+            relax(
+                DST,
+                gg + _boosted_jumps(float(dd_dst[u]), J),
+                gd[u] + float(dd_dst[u]),
+                u,
+            )
+        ms = np.asarray(lt.query_ball_point(cu, boost), dtype=np.int64)
+        ms = ms[~closed[ms]]
+        forward = False
+        if len(ms):
+            dms = np.linalg.norm(cc[ms] - cu, axis=1)
+            forward = bool(np.any(dd_dst[ms] < dd_dst[u] - 1e-6))
+            keep = (gg + 1) < g[ms]
+            for m, dm in zip(ms[keep], dms[keep]):
+                relax(int(m), gg + 1, gd[u] + float(dm), u)
+        if not forward:
+            # Local dead end toward the target: bridge the void analytically.
+            for mult in _GAP_RADII_J:
+                near = np.asarray(
+                    lt.query_ball_point(cu, mult * J), dtype=np.int64
+                )
+                near = near[(dd_dst[near] < dd_dst[u] - 1e-6) & ~closed[near]]
+                if not len(near):
+                    continue
+                dms = np.linalg.norm(cc[near] - cu, axis=1)
+                order = np.argsort(dms)[:gap_k]
+                relaxed = 0
+                for i in order:
+                    m = int(near[i])
+                    if (int(cand[u]), int(cand[m])) in blacklist:
+                        continue
+                    if not zone_ok(cu, cc[m]):
+                        continue
+                    relax(m, gg + _boosted_jumps(float(dms[i]), J),
+                          gd[u] + float(dms[i]), u)
+                    relaxed += 1
+                if relaxed:
+                    break
+    if not found:
+        return None
+    seq: list[int] = []
+    node = int(par[DST])
+    while node >= 0 and node != SRC:
+        seq.append(int(cand[node]))
+        node = int(par[node])
+    seq.reverse()
+    return seq
+
+
+def _bridge_greedy(
     fetch_stars_within: FetchStarsWithin,
-    cap: int = 400,
-    prefer: float = 0.8,
-) -> Optional[list[dict]]:
-    """A single directed march: step toward ``dst`` each jump, boosting (≤4·J)
-    whenever we're *on* a neutron and plain-jumping (≤J) otherwise, gently
-    preferring to land on on-path neutrons so the next jump can boost. No
-    detours, no phases — strong on short/sparse routes where the neutron beam
-    over-commits to off-axis neutrons. Returns legs, or ``None`` if a gap > J
-    breaks the march or the cap is hit."""
+    fetch_stars_toward: Optional[FetchStarsToward],
+    pos: np.ndarray,
+    boosted: bool,
+    target: np.ndarray,
+    jump_range: float,
+    dst_v: np.ndarray,
+    visited: set[str],
+    max_steps: int,
+) -> Optional[tuple[list[dict], np.ndarray, bool]]:
+    """Greedy star-walk toward ``target`` (excluded); returns the intermediate
+    legs + final position/boost state, or ``None`` on a dead end. Fast and
+    almost always sufficient in dense space."""
 
     boost = 4.0 * jump_range
-    dst_v = np.asarray(dst, dtype=np.float64)
-    pos = list(src)
-    on_neutron = False
     legs: list[dict] = []
-    visited: set[str] = set()
-
-    for _ in range(cap):
-        here = np.asarray(pos)
-        remaining = _dist(here, dst_v)
-        reach = boost if on_neutron else jump_range
-        if remaining <= reach:
-            legs.append(
-                _leg(
-                    "boost" if on_neutron else "regular",
-                    None, dst, remaining, False, 0.0,
-                )
-            )
-            return legs
-
-        best = best_d = neutron = neutron_d = None
-        for row in fetch_stars_within(tuple(pos), reach):
-            x, y, z, name = row[0], row[1], row[2], row[3]
-            mainstar = row[4] if len(row) > 4 else None
-            if name in visited:
+    cur = np.array(pos, dtype=np.float64)
+    on_boost = boosted
+    for _ in range(max_steps):
+        reach = boost if on_boost else jump_range
+        if float(np.linalg.norm(target - cur)) <= reach:
+            return legs, cur, on_boost
+        if fetch_stars_toward is not None:
+            rows = fetch_stars_toward(tuple(cur), reach, tuple(target), 32)
+        else:
+            rows = fetch_stars_within(tuple(cur), reach)
+        best = best_d = None
+        for row in rows:
+            if row[3] in visited:
                 continue
-            d = (x - dst_v[0]) ** 2 + (y - dst_v[1]) ** 2 + (z - dst_v[2]) ** 2
+            d = (
+                (row[0] - target[0]) ** 2
+                + (row[1] - target[1]) ** 2
+                + (row[2] - target[2]) ** 2
+            )
             if best_d is None or d < best_d:
-                best_d, best = d, (x, y, z, name, mainstar)
-            if mainstar == "N" and (neutron_d is None or d < neutron_d):
-                neutron_d, neutron = d, (x, y, z, name, mainstar)
+                best_d, best = d, row
         if best is None:
-            return None  # gap wider than one jump — march can't proceed
-
-        chosen, landed_on_neutron = best, False
-        if neutron is not None:
-            prog_best = remaining - best_d ** 0.5
-            prog_neutron = remaining - neutron_d ** 0.5
-            if prog_best <= 1e-9 or prog_neutron >= prefer * prog_best:
-                chosen, landed_on_neutron = neutron, True
-
-        coord = (chosen[0], chosen[1], chosen[2])
+            return None
+        nxt = np.asarray(best[:3], dtype=np.float64)
+        ms = best[4] if len(best) > 4 else None
         legs.append(
             _leg(
-                "boost" if on_neutron else "regular",
-                chosen[3], coord, _dist(here, np.asarray(coord)),
-                chosen[4] == "N", _dist(np.asarray(coord), dst_v),
-                spectral=chosen[4],
+                "boost" if on_boost else "regular",
+                best[3], tuple(nxt), float(np.linalg.norm(nxt - cur)),
+                _is_neutron_star(ms), float(np.linalg.norm(nxt - dst_v)),
+                spectral=ms,
             )
         )
-        visited.add(chosen[3])
-        pos = list(coord)
-        on_neutron = chosen[4] == "N"
-    return None  # cap exceeded
+        visited.add(best[3])
+        cur = nxt
+        on_boost = _is_neutron_star(ms)
+    return None
 
 
-def greedy_march(
+def _bridge_capsule(
+    fetch_stars_near_segment: FetchStarsNearSegment,
+    pos: np.ndarray,
+    boosted: bool,
+    target: np.ndarray,
+    jump_range: float,
+    dst_v: np.ndarray,
+) -> Optional[tuple[list[dict], np.ndarray, bool]]:
+    """Min-jump bridge via BFS over one capsule star fetch around the segment.
+    Slower than the greedy walk but immune to its local dead ends; used only
+    where the greedy fails, which is sparse space where the fetch is small."""
+
+    J = jump_range
+    boost = 4.0 * J
+    for width in (max(3.0 * J, 200.0), max(9.0 * J, 600.0)):
+        rows = list(fetch_stars_near_segment(tuple(pos), tuple(target), width))
+        if not rows:
+            continue
+        pts = np.asarray([(r[0], r[1], r[2]) for r in rows])
+        neut = np.asarray([_is_neutron_star(r[4] if len(r) > 4 else None)
+                           for r in rows])
+        tree = cKDTree(pts)
+        start_reach = boost if boosted else J
+        if float(np.linalg.norm(target - pos)) <= start_reach:
+            return [], np.array(pos, float), boosted
+        n = len(pts)
+        parent = np.full(n, -2, dtype=np.int64)
+        frontier = np.asarray(
+            tree.query_ball_point(pos, start_reach), dtype=np.int64
+        )
+        parent[frontier] = -1
+        max_layers = int(math.ceil(float(np.linalg.norm(target - pos)) / J)) + 12
+        hit = -1
+        for _ in range(max_layers):
+            if not len(frontier):
+                break
+            reach_fr = np.where(neut[frontier], boost, J)
+            dt = np.linalg.norm(pts[frontier] - target, axis=1)
+            ok = frontier[dt <= reach_fr]
+            if len(ok):
+                hit = int(ok[0])
+                break
+            new: list[int] = []
+            for grp, rad in ((frontier[neut[frontier]], boost),
+                             (frontier[~neut[frontier]], J)):
+                if not len(grp):
+                    continue
+                for pi, lst in zip(grp, tree.query_ball_point(pts[grp], rad)):
+                    for m in lst:
+                        if parent[m] == -2:
+                            parent[m] = int(pi)
+                            new.append(m)
+            if not new:
+                break
+            frontier = np.asarray(new, dtype=np.int64)
+        if hit < 0:
+            continue
+        chain: list[int] = []
+        node = hit
+        while node != -1:
+            chain.append(node)
+            node = int(parent[node])
+        chain.reverse()
+        legs: list[dict] = []
+        cur = np.array(pos, float)
+        on_boost = boosted
+        for m in chain:
+            nxt_p = pts[m]
+            legs.append(
+                _leg(
+                    "boost" if on_boost else "regular",
+                    rows[m][3], tuple(nxt_p),
+                    float(np.linalg.norm(nxt_p - cur)),
+                    bool(neut[m]), float(np.linalg.norm(nxt_p - dst_v)),
+                    spectral=rows[m][4] if len(rows[m]) > 4 else None,
+                )
+            )
+            cur = nxt_p
+            on_boost = bool(neut[m])
+        return legs, cur, on_boost
+    return None
+
+
+def _realize_graph(
     index: NeutronIndex,
     src: tuple[float, float, float],
     dst: tuple[float, float, float],
     jump_range: float,
+    seq: list[int],
     fetch_stars_within: FetchStarsWithin,
-    cap: int = 400,
-) -> Optional[dict]:
-    """Finalized :func:`_greedy_march` result, or ``None``."""
+    fetch_stars_near_segment: Optional[FetchStarsNearSegment],
+    fetch_stars_toward: Optional[FetchStarsToward],
+):
+    """Realize a neutron sequence into legs. Returns ``(legs, None)`` or
+    ``(None, (edge, midpoint, seg_d))`` naming the unbridgeable edge."""
 
-    start_time = time.perf_counter()
-    legs = _greedy_march(index, src, dst, jump_range, fetch_stars_within, cap)
-    if not legs:
-        return None
-    boost = 4.0 * jump_range
-    straight = _dist(np.asarray(src, float), np.asarray(dst, float))
-    return _finalize(legs, src, dst, jump_range, boost, straight, 1, start_time)
-
-
-def _realize_sequence(
-    index: NeutronIndex,
-    src: tuple[float, float, float],
-    dst: tuple[float, float, float],
-    jump_range: float,
-    sequence: list[int],
-    fetch_stars_within: FetchStarsWithin,
-    cap: int = 4000,
-) -> Optional[list[dict]]:
-    """Turn an ordered neutron sequence (src → n0 → … → nk → dst) into actual
-    legs: board each neutron in turn (boost between them when ≤4·J, else bridge
-    with regular jumps), then finish to ``dst``. Returns ``None`` if a segment
-    can't be bridged."""
-
-    boost = 4.0 * jump_range
+    J = jump_range
+    boost = 4.0 * J
     coords = index.coords
     names = index.names
     id64 = index.id64
     dst_v = np.asarray(dst, dtype=np.float64)
     legs: list[dict] = []
-    pos = list(src)
-    on_neutron = False
     visited: set[str] = set()
-
-    def go(target, is_neutron, name, idv, spectral) -> bool:
-        nonlocal pos, on_neutron
-        target = (float(target[0]), float(target[1]), float(target[2]))
-        for _ in range(cap):
-            here = np.asarray(pos)
-            reach = boost if on_neutron else jump_range
-            if _dist(here, np.asarray(target)) <= reach:
-                legs.append(
-                    _leg(
-                        "boost" if on_neutron else "regular",
-                        name, target, _dist(here, np.asarray(target)),
-                        is_neutron, _dist(np.asarray(target), dst_v),
-                        id64=idv, spectral=spectral,
-                    )
-                )
-                pos = list(target)
-                on_neutron = is_neutron
-                return True
-            best = best_d = None
-            for row in fetch_stars_within(tuple(pos), reach):
-                x, y, z, nm = row[0], row[1], row[2], row[3]
-                ms = row[4] if len(row) > 4 else None
-                if nm in visited:
-                    continue
-                d = (x - target[0]) ** 2 + (y - target[1]) ** 2 + (z - target[2]) ** 2
-                if best_d is None or d < best_d:
-                    best_d, best = d, (x, y, z, nm, ms)
-            if best is None:
-                return False
-            coord = (best[0], best[1], best[2])
-            legs.append(
-                _leg(
-                    "boost" if on_neutron else "regular",
-                    best[3], coord, _dist(np.asarray(pos), np.asarray(coord)),
-                    best[4] == "N", _dist(np.asarray(coord), dst_v),
-                    spectral=best[4],
-                )
+    pos = np.asarray(src, dtype=np.float64)
+    boosted = False
+    prev_gid = -1
+    targets = [
+        (coords[n], names[n], id64[n], True, int(n)) for n in seq
+    ] + [(dst_v, None, None, False, -2)]
+    for tgt, name, idv, is_neut, gid in targets:
+        tgt = np.asarray(tgt, dtype=np.float64)
+        d = float(np.linalg.norm(tgt - pos))
+        reach = boost if boosted else J
+        if d > reach + 1e-9:
+            max_steps = int(math.ceil(d / J)) * 4 + 8
+            br = _bridge_greedy(
+                fetch_stars_within, fetch_stars_toward, pos, boosted, tgt,
+                J, dst_v, visited, max_steps,
             )
-            visited.add(best[3])
-            pos = list(coord)
-            on_neutron = best[4] == "N"
-        return False
-
-    for node in sequence:
-        if not go(coords[node], True, names[node], id64[node], "N"):
-            return None
-    if not go(dst, False, None, None, None):
-        return None
-    return legs
+            if br is None and fetch_stars_near_segment is not None:
+                br = _bridge_capsule(
+                    fetch_stars_near_segment, pos, boosted, tgt, J, dst_v
+                )
+            if br is None:
+                mid = (pos + tgt) / 2.0
+                return None, ((prev_gid, gid), mid, d)
+            seg_legs, pos, boosted = br
+            legs.extend(seg_legs)
+            if len(legs) > _MAX_TOTAL_JUMPS:
+                return None, ((prev_gid, gid), (pos + tgt) / 2.0, d)
+            d = float(np.linalg.norm(tgt - pos))
+        legs.append(
+            _leg(
+                "boost" if boosted else "regular",
+                name, tuple(tgt), d, is_neut,
+                float(np.linalg.norm(tgt - dst_v)),
+                id64=idv, spectral="N" if is_neut else None,
+            )
+        )
+        pos = tgt
+        boosted = is_neut
+        prev_gid = gid
+    return legs, None
 
 
 def graph_route(
@@ -598,96 +826,56 @@ def graph_route(
     dst: tuple[float, float, float],
     jump_range: float,
     fetch_stars_within: FetchStarsWithin,
-    pad: float = 2000.0,
+    fetch_stars_near_segment: Optional[FetchStarsNearSegment] = None,
+    fetch_stars_toward: Optional[FetchStarsToward] = None,
+    corridor_ly: float = 700.0,
     entry_jumps: int = 30,
-    max_candidates: int = 60000,
+    gap_k: int = 16,
+    rounds: int = 5,
+    time_cap: float = 60.0,
 ) -> Optional[dict]:
-    """Min-**jumps** route via an in-memory neutron graph, then realized into
-    legs. Nodes = src/dst + neutrons in the src–dst ellipsoid; a boost edge
-    costs 1 (≤4·J), regular travel costs ``ceil(dist/J)`` analytically; A* with
-    heuristic ``ceil(remaining/4J)``. Finds the off-axis boosts a distance-greedy
-    search can't. For SHORT routes only — returns ``None`` if the candidate set
-    is too large (long routes: use the beam)."""
+    """Min-**jumps** route via corridor-bounded neutron-graph A*, realized into
+    legs with greedy + capsule-BFS bridging. Edges the realizer proves
+    unbridgeable are blacklisted (plus a bad zone around them) and the search
+    re-runs, so the graph routes around genuinely starless regions. Returns
+    ``None`` when no realizable route is found (caller falls back to the beam).
+    """
 
     start_time = time.perf_counter()
-    boost = 4.0 * jump_range
-    coords = index.coords
-    tree = index.tree
-    names = index.names
-    id64 = index.id64
-    src_v = np.asarray(src, dtype=np.float64)
-    dst_v = np.asarray(dst, dtype=np.float64)
-    straight = _dist(src_v, dst_v)
+    deadline = start_time + time_cap
+    J = float(jump_range)
+    boost = 4.0 * J
+    sv = np.asarray(src, dtype=np.float64)
+    dv = np.asarray(dst, dtype=np.float64)
+    straight = _dist(sv, dv)
+    entry_r = entry_jumps * J
 
-    raw = tree.query_ball_point((src_v + dst_v) / 2.0, straight / 2 + pad)
-    if len(raw) > max_candidates:
-        return None
-    cand = np.asarray(raw, dtype=int)
-    if len(cand):
-        cc = coords[cand]
-        ell = np.linalg.norm(cc - src_v, axis=1) + np.linalg.norm(cc - dst_v, axis=1)
-        cand = cand[ell <= straight + pad]
-    cand_set = set(int(c) for c in cand)
-
-    SRC, DST = -1, -2
-
-    def heuristic(node: int) -> int:
-        if node == DST:
-            return 0
-        return int(math.ceil(float(np.linalg.norm(coords[node] - dst_v)) / boost))
-
-    g = {SRC: 0}
-    parent: dict[int, Optional[int]] = {SRC: None}
-    pq = [(int(math.ceil(straight / boost)), 0, SRC)]
-
-    def relax(v: int, new_g: int, u: int) -> None:
-        if new_g < g.get(v, math.inf):
-            g[v] = new_g
-            parent[v] = u
-            heapq.heappush(pq, (new_g + heuristic(v), new_g, v))
-
-    entry_radius = entry_jumps * jump_range
-    src_entry = [
-        int(c) for c in cand
-        if np.linalg.norm(coords[int(c)] - src_v) <= entry_radius
-    ]
-
-    found = False
-    while pq:
-        _, gg, u = heapq.heappop(pq)
-        if gg > g.get(u, math.inf):
-            continue
-        if u == DST:
-            found = True
-            break
-        if u == SRC:
-            relax(DST, gg + int(math.ceil(straight / jump_range)), u)
-            for n in src_entry:
-                cost = int(math.ceil(
-                    float(np.linalg.norm(coords[n] - src_v)) / jump_range
-                ))
-                relax(n, gg + cost, u)
-        else:
-            dd = float(np.linalg.norm(coords[u] - dst_v))
-            relax(DST, gg + (1 if dd <= boost else int(math.ceil(dd / jump_range))), u)
-            for m in tree.query_ball_point(coords[u], boost):
-                mi = int(m)
-                if mi != u and mi in cand_set:
-                    relax(mi, gg + 1, u)
-    if not found:
-        return None
-
-    sequence: list[int] = []
-    node = parent[DST]
-    while node is not None and node != SRC:
-        sequence.append(node)
-        node = parent[node]
-    sequence.reverse()
-
-    legs = _realize_sequence(index, src, dst, jump_range, sequence, fetch_stars_within)
-    if not legs:
-        return None
-    return _finalize(legs, src, dst, jump_range, boost, straight, 0, start_time)
+    cand = _corridor_candidates(index, sv, dv, corridor_ly, entry_r)
+    blacklist: set[tuple[int, int]] = set()
+    badzones: list[tuple[np.ndarray, float]] = []
+    for _ in range(rounds):
+        seq = _graph_search(
+            index, cand, sv, dv, J, entry_r, gap_k, blacklist, badzones,
+            deadline,
+        )
+        if seq is None:
+            return None
+        legs, fail = _realize_graph(
+            index, src, dst, J, seq, fetch_stars_within,
+            fetch_stars_near_segment, fetch_stars_toward,
+        )
+        if legs is not None:
+            return _finalize(
+                legs, src, dst, J, boost, straight, 0, start_time
+            )
+        edge, mid, seg_d = fail
+        blacklist.add(edge)
+        badzones.append(
+            (mid, min(max(2.0 * J, 0.75 * seg_d), _ZONE_RADIUS_CAP))
+        )
+        if time.perf_counter() > deadline:
+            return None
+    return None
 
 
 def _finalize(
