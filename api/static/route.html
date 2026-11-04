@@ -232,8 +232,14 @@ async function compareSpansh() {
   if (!lastQuery) return;
   const { from, to, range } = lastQuery;
   $("cmp").disabled = true;
-  const out = () => $("cmpOut");
-  if (out()) out().innerHTML = `<span class="tiny">Querying spansh… (can take ~10–30 s)</span>`;
+  // A cmpOut div exists after a successful plot; create one if EDGIS failed
+  // (so you can still check whether spansh finds a route).
+  const out = () => {
+    let el = document.getElementById("cmpOut");
+    if (!el) { el = document.createElement("div"); el.id = "cmpOut"; $("out").appendChild(el); }
+    return el;
+  };
+  out().innerHTML = `<span class="tiny">Querying spansh… (can take ~10–30 s)</span>`;
   try {
     const res = await fetch(`/spansh/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}&efficiency=60`, { headers: headers(), credentials: "include" });
     if (!res.ok) { if (out()) out().innerHTML = `<span class="bad">spansh compare failed (HTTP ${res.status})</span>`; return; }
@@ -264,6 +270,7 @@ async function plot() {
   if (!from || !to) { $("out").innerHTML = `<div class="msg warn">Enter both a start and destination system.</div>`; return; }
   const range = $("range").value || "50";
   lastQuery = { from, to, range };
+  lastOurs = null;  // so a post-failure spansh compare doesn't show a stale "ours"
   $("go").disabled = true; $("out").innerHTML = `<div class="msg">Plotting…</div>`;
   try {
     const url = `/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}`;
@@ -279,7 +286,13 @@ async function plot() {
     if (!res.ok) { $("out").innerHTML = `<div class="msg err">Error ${res.status}.</div>`; return; }
     renderRoute(await res.json());
   } catch (e) { $("out").innerHTML = `<div class="msg err">${escapeHtml(e.message || String(e))}</div>`; }
-  finally { $("go").disabled = false; loadStatus(); }
+  finally {
+    $("go").disabled = false;
+    // Allow comparing against spansh after any attempt — including when EDGIS
+    // couldn't find a route (spansh often can).
+    if (lastQuery) { $("cmp").disabled = false; $("cmp").title = "Query spansh for this route"; }
+    loadStatus();
+  }
 }
 
 // Delegated clicks for the per-row copy buttons and "copy route".
