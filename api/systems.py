@@ -3144,7 +3144,6 @@ def _solve_route_sync(
             fetch_stars_near_segment=fetch_stars_near_segment,
             fetch_stars_toward=fetch_stars_toward,
             time_cap=60.0 + math.dist(src, dst) / 500.0,
-            locked_mask=permit_zones.locked_mask,
             is_locked=permit_zones.is_locked,
             boost_mult=boost_mult,
         )
