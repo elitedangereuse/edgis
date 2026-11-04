@@ -3484,6 +3484,7 @@ async def spansh_route(
                         "https://spansh.co.uk/plotter/results/"
                         f"{job}?efficiency={efficiency}&range={jump_range:g}"
                         f"&from={quote(from_)}&to={quote(to)}"
+                        f"&supercharge_multiplier={supercharge:g}"
                     )
                     return {
                         "source": res.get("source_system", from_),

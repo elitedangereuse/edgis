@@ -351,8 +351,12 @@ async function compareSpansh() {
       timeStr = ` · ⏱ ${ft(ourMs)} vs ${ft(spMs)} <span class="${dMs >= 0 ? "good" : "bad"}">(${ft(Math.abs(dMs))} ${dMs >= 0 ? "faster" : "slower"})</span>`;
     }
     const link = s.results_url ? ` · <a href="${escapeHtml(s.results_url)}" target="_blank" rel="noopener">open in spansh ↗</a>` : "";
+    // Both sides use the selected supercharge; label it so the compare is
+    // unambiguously apples-to-apples (e.g. Caspian 6x vs spansh at 6x).
+    const sc = Number(supercharge || 4);
+    const modeTag = sc !== 4 ? `<span class="tiny">supercharge ${sc}x</span> · ` : "";
     // Our solve time is already in the "solve" stat above; show only spansh's count here.
-    if (out()) out().innerHTML = `<b>spansh:</b> ${fmt(s.total_jumps)} jumps (eff 60${sDur})`
+    if (out()) out().innerHTML = modeTag + `<b>spansh:</b> ${fmt(s.total_jumps)} jumps (eff 60${sDur})`
       + (ours != null ? ` · <b>ours:</b> ${fmt(ours)} jumps · ${verdict}` : "")
       + timeStr + link;
   } catch (e) { if (out()) out().innerHTML = `<span class="bad">${e.message || e}</span>`; }
