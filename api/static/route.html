@@ -75,13 +75,15 @@
   .spec { color:var(--muted); font-family:var(--mono); }
   .fuel { color:var(--ok); margin-right:5px; vertical-align:-2px; }
 
-  .copy-btn { all:unset; cursor:pointer; color:var(--accent); opacity:.35; margin-left:8px;
+  /* Icon color matches the neighbors results page: its buttons inherit the
+     table's text-gray-200 (#e5e7eb); the accent-blue class there is a no-op. */
+  .copy-btn { all:unset; cursor:pointer; color:#e5e7eb; opacity:.35; margin-left:8px;
               vertical-align:-2px; transition:opacity .15s; }
   tr:hover .copy-btn, .copy-btn:hover, .copy-btn:focus { opacity:1; }
 
   /* Trailing per-row actions, same set as the neighbors search results. */
   td.acts { white-space:nowrap; text-align:right; }
-  .act-btn { all:unset; cursor:pointer; color:var(--accent); opacity:.3; padding:2px 4px;
+  .act-btn { all:unset; cursor:pointer; color:#e5e7eb; opacity:.3; padding:2px 4px;
              vertical-align:-2px; transition:opacity .15s; }
   tr:hover .act-btn, .act-btn:hover, .act-btn:focus { opacity:1; }
 
