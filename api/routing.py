@@ -16,6 +16,8 @@ and unit-testable:
 
 from __future__ import annotations
 
+import heapq
+import math
 import time
 from dataclasses import dataclass
 from typing import Callable, Iterable, Optional
@@ -515,6 +517,179 @@ def greedy_march(
     return _finalize(legs, src, dst, jump_range, boost, straight, 1, start_time)
 
 
+def _realize_sequence(
+    index: NeutronIndex,
+    src: tuple[float, float, float],
+    dst: tuple[float, float, float],
+    jump_range: float,
+    sequence: list[int],
+    fetch_stars_within: FetchStarsWithin,
+    cap: int = 4000,
+) -> Optional[list[dict]]:
+    """Turn an ordered neutron sequence (src → n0 → … → nk → dst) into actual
+    legs: board each neutron in turn (boost between them when ≤4·J, else bridge
+    with regular jumps), then finish to ``dst``. Returns ``None`` if a segment
+    can't be bridged."""
+
+    boost = 4.0 * jump_range
+    coords = index.coords
+    names = index.names
+    id64 = index.id64
+    dst_v = np.asarray(dst, dtype=np.float64)
+    legs: list[dict] = []
+    pos = list(src)
+    on_neutron = False
+    visited: set[str] = set()
+
+    def go(target, is_neutron, name, idv, spectral) -> bool:
+        nonlocal pos, on_neutron
+        target = (float(target[0]), float(target[1]), float(target[2]))
+        for _ in range(cap):
+            here = np.asarray(pos)
+            reach = boost if on_neutron else jump_range
+            if _dist(here, np.asarray(target)) <= reach:
+                legs.append(
+                    _leg(
+                        "boost" if on_neutron else "regular",
+                        name, target, _dist(here, np.asarray(target)),
+                        is_neutron, _dist(np.asarray(target), dst_v),
+                        id64=idv, spectral=spectral,
+                    )
+                )
+                pos = list(target)
+                on_neutron = is_neutron
+                return True
+            best = best_d = None
+            for row in fetch_stars_within(tuple(pos), reach):
+                x, y, z, nm = row[0], row[1], row[2], row[3]
+                ms = row[4] if len(row) > 4 else None
+                if nm in visited:
+                    continue
+                d = (x - target[0]) ** 2 + (y - target[1]) ** 2 + (z - target[2]) ** 2
+                if best_d is None or d < best_d:
+                    best_d, best = d, (x, y, z, nm, ms)
+            if best is None:
+                return False
+            coord = (best[0], best[1], best[2])
+            legs.append(
+                _leg(
+                    "boost" if on_neutron else "regular",
+                    best[3], coord, _dist(np.asarray(pos), np.asarray(coord)),
+                    best[4] == "N", _dist(np.asarray(coord), dst_v),
+                    spectral=best[4],
+                )
+            )
+            visited.add(best[3])
+            pos = list(coord)
+            on_neutron = best[4] == "N"
+        return False
+
+    for node in sequence:
+        if not go(coords[node], True, names[node], id64[node], "N"):
+            return None
+    if not go(dst, False, None, None, None):
+        return None
+    return legs
+
+
+def graph_route(
+    index: NeutronIndex,
+    src: tuple[float, float, float],
+    dst: tuple[float, float, float],
+    jump_range: float,
+    fetch_stars_within: FetchStarsWithin,
+    pad: float = 2000.0,
+    entry_jumps: int = 30,
+    max_candidates: int = 60000,
+) -> Optional[dict]:
+    """Min-**jumps** route via an in-memory neutron graph, then realized into
+    legs. Nodes = src/dst + neutrons in the src–dst ellipsoid; a boost edge
+    costs 1 (≤4·J), regular travel costs ``ceil(dist/J)`` analytically; A* with
+    heuristic ``ceil(remaining/4J)``. Finds the off-axis boosts a distance-greedy
+    search can't. For SHORT routes only — returns ``None`` if the candidate set
+    is too large (long routes: use the beam)."""
+
+    start_time = time.perf_counter()
+    boost = 4.0 * jump_range
+    coords = index.coords
+    tree = index.tree
+    names = index.names
+    id64 = index.id64
+    src_v = np.asarray(src, dtype=np.float64)
+    dst_v = np.asarray(dst, dtype=np.float64)
+    straight = _dist(src_v, dst_v)
+
+    raw = tree.query_ball_point((src_v + dst_v) / 2.0, straight / 2 + pad)
+    if len(raw) > max_candidates:
+        return None
+    cand = np.asarray(raw, dtype=int)
+    if len(cand):
+        cc = coords[cand]
+        ell = np.linalg.norm(cc - src_v, axis=1) + np.linalg.norm(cc - dst_v, axis=1)
+        cand = cand[ell <= straight + pad]
+    cand_set = set(int(c) for c in cand)
+
+    SRC, DST = -1, -2
+
+    def heuristic(node: int) -> int:
+        if node == DST:
+            return 0
+        return int(math.ceil(float(np.linalg.norm(coords[node] - dst_v)) / boost))
+
+    g = {SRC: 0}
+    parent: dict[int, Optional[int]] = {SRC: None}
+    pq = [(int(math.ceil(straight / boost)), 0, SRC)]
+
+    def relax(v: int, new_g: int, u: int) -> None:
+        if new_g < g.get(v, math.inf):
+            g[v] = new_g
+            parent[v] = u
+            heapq.heappush(pq, (new_g + heuristic(v), new_g, v))
+
+    entry_radius = entry_jumps * jump_range
+    src_entry = [
+        int(c) for c in cand
+        if np.linalg.norm(coords[int(c)] - src_v) <= entry_radius
+    ]
+
+    found = False
+    while pq:
+        _, gg, u = heapq.heappop(pq)
+        if gg > g.get(u, math.inf):
+            continue
+        if u == DST:
+            found = True
+            break
+        if u == SRC:
+            relax(DST, gg + int(math.ceil(straight / jump_range)), u)
+            for n in src_entry:
+                cost = int(math.ceil(
+                    float(np.linalg.norm(coords[n] - src_v)) / jump_range
+                ))
+                relax(n, gg + cost, u)
+        else:
+            dd = float(np.linalg.norm(coords[u] - dst_v))
+            relax(DST, gg + (1 if dd <= boost else int(math.ceil(dd / jump_range))), u)
+            for m in tree.query_ball_point(coords[u], boost):
+                mi = int(m)
+                if mi != u and mi in cand_set:
+                    relax(mi, gg + 1, u)
+    if not found:
+        return None
+
+    sequence: list[int] = []
+    node = parent[DST]
+    while node is not None and node != SRC:
+        sequence.append(node)
+        node = parent[node]
+    sequence.reverse()
+
+    legs = _realize_sequence(index, src, dst, jump_range, sequence, fetch_stars_within)
+    if not legs:
+        return None
+    return _finalize(legs, src, dst, jump_range, boost, straight, 0, start_time)
+
+
 def _finalize(
     legs: list[dict],
     src: tuple[float, float, float],
@@ -525,6 +700,9 @@ def _finalize(
     width: int,
     start_time: float,
 ) -> dict:
+    # Drop zero-distance hops — you don't "jump" to where you already are
+    # (e.g. from == to, or coincident systems). spansh counts these as 0 jumps.
+    legs = [leg for leg in legs if leg["distance_jumped"] > 1e-6]
     # Neutron hops carry no catalogued spectral type here; they are, by
     # construction, neutron stars.
     for leg in legs:

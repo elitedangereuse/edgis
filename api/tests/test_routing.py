@@ -108,6 +108,33 @@ def test_greedy_march_returns_none_in_void():
     ) is None
 
 
+def test_graph_route_reaches_dest():
+    pts = [(0.0, 0.0, float(40 + 180 * k)) for k in range(11)]
+    index = make_index(pts)
+    result = routing.graph_route(
+        index, (0.0, 0.0, 0.0), (0.0, 0.0, 2000.0), 50.0, grid_stars()
+    )
+    assert result is not None
+    assert_legal(result, 50.0)
+
+
+def test_graph_route_none_when_unbridgeable():
+    index = make_index([(0.0, 0.0, 40.0)])
+    assert routing.graph_route(
+        index, (0.0, 0.0, 0.0), (0.0, 0.0, 5000.0), 50.0, no_stars
+    ) is None
+
+
+def test_zero_distance_hops_not_counted():
+    # from == to: no jump needed; the degenerate arrival must not be counted.
+    index = make_index([(0.0, 0.0, 40.0)])
+    result = routing.greedy_march(
+        index, (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), 50.0, grid_stars()
+    )
+    assert result is not None
+    assert result["total_jumps"] == 0
+
+
 def test_adaptive_beam_width_by_distance():
     pts = [(0.0, 0.0, float(40 + 180 * k)) for k in range(11)]
     index = make_index(pts)

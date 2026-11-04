@@ -3010,7 +3010,6 @@ _route_cache = RedisCache(
 )
 # Short, beam-inefficient routes also try a direct greedy march (min jumps wins).
 ROUTE_MARCH_MAX_LY = float(os.getenv("ROUTE_MARCH_MAX_LY") or "4000")
-ROUTE_MARCH_EFF = float(os.getenv("ROUTE_MARCH_EFF") or "0.75")
 
 
 def _fetch_neutron_rows_sync():
@@ -3082,18 +3081,15 @@ def _solve_route_sync(
         result = routing.solve_route(
             index, src, dst, jump_range, fetch_stars_within, width=beam_width
         )
-        # On short routes where the neutron beam is inefficient (it detoured to
-        # off-axis neutrons), a direct greedy march is usually far better. Cheap
-        # to run at this scale; take whichever uses fewer jumps.
-        if (
-            result["straight_line_ly"] < ROUTE_MARCH_MAX_LY
-            and result["efficiency"] < ROUTE_MARCH_EFF
-        ):
-            march = routing.greedy_march(
-                index, src, dst, jump_range, fetch_stars_within
-            )
-            if march and march["total_jumps"] < result["total_jumps"]:
-                result = march
+        # On short routes the neutron beam can be beaten by a min-jumps graph
+        # search or a direct greedy march (it over-commits to off-axis
+        # neutrons). Both are cheap at this scale; take the fewest jumps across
+        # all three. (Long routes: graph_route bails and the beam wins.)
+        if result["straight_line_ly"] < ROUTE_MARCH_MAX_LY:
+            for alt_solver in (routing.graph_route, routing.greedy_march):
+                alt = alt_solver(index, src, dst, jump_range, fetch_stars_within)
+                if alt and alt["total_jumps"] < result["total_jumps"]:
+                    result = alt
         return result
 
 
