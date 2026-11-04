@@ -240,13 +240,13 @@ async function compareSpansh() {
     const s = await res.json();
     const sDur = s.duration_s != null ? `, ${fmt(s.duration_s, 1)} s` : "";
     const ours = lastOurs ? lastOurs.total_jumps : null;
-    const oDur = lastOurs ? `, ${fmt(lastOurs.solve_ms / 1000, 2)} s` : "";
     let verdict = "";
     if (ours != null) { const d = s.total_jumps - ours;
       verdict = d > 0 ? `<span class="good">ours ${d} fewer ✓</span>` : d < 0 ? `<span class="bad">spansh ${-d} fewer</span>` : "tie"; }
     const link = s.results_url ? ` · <a href="${escapeHtml(s.results_url)}" target="_blank" rel="noopener">open in spansh ↗</a>` : "";
+    // Our solve time is already shown in the "solve" stat above; show only spansh's here.
     if (out()) out().innerHTML = `<b>spansh:</b> ${fmt(s.total_jumps)} jumps (eff 60${sDur})`
-      + (ours != null ? ` · <b>ours:</b> ${fmt(ours)} jumps (${oDur.replace(/^, /, "")}) · ${verdict}` : "")
+      + (ours != null ? ` · <b>ours:</b> ${fmt(ours)} jumps · ${verdict}` : "")
       + link;
   } catch (e) { if (out()) out().innerHTML = `<span class="bad">${e.message || e}</span>`; }
   finally { $("cmp").disabled = false; }
