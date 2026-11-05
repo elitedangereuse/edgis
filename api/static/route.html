@@ -85,9 +85,13 @@
      [hidden] rule, so hidden buttons (vs Galaxy before a ship is set) still
      showed. Re-assert it. */
   button[hidden] { display:none; }
-  /* Actions sit on their own row, right-aligned just above the table. */
-  .summary-actions { display:flex; justify-content:flex-end; align-items:center; gap:14px; margin:10px 0 4px; }
-  #copyRoute svg, #exportJson svg { width:15px; height:15px; vertical-align:-2px; margin-right:2px; }
+  /* Actions sit on their own row above the table; wrap (never clip the compact
+     switch) and keep the Export/Copy utility buttons compact. */
+  .summary-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center;
+                     gap:8px 12px; margin:10px 0 4px; }
+  .summary-actions .switch { margin-right:auto; }   /* compact toggle stays left */
+  #exportJson, #copyRoute { padding:.4rem .7rem; font-size:.8rem; }
+  #copyRoute svg, #exportJson svg { width:14px; height:14px; vertical-align:-2px; margin-right:2px; }
   .go-logo { width:16px; height:16px; }
   .cmp-logo { width:16px; height:16px; border-radius:50%; }
 
