@@ -3156,6 +3156,65 @@ def _solve_route_sync(
         )
 
 
+def _enforce_fuel_sync(base_result: dict, params, fuel_safe: bool) -> dict:
+    """Run the fuel layer on an already-solved (ship-agnostic) route: when
+    ``fuel_safe``, insert scoop-stop detours so it never strands, then attach a
+    fuel report. Runs in a DB task because scoop stops need a scoopable-star
+    query. The base geometry stays cached and untouched; this returns a copy."""
+    result = dict(base_result)
+    legs = base_result.get("jumps") or []
+    src = base_result.get("source_coords")
+    if fuel_safe and src and legs:
+        dst = (legs[-1]["x"], legs[-1]["y"], legs[-1]["z"])
+        src_t = (src["x"], src["y"], src["z"])
+        with _db_connection() as conn:
+
+            def fetch_scoopable_near(pos, radius):
+                cursor = conn.cursor()
+                try:
+                    cursor.execute(
+                        "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name, "
+                        "mainstar FROM systems_big "
+                        "WHERE mainstar ~ %s AND ST_3DDWithin("
+                        "coords, ST_MakePoint(%s, %s, %s), %s) "
+                        "ORDER BY ST_3DDistance(coords, ST_MakePoint(%s, %s, %s)) "
+                        "LIMIT 48",
+                        ("^[KGBFOAM]", pos[0], pos[1], pos[2], radius,
+                         pos[0], pos[1], pos[2]),
+                    )
+                    return cursor.fetchall()
+                finally:
+                    cursor.close()
+
+            new_legs, info = fsd.enforce_fuel_safety(
+                legs, src_t, dst, params, fetch_scoopable_near,
+                src_name=base_result.get("source"),
+                is_locked=permit_zones.is_locked,
+            )
+        flown = sum(leg["distance_jumped"] for leg in new_legs)
+        straight = base_result.get("straight_line_ly") or 0.0
+        result["jumps"] = new_legs
+        result["total_jumps"] = len(new_legs)
+        result["neutron_jumps"] = sum(1 for leg in new_legs if leg["type"] == "boost")
+        result["bridge_jumps"] = sum(1 for leg in new_legs if leg["type"] == "regular")
+        result["total_distance_ly"] = flown
+        result["efficiency"] = (straight / flown) if flown else 0.0
+        fuel = fsd.fuel_report(new_legs, params)
+        fuel["scoop_stops"] = info["scoop_stops"]
+        fuel["enforced"] = True
+        # Post-enforcement the route keeps an exact one-jump reserve, so the
+        # authoritative verdict is "didn't actually strand AND every needed
+        # scoop was insertable" -- not fuel_report's conservative max_dry<cap
+        # proxy (which a fully-used tank can trip even when safe).
+        fuel["safe"] = (not fuel["stranded"]) and info["safe"]
+        result["fuel"] = fuel
+    else:
+        # Report-only (fuel-safe off, or no source coords to anchor detours).
+        result["fuel"] = fsd.fuel_report(legs, params)
+        result["fuel"]["enforced"] = False
+    return result
+
+
 async def _resolve_route_endpoint(
     value: str,
 ) -> tuple[tuple[float, float, float], str]:
@@ -3492,8 +3551,11 @@ async def plot_route_post(
     )
     params = fsd.parse_loadout(req.loadout) if req.loadout else None
     if params is not None:
-        result = dict(result)  # copy: never mutate the cached geometry
-        result["fuel"] = fsd.fuel_report(result["jumps"], params)
+        # Fuel layer (enforcement + report) runs in a DB task: scoop-stop
+        # insertion needs a scoopable-star query. Copies the cached geometry.
+        result = await _run_db_task(
+            _enforce_fuel_sync, result, params, req.fuel_safe
+        )
     return result
 
 

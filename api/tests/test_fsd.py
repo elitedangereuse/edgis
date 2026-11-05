@@ -124,6 +124,76 @@ def test_fuel_report_short_dry_run_within_margin_is_safe():
     assert rep["max_dry_jumps"] == 8
 
 
+def _neutron_chain(n, step=60.0):
+    legs, x = [], 0.0
+    for i in range(n):
+        x += step
+        legs.append({"system": f"N{i}", "id64": None, "x": x, "y": 0.0, "z": 0.0,
+                     "spectral": "N", "type": "boost", "neutron_star": True,
+                     "distance_jumped": step, "distance_left": 0.0})
+    return legs, (x, 0.0, 0.0)
+
+
+def _scoop_fetch(offset=20.0):
+    # A scoopable K star 'offset' ly off-axis from any queried position.
+    def fetch(pos, radius):
+        s = (pos[0], pos[1] + offset, pos[2], "ScoopK", "K (Yellow-Orange) Star")
+        return [s] if offset <= radius else []
+    return fetch
+
+
+def test_enforce_fuel_safety_breaks_a_stranding_neutron_chain():
+    p = fsd.parse_loadout(COBRA_SLEF)  # ~10-jump tank
+    legs, dst = _neutron_chain(20)
+    # Baseline: the raw chain strands.
+    assert fsd.simulate_fuel(legs, p)["stranded_at"] is not None
+    new_legs, info = fsd.enforce_fuel_safety(
+        legs, (0.0, 0.0, 0.0), dst, p, _scoop_fetch(), src_name="Start"
+    )
+    assert info["safe"] is True
+    assert info["scoop_stops"] >= 1
+    assert len(new_legs) > len(legs)  # detours inserted
+    # The enforced route no longer strands, per an independent simulation.
+    assert fsd.simulate_fuel(new_legs, p)["stranded_at"] is None
+    # Detour stars are scoopable K stars inserted as normal jumps.
+    assert any(j["system"] == "ScoopK" and j["type"] == "regular" for j in new_legs)
+
+
+def test_enforce_fuel_safety_leaves_safe_routes_unchanged():
+    p = fsd.parse_loadout(COBRA_SLEF)
+    legs, dst = _neutron_chain(5)  # well under the 10-jump tank
+    new_legs, info = fsd.enforce_fuel_safety(
+        legs, (0.0, 0.0, 0.0), dst, p, _scoop_fetch(), src_name="Start"
+    )
+    assert info["scoop_stops"] == 0
+    assert info["safe"] is True
+    assert len(new_legs) == len(legs)
+
+
+def test_enforce_fuel_safety_flags_unsafe_when_no_scoopable_in_range():
+    p = fsd.parse_loadout(COBRA_SLEF)
+    legs, dst = _neutron_chain(20)
+    no_scoop = lambda pos, radius: []  # sparse space: nothing scoopable
+    new_legs, info = fsd.enforce_fuel_safety(
+        legs, (0.0, 0.0, 0.0), dst, p, no_scoop, src_name="Start"
+    )
+    assert info["safe"] is False
+    assert info["unsafe_at"] is not None
+    assert info["scoop_stops"] == 0
+
+
+def test_enforce_fuel_safety_respects_permit_lock():
+    p = fsd.parse_loadout(COBRA_SLEF)
+    legs, dst = _neutron_chain(20)
+    # Only scoopable candidate is locked -> can't use it -> unsafe.
+    locked = lambda name: name == "ScoopK"
+    new_legs, info = fsd.enforce_fuel_safety(
+        legs, (0.0, 0.0, 0.0), dst, p, _scoop_fetch(), src_name="Start",
+        is_locked=locked,
+    )
+    assert info["safe"] is False
+
+
 def test_ship_summary_fills_range_and_flags_scoop():
     p = fsd.parse_loadout(COBRA_SLEF)
     s = fsd.ship_summary(p)
