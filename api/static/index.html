@@ -253,6 +253,13 @@
           </div>
         </section>
 
+        <section id="panel-route" class="tool-panel mt-6 hidden" role="tabpanel" aria-labelledby="toolMenuToggle" aria-hidden="true">
+          <iframe id="routeFrame" title="Route plotter"
+                  class="w-full block"
+                  style="border:0;width:100%;min-height:240px;display:block;background:transparent;"
+                  loading="lazy"></iframe>
+        </section>
+
         <div id="status" class="mt-4 text-sm text-gray-400"></div>
         <div class="flex justify-between items-center mt-2 w-full">
           <div id="resultCount" class="text-sm text-gray-400"></div>
@@ -1093,31 +1100,41 @@
          }
        }
 
+       // Route plotting is an embedded iframe panel that carries its own results,
+       // so hide the shared result/quote area and lazy-load the plotter on first use.
+       const routeActive = resolved === 'route';
+       if (result) result.classList.toggle('hidden', routeActive);
+       const routeFrame = document.getElementById('routeFrame');
+       if (routeActive && routeFrame && !routeFrame.getAttribute('src')) {
+         routeFrame.src = '/plotter?embed=1';
+       }
      }
+
+     // The embedded plotter reports its content height so the iframe grows with it.
+     globalThis.addEventListener('message', (event) => {
+       if (event.origin !== globalThis.location.origin) return;
+       const h = event.data && event.data.edgisRouteHeight;
+       const frame = document.getElementById('routeFrame');
+       if (h && frame) frame.style.height = Math.max(240, Math.ceil(h)) + 'px';
+     });
 
      const initialTab = 'lookup';
      activateTab(initialTab);
 
      if (toolMenuItems.length) {
        const routeItem = toolMenuItems.find(item => item.dataset.tool === 'route');
-       if (routeItem && !tabPanels.route) {
-         // The item opens the plotter. Hidden while in early access on prod
-         // (testers use the direct /plotter URL + key); always shown on staging
-         // so the plotter styling/integration can be tested, and appears on prod
-         // once /route/status says public (ROUTE_PUBLIC_AFTER cutover).
+       if (routeItem) {
+         // Route plotting is now an embedded panel (panel-route): no dataset.href,
+         // so clicking activates it in-place rather than navigating. Gate the menu
+         // visibility like the standalone did -- shown on staging/localhost for
+         // testing, and on prod once /route/status is public (ROUTE_PUBLIC_AFTER).
          const isStaging = globalThis.location.hostname.includes('staging')
                         || globalThis.location.hostname === 'localhost';
-         const showRouteItem = () => {
-           routeItem.dataset.href = '/plotter';
-           routeItem.hidden = false;
-         };
          routeItem.hidden = true;
-         if (isStaging) {
-           showRouteItem();
-         }
+         if (isStaging) routeItem.hidden = false;
          fetch('/route/status')
            .then(r => r.json())
-           .then(st => { if (st && st.public) showRouteItem(); })
+           .then(st => { if (st && st.public) routeItem.hidden = false; })
            .catch(() => {});
        }
 

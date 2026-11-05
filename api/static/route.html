@@ -137,7 +137,19 @@
   footer a { color:var(--accent-blue); text-decoration:none; }
   footer a:hover { text-decoration:underline; }
   footer svg { display:inline; margin-bottom:1px; vertical-align:middle; }
+
+  /* Embedded mode (?embed=1): the plotter is shown inside the EDGIS index as the
+     "Route plotting" tool panel. Drop its own chrome and background so the index
+     header/menu/backdrop show through and the glass panels composite onto them. */
+  html.embed, html.embed body { background:transparent !important; }
+  html.embed body::before { display:none !important; }   /* no duplicate guardians image */
+  html.embed .wrap { max-width:100%; margin:0; padding:0; }
+  html.embed h1, html.embed .sub, html.embed footer { display:none !important; }
+  /* The index already provides the surrounding glass panel, so flatten the
+     plotter's own form card to avoid a box-in-a-box. */
+  html.embed .card { background:transparent; border:0; padding:0; backdrop-filter:none; }
 </style>
+<script>try { if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed'); } catch (e) {}</script>
 </head>
 <body>
 <div class="wrap">
@@ -626,6 +638,22 @@ $("importShip").addEventListener("click", importShip);
 // Re-import a remembered loadout so fuel-aware plotting is active on load.
 if ($("loadout").value.trim()) { importShip(); }
 loadStatus();
+
+// Embedded mode: report content height to the parent index so the iframe grows
+// with the plotter (results, fuel panel, spansh compare all change the height).
+if (new URLSearchParams(location.search).has("embed")) {
+  const postHeight = () => {
+    try {
+      const h = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+      parent.postMessage({ edgisRouteHeight: h }, location.origin);
+    } catch (e) {}
+  };
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  window.addEventListener("load", postHeight);
+  // Re-measure after the result area mutates (plot, compare, fuel, toggles).
+  new MutationObserver(postHeight).observe($("out"), { childList: true, subtree: true });
+  setTimeout(postHeight, 400);
+}
 </script>
 </body>
 </html>
