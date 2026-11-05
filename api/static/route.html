@@ -485,7 +485,7 @@ function renderRoute(r) {
       <td class="num">${fmt(w.left, 0)}</td>
       ${actsCell(w.dest ? r.destination : w.system, w.x, w.y, w.z)}
     </tr>`).join("");
-    legend = `<b>${wps.length}</b> waypoints: the neutron supercharge stops ★ + destination you plot in-game; <b>jumps</b> = hops to reach each (the game auto-plots them). <span class="fuel" style="position:relative">${FUEL}</span> fuel-scoopable.`;
+    legend = "";
   } else {
     header = `<th class="num">#</th><th>system</th><th>star</th><th class="num">jumped</th><th class="num">left</th><th class="acts-head">actions</th>`;
     rows = r.jumps.map((j, i) => {
