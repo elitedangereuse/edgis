@@ -62,6 +62,16 @@
   .keyrow { margin-top:12px; font-size:12px; color:var(--muted); }
   .keyrow summary { cursor:pointer; color:var(--accent); text-transform:uppercase; letter-spacing:.5px; font-size:11px; }
 
+  .shiprow { margin-top:12px; font-size:12px; color:var(--muted); }
+  .shiprow summary { cursor:pointer; color:var(--accent); text-transform:uppercase; letter-spacing:.5px; font-size:11px; }
+  textarea#loadout { width:100%; min-height:64px; resize:vertical; box-sizing:border-box;
+                     background:var(--field); border:1px solid var(--line); color:var(--text);
+                     border-radius:8px; padding:9px 11px; font-size:12px; font-family:var(--mono); outline:none; }
+  textarea#loadout:focus { border-color:var(--accent); box-shadow:0 0 0 2px var(--dim-a); }
+  .shipline { margin:8px 0; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  #shipInfo { font-family:var(--mono); }
+  .fuelbar { margin:12px 0 2px; font-size:13px; }
+
   .summary { display:flex; gap:24px; flex-wrap:wrap; margin:20px 0 8px; align-items:flex-end; }
   .stat { display:flex; flex-direction:column; }
   .stat b { font-size:20px; font-family:var(--mono); color:var(--accent-white,#f8f8ff); }
@@ -149,6 +159,21 @@
       </button>
     </div>
     <datalist id="sysopts"></datalist>
+    <details class="shiprow">
+      <summary>Ship &amp; fuel (optional)</summary>
+      <div style="margin-top:10px">
+        <textarea id="loadout" spellcheck="false" placeholder="Paste your ship's loadout (SLEF / Journal JSON from EDSY &quot;Export&quot;, Coriolis, or the game) to plot fuel-aware…"></textarea>
+        <div class="shipline">
+          <button id="importShip" class="ghost" type="button">Import ship</button>
+          <span id="shipInfo" class="tiny"></span>
+          <label class="switch" title="Fuel-safe: keep enough fuel to always divert to a scoopable star, so you're never stranded.">
+            <input type="checkbox" id="fuelSafe" checked />
+            <span class="track"></span><span>fuel-safe</span>
+          </label>
+        </div>
+        <span class="tiny">Importing a ship fills the jump range and checks every route against your tank and fuel scoop. Stored in this browser only.</span>
+      </div>
+    </details>
     <details class="keyrow">
       <summary>Early-access key</summary>
       <div style="margin-top:10px">
@@ -188,6 +213,45 @@ $("range").addEventListener("change", () => {
   const v = ($("range").value || "").trim();
   if (v) { localStorage.setItem(RANGE_LS, v); }
 });
+
+// Ship loadout (EDSY/SLEF) enables fuel-aware plotting. Stored in this browser.
+const SLEF_LS = "edgis_route_loadout";
+const FUELSAFE_LS = "edgis_route_fuelsafe";
+let shipInfo = null;  // parsed ship summary, or null when no ship is imported
+$("loadout").value = localStorage.getItem(SLEF_LS) || "";
+$("fuelSafe").checked = (localStorage.getItem(FUELSAFE_LS) ?? "1") === "1";
+$("fuelSafe").addEventListener("change", () =>
+  localStorage.setItem(FUELSAFE_LS, $("fuelSafe").checked ? "1" : "0"));
+
+async function importShip() {
+  const loadout = ($("loadout").value || "").trim();
+  if (!loadout) { shipInfo = null; localStorage.removeItem(SLEF_LS); $("shipInfo").textContent = ""; return; }
+  $("importShip").disabled = true;
+  $("shipInfo").innerHTML = `<span class="tiny">Reading loadout…</span>`;
+  try {
+    const res = await fetch("/route/ship", {
+      method: "POST", credentials: "include",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify({ loadout }),
+    });
+    if (!res.ok) {
+      shipInfo = null;
+      const d = (await res.json().catch(() => ({}))).detail;
+      $("shipInfo").innerHTML = `<span class="bad">${escapeHtml(d || ("Could not read that loadout (HTTP " + res.status + ")."))}</span>`;
+      return;
+    }
+    shipInfo = await res.json();
+    localStorage.setItem(SLEF_LS, loadout);
+    $("range").value = shipInfo.jump_range;
+    localStorage.setItem(RANGE_LS, String(shipInfo.jump_range));
+    $("shipInfo").innerHTML = `<span class="good">Ship imported ✓</span> `
+      + `${FUEL} range ${fmt(shipInfo.jump_range, 2)} LY · tank ≈ ${shipInfo.tank_jumps} jumps · `
+      + (shipInfo.has_scoop ? "fuel scoop fitted" : `<span class="bad">no fuel scoop</span>`);
+  } catch (e) {
+    shipInfo = null;
+    $("shipInfo").innerHTML = `<span class="bad">${escapeHtml(e.message || String(e))}</span>`;
+  } finally { $("importShip").disabled = false; }
+}
 
 // Bootstrap "bi-copy" icon + clipboard helper (matches the main EDGIS app).
 const copyIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/></svg>`;
@@ -297,6 +361,22 @@ async function autocomplete(ev) {
 $("from").addEventListener("input", autocomplete);
 $("to").addEventListener("input", autocomplete);
 
+function fuelVerdict(f) {
+  const tank = `tank ≈ ${f.tank_jumps} jumps`;
+  const stops = `${f.refuels} scoop stop${f.refuels === 1 ? "" : "s"}`;
+  if (f.stranded) {
+    return `<span class="bad">⚠ Fuel: would strand near jump ${f.stranded_at + 1}</span> `
+      + `<span class="tiny">longest run with no scoopable star is ${f.max_dry_jumps} jumps (${tank}). `
+      + `Scoop-stop insertion is coming next; for now shorten the range or pick a scoopable detour.</span>`;
+  }
+  if (!f.safe) {
+    return `<span class="bad">⚠ Fuel: tight</span> `
+      + `<span class="tiny">${f.max_dry_jumps} jumps between scoopable stars, ${tank} · ${stops} · min fuel ${fmt(f.min_fuel, 1)} t.</span>`;
+  }
+  return `<span class="good">✓ Fuel-safe</span> `
+    + `<span class="tiny">longest dry run ${f.max_dry_jumps} jumps (${tank}) · ${stops} · min fuel ${fmt(f.min_fuel, 1)} t.</span>`;
+}
+
 function renderRoute(r) {
   lastOurs = r;
   let header, rows, legend;
@@ -347,6 +427,7 @@ function renderRoute(r) {
       </div>
     </div>
     <div class="meta">${escapeHtml(r.source)} → ${escapeHtml(r.destination)} · range ${fmt(r.jump_range,1)} LY (boost ${fmt(r.boost_range,0)}) · beam ${r.beam_width} · access ${r.access || "public"}</div>
+    ${r.fuel ? `<div class="fuelbar">${fuelVerdict(r.fuel)}</div>` : ""}
     <div id="cmpOut"></div>
     <p class="legend">${legend}</p>
     <div class="tablewrap">
@@ -402,12 +483,26 @@ async function plot() {
   if (!from || !to) { $("out").innerHTML = `<div class="msg warn">Enter both a start and destination system.</div>`; return; }
   const range = $("range").value || "50";
   const supercharge = $("ship").value || "4";
+  // Fuel-aware plotting (POST with the loadout) kicks in once a ship is imported.
+  const loadout = shipInfo ? ($("loadout").value || "").trim() : "";
   lastQuery = { from, to, range, supercharge };
   lastOurs = null;  // so a post-failure spansh compare doesn't show a stale "ours"
   $("go").disabled = true; $("out").innerHTML = `<div class="msg">Plotting…</div>`;
   try {
-    const url = `/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}&supercharge=${encodeURIComponent(supercharge)}`;
-    const res = await fetch(url, { headers: headers(), credentials: "include" });
+    let res;
+    if (loadout) {
+      res = await fetch("/route", {
+        method: "POST", credentials: "include",
+        headers: { ...headers(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from, to, range: Number(range), supercharge: Number(supercharge),
+          loadout, fuel_safe: $("fuelSafe").checked,
+        }),
+      });
+    } else {
+      const url = `/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}&supercharge=${encodeURIComponent(supercharge)}`;
+      res = await fetch(url, { headers: headers(), credentials: "include" });
+    }
     if (res.status === 403) {
       const d = (await res.json()).detail || {};
       // If the backend recognises the caller and their wave just hasn't opened
@@ -460,7 +555,10 @@ $("out").addEventListener("change", (e) => {
 
 $("go").addEventListener("click", plot);
 $("cmp").addEventListener("click", compareSpansh);
+$("importShip").addEventListener("click", importShip);
 [$("from"), $("to"), $("range")].forEach(el => el.addEventListener("keydown", e => { if (e.key === "Enter") plot(); }));
+// Re-import a remembered loadout so fuel-aware plotting is active on load.
+if ($("loadout").value.trim()) { importShip(); }
 loadStatus();
 </script>
 </body>

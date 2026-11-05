@@ -36,12 +36,13 @@ except ImportError:
 from dotenv import load_dotenv
 
 try:
-    from . import routing, entitlements, patreon_auth, permit_zones
+    from . import routing, entitlements, patreon_auth, permit_zones, fsd
 except ImportError:  # running as a script / tests with api/ on sys.path
     import routing  # type: ignore[no-redef]
     import entitlements  # type: ignore[no-redef]
     import patreon_auth  # type: ignore[no-redef]
     import permit_zones  # type: ignore[no-redef]
+    import fsd  # type: ignore[no-redef]
 
 # Patreon identity (Layer 2) backs the entitlement gate: patrons who linked on
 # the main site are recognised here via the shared cookie. No-op until
@@ -3216,6 +3217,9 @@ class RouteResponse(BaseModel):
     beam_width: int
     solve_ms: float
     access: Optional[str] = None
+    # Present only on POST /route when a ship loadout was supplied: the fuel
+    # simulation verdict (safe/stranded, refuels, tank capacity in jumps).
+    fuel: Optional[dict] = None
     jumps: list[RouteJump]
 
 
@@ -3281,19 +3285,19 @@ def _log_route_trace(kind: str, **fields: Any) -> None:
         pass
 
 
-@app.get("/route", response_model=RouteResponse)
-async def plot_route(
-    from_: str = Query(..., alias="from", min_length=1),
-    to: str = Query(..., min_length=1),
-    jump_range: float = Query(50.0, alias="range", gt=0, le=200),
-    beam_width: Optional[int] = Query(None, ge=1, le=100),
-    supercharge: float = Query(
-        4.0, ge=1.0, le=6.0,
-        description="Neutron supercharge multiplier: 4 normal, 6 for a "
-        "Caspian Explorer's Mk II SCO drive.",
-    ),
-    access: dict = Depends(entitlements.require_entitlement("route")),
-):
+async def _solve_route_cached(
+    from_: str,
+    to: str,
+    jump_range: float,
+    beam_width: Optional[int],
+    supercharge: float,
+    access_via: Optional[str],
+) -> dict:
+    """Resolve + solve a route with the Redis cache and in-flight coalescing.
+    Shared by GET and POST /route; the fuel layer (POST only) runs on top of
+    the dict this returns, so the geometry cache stays ship-agnostic (a route
+    is the same for every ship at a given range/supercharge)."""
+
     global _route_solve_semaphore
     if _neutron_index is None:
         _kick_neutron_index_build()
@@ -3316,11 +3320,11 @@ async def plot_route(
         logger.warning("route cache read failed; solving", exc_info=True)
         cached = None
     if cached is not None:
-        cached["access"] = access.get("via")
+        cached["access"] = access_via
         _log_route_trace(
             "route", frm=cached.get("source"), to=cached.get("destination"),
             range=jump_range, status="ok", total_jumps=cached.get("total_jumps"),
-            cached=True, access=access.get("via"),
+            cached=True, access=access_via,
         )
         return cached
 
@@ -3332,11 +3336,11 @@ async def plot_route(
         # Mirror whatever the leader produced (result or the same failure).
         shared = await existing
         out = dict(shared)
-        out["access"] = access.get("via")
+        out["access"] = access_via
         _log_route_trace(
             "route", frm=out.get("source"), to=out.get("destination"),
             range=jump_range, status="ok", total_jumps=out.get("total_jumps"),
-            coalesced=True, access=access.get("via"),
+            coalesced=True, access=access_via,
         )
         return out
 
@@ -3377,7 +3381,7 @@ async def plot_route(
                 _log_route_trace(
                     "route", frm=src_name, to=dst_name, range=jump_range,
                     status=exc.status, detail=exc.detail,
-                    access=access.get("via"),
+                    access=access_via,
                 )
                 raise HTTPException(
                     status_code=422,
@@ -3395,12 +3399,12 @@ async def plot_route(
 
         result["source"] = src_name
         result["destination"] = dst_name
-        result["access"] = access.get("via")
+        result["access"] = access_via
         _log_route_trace(
             "route", frm=src_name, to=dst_name, range=jump_range, status="ok",
             total_jumps=result["total_jumps"], neutron=result["neutron_jumps"],
             bridge=result["bridge_jumps"], eff=round(result["efficiency"], 4),
-            solve_ms=round(result["solve_ms"], 1), access=access.get("via"),
+            solve_ms=round(result["solve_ms"], 1), access=access_via,
         )
         to_cache = dict(result)
         to_cache.pop("access", None)
@@ -3417,6 +3421,76 @@ async def plot_route(
         raise
     finally:
         _route_inflight.pop(cache_key, None)
+
+
+@app.get("/route", response_model=RouteResponse)
+async def plot_route(
+    from_: str = Query(..., alias="from", min_length=1),
+    to: str = Query(..., min_length=1),
+    jump_range: float = Query(50.0, alias="range", gt=0, le=200),
+    beam_width: Optional[int] = Query(None, ge=1, le=100),
+    supercharge: float = Query(
+        4.0, ge=1.0, le=6.0,
+        description="Neutron supercharge multiplier: 4 normal, 6 for a "
+        "Caspian Explorer's Mk II SCO drive.",
+    ),
+    access: dict = Depends(entitlements.require_entitlement("route")),
+):
+    """Plot a neutron-boosted route (ship-agnostic). For fuel-aware plotting,
+    POST the same parameters plus an EDSY/SLEF ``loadout``."""
+    return await _solve_route_cached(
+        from_, to, jump_range, beam_width, supercharge, access.get("via")
+    )
+
+
+class ShipImportRequest(BaseModel):
+    loadout: str
+
+
+class RouteRequest(BaseModel):
+    from_: str = Field(..., alias="from", min_length=1)
+    to: str = Field(..., min_length=1)
+    jump_range: float = Field(50.0, alias="range", gt=0, le=200)
+    beam_width: Optional[int] = Field(None, ge=1, le=100)
+    supercharge: float = Field(4.0, ge=1.0, le=6.0)
+    loadout: Optional[str] = None
+    fuel_safe: bool = True
+    model_config = {"populate_by_name": True}
+
+
+@app.post("/route/ship", include_in_schema=False)
+def import_ship(
+    req: ShipImportRequest,
+    access: dict = Depends(entitlements.require_entitlement("route")),
+):
+    """Parse an EDSY/SLEF loadout into a display summary (no solve): the UI
+    uses it to auto-fill the jump range and show tank/scoop on paste."""
+    params = fsd.parse_loadout(req.loadout)
+    if params is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Could not read a Frame Shift Drive from that loadout.",
+        )
+    return fsd.ship_summary(params)
+
+
+@app.post("/route", response_model=RouteResponse)
+async def plot_route_post(
+    req: RouteRequest,
+    access: dict = Depends(entitlements.require_entitlement("route")),
+):
+    """Fuel-aware route plot. Same geometry as GET /route (shared,
+    ship-agnostic cache) plus a fuel report whenever a ``loadout`` is supplied.
+    ``fuel_safe`` will drive scoop-stop enforcement; for now it reports."""
+    result = await _solve_route_cached(
+        req.from_, req.to, req.jump_range, req.beam_width, req.supercharge,
+        access.get("via"),
+    )
+    params = fsd.parse_loadout(req.loadout) if req.loadout else None
+    if params is not None:
+        result = dict(result)  # copy: never mutate the cached geometry
+        result["fuel"] = fsd.fuel_report(result["jumps"], params)
+    return result
 
 
 @app.get("/spansh/route", include_in_schema=False)

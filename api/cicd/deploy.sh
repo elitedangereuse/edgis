@@ -38,6 +38,7 @@ TMP_CHANGED_FILE_LIST=$(mktemp)
 {
     echo systems.py
     echo routing.py
+    echo fsd.py
     echo entitlements.py
     echo patreon_auth.py
     echo permit_zones.py

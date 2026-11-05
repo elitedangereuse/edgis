@@ -167,6 +167,118 @@ def test_route_coalesces_concurrent_duplicates(monkeypatch):
     assert r1.json()["total_jumps"] == r2.json()["total_jumps"] == 1
 
 
+# Minimal Caspian-class loadout (shared with test_fsd); known max range 67.72 ly.
+COBRA_SLEF = (
+    '[{"header":{"appName":"EDSY"},"data":{"event":"Loadout","Ship":"cobramkv",'
+    '"UnladenMass":194.85,"MaxJumpRange":67.716111,'
+    '"FuelCapacity":{"Main":32,"Reserve":0.49},"Modules":['
+    '{"Slot":"FrameShiftDrive","Item":"int_hyperdrive_overcharge_size4_class5",'
+    '"Engineering":{"Modifiers":[{"Label":"FSDOptimalMass","Value":1034.28},'
+    '{"Label":"MaxFuelPerJump","Value":3.2}]}},'
+    '{"Slot":"Slot01_Size5","Item":"int_guardianfsdbooster_size5"},'
+    '{"Slot":"Slot02_Size4","Item":"int_fuelscoop_size4_class5"}]}}]'
+)
+
+
+def test_route_ship_import_parses_loadout(monkeypatch):
+    _gate_future(monkeypatch)
+    monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
+    resp = client.post(
+        "/route/ship",
+        json={"loadout": COBRA_SLEF},
+        headers={"x-route-key": "k"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["ok"] is True
+    assert abs(body["jump_range"] - 67.72) < 0.5
+    assert body["tank_jumps"] == 10
+    assert body["has_scoop"] is True
+
+
+def test_route_ship_import_rejects_garbage(monkeypatch):
+    _gate_future(monkeypatch)
+    monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
+    resp = client.post(
+        "/route/ship",
+        json={"loadout": '[{"data":{"event":"Loadout","Modules":[]}}]'},
+        headers={"x-route-key": "k"},
+    )
+    assert resp.status_code == 422
+
+
+def test_route_post_attaches_fuel_report(monkeypatch):
+    _gate_future(monkeypatch)
+    monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
+
+    async def fake_resolve(value):
+        coords = {"Sol": (0.0, 0.0, 0.0), "Near": (0.0, 0.0, 80.0)}
+        return coords[value], value, None
+
+    monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
+
+    def fake_solve(src, dst, jump_range, beam_width, boost_mult=4.0):
+        return {
+            "jump_range": jump_range, "boost_range": 4 * jump_range,
+            "straight_line_ly": 80.0, "total_jumps": 2, "neutron_jumps": 1,
+            "bridge_jumps": 1, "total_distance_ly": 80.0, "efficiency": 1.0,
+            "beam_width": 3, "solve_ms": 1.0,
+            "jumps": [
+                {"system": "N0", "id64": 1, "x": 0.0, "y": 0.0, "z": 40.0,
+                 "spectral": "N", "type": "boost", "neutron_star": True,
+                 "distance_jumped": 40.0, "distance_left": 40.0},
+                {"system": "Near", "id64": None, "x": 0.0, "y": 0.0, "z": 80.0,
+                 "spectral": "K (Yellow-Orange) Star", "type": "regular",
+                 "neutron_star": False, "distance_jumped": 40.0,
+                 "distance_left": 0.0},
+            ],
+        }
+
+    monkeypatch.setattr(systems, "_solve_route_sync", fake_solve)
+
+    resp = client.post(
+        "/route",
+        json={"from": "Sol", "to": "Near", "range": 50, "loadout": COBRA_SLEF},
+        headers={"x-route-key": "k"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["total_jumps"] == 2
+    assert body["fuel"] is not None
+    assert body["fuel"]["safe"] is True
+    assert body["fuel"]["tank_jumps"] == 10
+
+
+def test_route_post_without_loadout_has_no_fuel(monkeypatch):
+    _gate_future(monkeypatch)
+    monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
+
+    async def fake_resolve(value):
+        return {"A": (0.0, 0.0, 0.0), "B": (0.0, 0.0, 30.0)}[value], value, None
+
+    monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
+    monkeypatch.setattr(
+        systems, "_solve_route_sync",
+        lambda *a: {
+            "jump_range": 50.0, "boost_range": 200.0, "straight_line_ly": 30.0,
+            "total_jumps": 1, "neutron_jumps": 0, "bridge_jumps": 1,
+            "total_distance_ly": 30.0, "efficiency": 1.0, "beam_width": 3,
+            "solve_ms": 0.1,
+            "jumps": [{"system": None, "id64": None, "x": 0.0, "y": 0.0,
+                       "z": 30.0, "type": "regular", "neutron_star": False,
+                       "distance_jumped": 30.0, "distance_left": 0.0}],
+        },
+    )
+    resp = client.post(
+        "/route", json={"from": "A", "to": "B", "range": 50},
+        headers={"x-route-key": "k"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json().get("fuel") is None
+
+
 def test_route_patron_access(monkeypatch):
     _gate_future(monkeypatch)
     monkeypatch.delenv("ENTITLEMENT_KEYS", raising=False)
