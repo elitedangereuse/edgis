@@ -103,19 +103,15 @@
   .legend { color:var(--muted); font-size:12px; margin:8px 0 2px; }
   .legend b { color:var(--neutron); }
 
-  .tablewrap { max-height:56vh; overflow:auto; border:1px solid var(--line); border-radius:12px; margin-top:8px;
-               scrollbar-width:thin; scrollbar-color:var(--dim-a) #1a1a1a; }
+  /* Flat results table matching the index/neighbors tool results: no outer box,
+     a translucent header (--head) with accent-blue text, bottom borders only. */
+  .tablewrap { overflow-x:auto; margin-top:8px; }
   table { width:100%; border-collapse:collapse; font-size:12px; }
-  /* Sticky header: an OPAQUE base under the light overlay so scrolled rows never
-     bleed through it (the "icons over the header" bug), styled like the index. */
-  thead th { position:sticky; top:0; z-index:2;
-             background:linear-gradient(var(--head),var(--head)), #0a0e15;
-             color:var(--head-ink);
-             text-transform:uppercase; letter-spacing:.5px; font-size:11px; font-weight:600;
-             text-align:left; padding:7px 9px; border-bottom:1px solid var(--line); }
+  thead th { background:var(--head); color:var(--accent-blue);
+             text-transform:uppercase; letter-spacing:.3px; font-size:12px; font-weight:600;
+             text-align:left; padding:4px 8px; border-bottom:1px solid var(--line); }
   thead th.num, thead th.acts-head { text-align:right; }
-  tbody td { padding:6px 9px; border-bottom:1px solid var(--line2); white-space:nowrap; }
-  tbody tr:last-child td { border-bottom:0; }
+  tbody td { padding:4px 8px; border-bottom:1px solid var(--line2); white-space:nowrap; }
   tbody tr:hover { background:rgba(255,255,255,.03); }
   .num { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; }
   .sys { font-family:var(--mono); }
