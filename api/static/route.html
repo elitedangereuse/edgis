@@ -40,8 +40,16 @@
   .field { display:flex; flex-direction:column; gap:5px; }
   /* From/To grow to fill the row so there's no dead space on the right. */
   .field.grow { flex:1 1 220px; }
-  /* Index-style labels: bright (not accent-blue), semibold. */
-  .field label { font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--text); font-weight:600; }
+  /* Index-style labels: bright (not accent-blue), semibold, blue leading icon. */
+  .field label { font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--text); font-weight:600;
+                 display:flex; align-items:center; gap:7px; }
+  .field label svg { flex:none; }
+  /* From / To stacked, each with its input + a button to the right (like the
+     index Search system / Find neighbors rows). */
+  .inputrow { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .inputrow > input { flex:1 1 200px; min-width:0; width:auto; }
+  .inputrow > button { flex:0 0 auto; min-width:150px; justify-content:center; }
+  .card > .field + .field, .card > .field + .row, .card > .row + .field { margin-top:14px; }
   input, select { background:var(--field); border:1px solid var(--line); color:var(--text);
           border-radius:8px; padding:9px 11px; font-size:14px; outline:none; }
   input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 2px var(--dim-a); }
@@ -159,9 +167,26 @@
   <div id="banner" class="banner" hidden></div>
 
   <div class="card">
+    <div class="field grow">
+      <label for="from"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" style="color:#1294d6" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M6 8a.5.5 0 0 0 .5.5h5.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L12.293 7.5H6.5A.5.5 0 0 0 6 8m-2.5 7a.5.5 0 0 1-.5-.5v-13a.5.5 0 0 1 1 0v13a.5.5 0 0 1-.5.5"/></svg> From</label>
+      <div class="inputrow">
+        <input id="from" list="sysopts" placeholder="Sol" autocomplete="off" />
+        <button id="go">
+          <img class="go-logo" src="/static/edgislogo.svg" alt="" />
+          Plot route
+        </button>
+      </div>
+    </div>
+    <div class="field grow">
+      <label for="to"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" style="color:#1294d6" viewBox="0 0 16 16"><path d="M8 16s6-5.686 6-10A6 6 0 0 0 2 6c0 4.314 6 10 6 10m0-7a3 3 0 1 1 0-6 3 3 0 0 1 0 6"/></svg> To</label>
+      <div class="inputrow">
+        <input id="to" list="sysopts" placeholder="Colonia" autocomplete="off" />
+        <button id="cmp" class="ghost" disabled title="Plot a route first">
+          <img class="cmp-logo" src="/static/assets/spansh.png" alt="" /> vs spansh
+        </button>
+      </div>
+    </div>
     <div class="row">
-      <div class="field grow"><label for="from">From</label><input id="from" list="sysopts" placeholder="Sol" autocomplete="off" /></div>
-      <div class="field grow"><label for="to">To</label><input id="to" list="sysopts" placeholder="Colonia" autocomplete="off" /></div>
       <div class="field"><label for="range">Jump range (LY)</label><input id="range" type="number" min="1" max="200" step="0.1" value="50" /></div>
       <div class="field"><label for="ship">Supercharge</label>
         <select id="ship" title="Neutron supercharge: standard ships 4x, Caspian Explorer Mk II SCO drive 6x">
@@ -169,15 +194,6 @@
           <option value="6">Caspian SCO (6x)</option>
         </select>
       </div>
-    </div>
-    <div class="actions">
-      <button id="go">
-        <img class="go-logo" src="/static/edgislogo.svg" alt="" />
-        Plot route
-      </button>
-      <button id="cmp" class="ghost" disabled title="Plot a route first">
-        <img class="cmp-logo" src="/static/assets/spansh.png" alt="" /> vs spansh
-      </button>
     </div>
     <datalist id="sysopts"></datalist>
     <details class="shiprow">
