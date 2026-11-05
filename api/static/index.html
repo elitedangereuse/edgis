@@ -1129,7 +1129,12 @@
        if (result) result.classList.toggle('hidden', routeActive);
        const routeFrame = document.getElementById('routeFrame');
        if (routeActive && routeFrame && !routeFrame.getAttribute('src')) {
-         routeFrame.src = '/plotter?embed=1';
+         // Forward From/cargo deep-link params (EDMC plugin hand-off) to the plotter.
+         const q = new URLSearchParams(globalThis.location.search);
+         let src = '/plotter?embed=1';
+         if (q.get('from')) src += '&from=' + encodeURIComponent(q.get('from'));
+         if (q.get('cargo')) src += '&cargo=' + encodeURIComponent(q.get('cargo'));
+         routeFrame.src = src;
        }
      }
 

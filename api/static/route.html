@@ -853,6 +853,13 @@ $("cmpGalaxy").addEventListener("click", compareGalaxy);
 $("importShip").addEventListener("click", importShip);
 [$("from"), $("to"), $("range")].forEach(el => el.addEventListener("keydown", e => { if (e.key === "Enter") plot(); }));
 // Re-import a remembered loadout so fuel-aware plotting is active on load.
+// Pre-fill From / cargo from URL params (the EDMC plugin's "Open plotter" link).
+(function () {
+  const q = new URLSearchParams(location.search);
+  const from = q.get("from"); if (from) $("from").value = from;
+  const cargo = q.get("cargo");
+  if (cargo != null && cargo !== "") { $("cargo").value = cargo; localStorage.setItem(CARGO_LS, String(cargoTons())); }
+})();
 if ($("loadout").value.trim()) { importShip(); }
 loadStatus();
 
