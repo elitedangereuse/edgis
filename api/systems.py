@@ -3177,13 +3177,13 @@ async def _resolve_route_endpoint(
         )
     except Exception:
         sys_obj = None
-    if sys_obj is not None and getattr(sys_obj, "position", None):
+    # Use `is not None`, not truthiness: EDTS predicts a Vector3 whose __bool__
+    # is buggy (returns a float, raising TypeError), so `and <position>` would
+    # 500 on any procedural system resolved via EDTS rather than the DB.
+    position = getattr(sys_obj, "position", None) if sys_obj is not None else None
+    if position is not None:
         return (
-            (
-                float(sys_obj.position[0]),
-                float(sys_obj.position[1]),
-                float(sys_obj.position[2]),
-            ),
+            (float(position[0]), float(position[1]), float(position[2])),
             getattr(sys_obj, "name", value),
             getattr(sys_obj, "mainstar", None),
         )
