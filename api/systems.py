@@ -3615,9 +3615,10 @@ async def spansh_route(
                     except Exception:
                         duration_s = None
                     _log_route_trace(
-                        "spansh", frm=from_, to=to, range=jump_range,
-                        efficiency=efficiency, status="ok", total_jumps=total,
-                        waypoints=res.get("total_jumps"), duration_s=duration_s,
+                        "spansh", tool="neutron-plotter", frm=from_, to=to,
+                        range=jump_range, efficiency=efficiency, status="ok",
+                        total_jumps=total, waypoints=res.get("total_jumps"),
+                        duration_s=duration_s,
                     )
                     results_url = (
                         "https://spansh.co.uk/plotter/results/"
