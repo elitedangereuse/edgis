@@ -865,10 +865,13 @@
      }
 
      let activeApiRequests = 0;
+     // The embedded Route plotter reports its busy state so the hero logo
+     // animates while plotting, just like the index's own queries.
+     let routeToolBusy = false;
 
      function updateHeroLogoSearchingState() {
        if (!heroLogo) return;
-       heroLogo.classList.toggle('is-searching', activeApiRequests > 0);
+       heroLogo.classList.toggle('is-searching', activeApiRequests > 0 || routeToolBusy);
      }
 
      function beginApiRequest() {
@@ -1130,12 +1133,17 @@
        }
      }
 
-     // The embedded plotter reports its content height so the iframe grows with it.
+     // The embedded plotter reports its content height (iframe autosize) and its
+     // busy state (animate the hero logo while plotting, like other queries).
      globalThis.addEventListener('message', (event) => {
        if (event.origin !== globalThis.location.origin) return;
-       const h = event.data && event.data.edgisRouteHeight;
+       const d = event.data || {};
        const frame = document.getElementById('routeFrame');
-       if (h && frame) frame.style.height = Math.max(240, Math.ceil(h)) + 'px';
+       if (d.edgisRouteHeight && frame) frame.style.height = Math.max(240, Math.ceil(d.edgisRouteHeight)) + 'px';
+       if (typeof d.edgisPlotting === 'boolean') {
+         routeToolBusy = d.edgisPlotting;
+         updateHeroLogoSearchingState();
+       }
      });
 
      const initialTab = 'lookup';

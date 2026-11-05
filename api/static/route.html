@@ -264,6 +264,15 @@ $("key").addEventListener("input", () => {
 });
 function headers() { const k = ($("key").value || "").trim(); return k ? { "x-route-key": k } : {}; }
 
+// When embedded in the index, report busy state so the EDGIS hero logo animates
+// during a plot/compare, just like the index's own queries.
+const EMBED = new URLSearchParams(location.search).has("embed");
+let busyCount = 0;
+function setBusy(on) {
+  busyCount = Math.max(0, busyCount + (on ? 1 : -1));
+  try { if (EMBED) parent.postMessage({ edgisPlotting: busyCount > 0 }, location.origin); } catch (e) {}
+}
+
 // Remember the ship / supercharge choice between visits.
 const SHIP_LS = "edgis_route_ship";
 $("ship").value = localStorage.getItem(SHIP_LS) || "4";
@@ -613,7 +622,7 @@ function cmpTime(durationS) {
 async function compareSpansh() {
   if (!lastQuery) return;
   const { from, to, range, supercharge } = lastQuery;
-  $("cmp").disabled = true;
+  $("cmp").disabled = true; setBusy(true);
   const out = () => cmpLine("cmpNeutron");
   out().innerHTML = `<span class="tiny">Querying spansh… (can take ~10–30 s)</span>`;
   try {
@@ -642,7 +651,7 @@ async function compareSpansh() {
       + (ours != null ? ` · <b>ours:</b> ${fmt(ours)} jumps · ${verdict}` : "")
       + timeStr + link;
   } catch (e) { if (out()) out().innerHTML = `<span class="bad">${e.message || e}</span>`; }
-  finally { $("cmp").disabled = false; }
+  finally { $("cmp").disabled = false; setBusy(false); }
 }
 
 // Compare against spansh's fuel-aware Galaxy (exact) Plotter. Needs the ship
@@ -653,7 +662,7 @@ async function compareGalaxy() {
   const out = () => cmpLine("cmpGalaxy_line");
   if (!loadout) { out().innerHTML = `<span class="bad">Import a ship first (the Galaxy Plotter is fuel-aware).</span>`; return; }
   const { from, to } = lastQuery;
-  $("cmpGalaxy").disabled = true;
+  $("cmpGalaxy").disabled = true; setBusy(true);
   out().innerHTML = `<span class="tiny">Querying spansh Galaxy Plotter… (can take ~1 min)</span>`;
   try {
     const res = await fetch("/spansh/galaxy-route", {
@@ -672,7 +681,7 @@ async function compareGalaxy() {
     out().innerHTML = `<b>spansh Galaxy&nbsp;Plotter:</b> ${fmt(s.total_jumps)} jumps${dur}`
       + cmpVerdict(s.total_jumps) + cmpTime(s.duration_s) + link;
   } catch (e) { out().innerHTML = `<span class="bad">${escapeHtml(e.message || String(e))}</span>`; }
-  finally { $("cmpGalaxy").disabled = false; }
+  finally { $("cmpGalaxy").disabled = false; setBusy(false); }
 }
 
 async function plot() {
@@ -684,7 +693,7 @@ async function plot() {
   const loadout = shipInfo ? ($("loadout").value || "").trim() : "";
   lastQuery = { from, to, range, supercharge };
   lastOurs = null;  // so a post-failure spansh compare doesn't show a stale "ours"
-  $("go").disabled = true; $("out").innerHTML = `<div class="msg">Plotting…</div>`;
+  $("go").disabled = true; setBusy(true); $("out").innerHTML = `<div class="msg">Plotting…</div>`;
   try {
     let res;
     if (loadout) {
@@ -717,7 +726,7 @@ async function plot() {
     renderRoute(await res.json());
   } catch (e) { $("out").innerHTML = `<div class="msg err">${escapeHtml(e.message || String(e))}</div>`; }
   finally {
-    $("go").disabled = false;
+    $("go").disabled = false; setBusy(false);
     // Allow comparing against spansh after any attempt, including when EDGIS
     // couldn't find a route (spansh often can).
     if (lastQuery) { $("cmp").disabled = false; $("cmp").title = "Query spansh for this route";
