@@ -3660,6 +3660,129 @@ async def spansh_route(
         raise HTTPException(502, f"spansh request failed: {exc}")
 
 
+class GalaxyRouteRequest(BaseModel):
+    from_: str = Field(..., alias="from", min_length=1)
+    to: str = Field(..., min_length=1)
+    loadout: str
+    model_config = {"populate_by_name": True}
+
+
+@app.post("/spansh/galaxy-route", include_in_schema=False)
+async def spansh_galaxy_route(
+    req: GalaxyRouteRequest,
+    access: dict = Depends(entitlements.require_entitlement("route")),
+):
+    """Proxy spansh's Galaxy (exact) Plotter for a fuel-aware comparison. It
+    needs a ship build: id64 endpoints + the fuel params parsed from the SLEF
+    loadout. In the result each entry of ``jumps`` is one physical jump (the
+    first is the source), so total jumps = len(jumps) - 1. The Galaxy Plotter is
+    slow (~1 min), hence the long poll."""
+
+    params = fsd.parse_loadout(req.loadout)
+    if params is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Could not read a ship build from that loadout.",
+        )
+    src = await fetch_system_from_db(req.from_)
+    dst = await fetch_system_from_db(req.to)
+    if not src or not dst or src.get("id64") is None or dst.get("id64") is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Galaxy Plotter needs both systems in the catalogue (id64).",
+        )
+
+    body = {
+        "source": str(src["id64"]),
+        "destination": str(dst["id64"]),
+        "is_supercharged": "0",
+        "use_supercharge": "1",
+        "use_injections": "0",
+        "use_injections_when_required": "0",
+        "exclude_secondary": "0",
+        "refuel_every_scoopable": "1",
+        "fuel_power": f"{params.fuel_power:g}",
+        "fuel_multiplier": f"{params.fuel_multiplier:g}",
+        "optimal_mass": f"{params.optimal_mass:g}",
+        "base_mass": f"{params.base_mass:g}",
+        "tank_size": f"{params.tank_size:g}",
+        "internal_tank_size": f"{params.reserve_size:g}",
+        "reserve_size": "0",
+        "max_fuel_per_jump": f"{params.max_fuel_per_jump:g}",
+        "range_boost": f"{params.range_boost:g}",
+        "ship_build": req.loadout,
+    }
+    headers = {"User-Agent": EXTERNAL_USER_AGENT, "Accept": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=20, headers=headers) as client:
+            submit = await client.post(
+                "https://spansh.co.uk/api/generic/route", data=body
+            )
+            submit.raise_for_status()
+            job = submit.json().get("job")
+            if not job:
+                raise HTTPException(502, "spansh did not return a job")
+            for _ in range(80):  # Galaxy Plotter is slow (~1 min)
+                await asyncio.sleep(1.5)
+                poll = await client.get(
+                    f"https://spansh.co.uk/api/results/{job}"
+                )
+                poll.raise_for_status()
+                data = poll.json()
+                if data.get("result"):
+                    res = data["result"]
+                    legs = res.get("jumps", [])
+                    total = max(0, len(legs) - 1)  # first entry is the source
+                    flown = sum(float(x.get("distance", 0) or 0) for x in legs)
+                    duration_s = None
+                    try:
+                        from datetime import datetime as _dt
+
+                        ca, ua = data.get("created_at"), data.get("updated_at")
+                        if ca and ua:
+                            duration_s = (
+                                _dt.fromisoformat(ua) - _dt.fromisoformat(ca)
+                            ).total_seconds()
+                    except Exception:
+                        duration_s = None
+                    _log_route_trace(
+                        "spansh", tool="galaxy-plotter", frm=src["name"],
+                        to=dst["name"], status="ok", total_jumps=total,
+                        waypoints=len(legs), duration_s=duration_s,
+                    )
+                    return {
+                        "source": src["name"],
+                        "destination": dst["name"],
+                        "total_jumps": total,
+                        "waypoints": len(legs),
+                        "total_distance_ly": flown,
+                        "duration_s": duration_s,
+                        "job": job,
+                        "results_url": (
+                            f"https://spansh.co.uk/exact-plotter/results/{job}"
+                        ),
+                    }
+                if str(data.get("status")) in ("error", "failed"):
+                    _log_route_trace(
+                        "spansh", tool="galaxy-plotter", frm=src["name"],
+                        to=dst["name"], status="failed",
+                    )
+                    raise HTTPException(502, "spansh job failed")
+            _log_route_trace(
+                "spansh", tool="galaxy-plotter", frm=src["name"],
+                to=dst["name"], status="timeout",
+            )
+            raise HTTPException(504, "spansh galaxy plot timed out")
+    except HTTPException:
+        raise
+    except httpx.HTTPError as exc:
+        _log_route_trace(
+            "spansh", tool="galaxy-plotter", frm=req.from_, to=req.to,
+            status="error", detail=str(exc),
+        )
+        raise HTTPException(502, f"spansh request failed: {exc}")
+
+
 @app.post("/admin/route/rebuild-index", include_in_schema=False)
 def rebuild_route_index(request: Request):
     _require_admin_token(request)

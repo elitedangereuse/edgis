@@ -161,7 +161,13 @@
      plotter's own form card to avoid a box-in-a-box. */
   html.embed .card { background:transparent; border:0; padding:0; backdrop-filter:none; }
 </style>
-<script>try { if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed'); } catch (e) {}</script>
+<script>try {
+  const q = new URLSearchParams(location.search);
+  // The plotter lives inside the index as the Route plotting tool; the standalone
+  // page just redirects there. The embedded iframe (?embed=1) renders normally.
+  if (q.has('embed')) document.documentElement.classList.add('embed');
+  else location.replace('/?tool=route');
+} catch (e) {}</script>
 </head>
 <body>
 <div class="wrap">
@@ -193,7 +199,10 @@
       <div class="inputrow">
         <input id="to" list="sysopts" placeholder="Colonia" autocomplete="off" />
         <button id="cmp" class="ghost" disabled title="Plot a route first">
-          <img class="cmp-logo" src="/static/assets/spansh.png" alt="" /> vs spansh
+          <img class="cmp-logo" src="/static/assets/spansh.png" alt="" /> vs Neutron
+        </button>
+        <button id="cmpGalaxy" class="ghost" hidden disabled title="Import a ship and plot a route, then compare to spansh's fuel-aware Galaxy Plotter">
+          <img class="cmp-logo" src="/static/assets/spansh.png" alt="" /> vs Galaxy
         </button>
       </div>
     </div>
@@ -273,7 +282,7 @@ $("fuelSafe").addEventListener("change", () =>
 
 async function importShip() {
   const loadout = ($("loadout").value || "").trim();
-  if (!loadout) { shipInfo = null; localStorage.removeItem(SLEF_LS); $("shipInfo").textContent = ""; return; }
+  if (!loadout) { shipInfo = null; localStorage.removeItem(SLEF_LS); $("shipInfo").textContent = ""; $("cmpGalaxy").hidden = true; return; }
   $("importShip").disabled = true;
   $("shipInfo").innerHTML = `<span class="tiny">Reading loadout…</span>`;
   try {
@@ -306,7 +315,7 @@ async function importShip() {
   } catch (e) {
     shipInfo = null;
     $("shipInfo").innerHTML = `<span class="bad">${escapeHtml(e.message || String(e))}</span>`;
-  } finally { $("importShip").disabled = false; }
+  } finally { $("importShip").disabled = false; $("cmpGalaxy").hidden = !shipInfo; }
 }
 
 // Bootstrap "bi-copy" icon + clipboard helper (matches the main EDGIS app).
@@ -538,19 +547,40 @@ function renderRoute(r) {
       <tbody>${rows}</tbody></table>
     </div>`;
   $("cmp").disabled = false; $("cmp").title = "Run the same query on spansh";
+  if (shipInfo) { $("cmpGalaxy").disabled = false; }
+}
+
+// A dedicated line per spansh tool inside #cmpOut, so the Neutron and Galaxy
+// comparisons can show at once without overwriting each other.
+function cmpLine(id) {
+  let host = document.getElementById("cmpOut");
+  if (!host) { host = document.createElement("div"); host.id = "cmpOut"; $("out").appendChild(host); }
+  let el = document.getElementById(id);
+  if (!el) { el = document.createElement("div"); el.id = id; host.appendChild(el); }
+  return el;
+}
+
+// Shared bits for a "spansh X: N jumps · ours: M · verdict · ⏱ …" line.
+function cmpVerdict(spJumps) {
+  const ours = lastOurs ? lastOurs.total_jumps : null;
+  if (ours == null) return "";
+  const d = spJumps - ours;
+  const v = d > 0 ? `<span class="good">ours ${d} fewer ✓</span>`
+          : d < 0 ? `<span class="bad">spansh ${-d} fewer</span>` : "tie";
+  return ` · <b>ours:</b> ${fmt(ours)} jumps · ${v}`;
+}
+function cmpTime(durationS) {
+  if (durationS == null || !lastOurs) return "";
+  const spMs = durationS * 1000, ourMs = lastOurs.solve_ms, dMs = spMs - ourMs;
+  const ft = (ms) => ms >= 1000 ? `${fmt(ms / 1000, 1)} s` : `${fmt(ms)} ms`;
+  return ` · ⏱ ${ft(ourMs)} vs ${ft(spMs)} <span class="${dMs >= 0 ? "good" : "bad"}">(${ft(Math.abs(dMs))} ${dMs >= 0 ? "faster" : "slower"})</span>`;
 }
 
 async function compareSpansh() {
   if (!lastQuery) return;
   const { from, to, range, supercharge } = lastQuery;
   $("cmp").disabled = true;
-  // A cmpOut div exists after a successful plot; create one if EDGIS failed
-  // (so you can still check whether spansh finds a route).
-  const out = () => {
-    let el = document.getElementById("cmpOut");
-    if (!el) { el = document.createElement("div"); el.id = "cmpOut"; $("out").appendChild(el); }
-    return el;
-  };
+  const out = () => cmpLine("cmpNeutron");
   out().innerHTML = `<span class="tiny">Querying spansh… (can take ~10–30 s)</span>`;
   try {
     const res = await fetch(`/spansh/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}&efficiency=60&supercharge=${encodeURIComponent(supercharge || 4)}`, { headers: headers(), credentials: "include" });
@@ -579,6 +609,36 @@ async function compareSpansh() {
       + timeStr + link;
   } catch (e) { if (out()) out().innerHTML = `<span class="bad">${e.message || e}</span>`; }
   finally { $("cmp").disabled = false; }
+}
+
+// Compare against spansh's fuel-aware Galaxy (exact) Plotter. Needs the ship
+// build, so it's only offered once a loadout is imported.
+async function compareGalaxy() {
+  if (!lastQuery) return;
+  const loadout = shipInfo ? ($("loadout").value || "").trim() : "";
+  const out = () => cmpLine("cmpGalaxy_line");
+  if (!loadout) { out().innerHTML = `<span class="bad">Import a ship first (the Galaxy Plotter is fuel-aware).</span>`; return; }
+  const { from, to } = lastQuery;
+  $("cmpGalaxy").disabled = true;
+  out().innerHTML = `<span class="tiny">Querying spansh Galaxy Plotter… (can take ~1 min)</span>`;
+  try {
+    const res = await fetch("/spansh/galaxy-route", {
+      method: "POST", credentials: "include",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify({ from, to, loadout }),
+    });
+    if (!res.ok) {
+      const d = (await res.json().catch(() => ({}))).detail;
+      out().innerHTML = `<span class="bad">Galaxy Plotter failed: ${escapeHtml(typeof d === "string" ? d : ("HTTP " + res.status))}</span>`;
+      return;
+    }
+    const s = await res.json();
+    const dur = s.duration_s != null ? ` (${fmt(s.duration_s, 1)} s)` : "";
+    const link = s.results_url ? ` · <a href="${escapeHtml(s.results_url)}" target="_blank" rel="noopener">open in spansh ↗</a>` : "";
+    out().innerHTML = `<b>spansh Galaxy&nbsp;Plotter:</b> ${fmt(s.total_jumps)} jumps${dur}`
+      + cmpVerdict(s.total_jumps) + cmpTime(s.duration_s) + link;
+  } catch (e) { out().innerHTML = `<span class="bad">${escapeHtml(e.message || String(e))}</span>`; }
+  finally { $("cmpGalaxy").disabled = false; }
 }
 
 async function plot() {
@@ -626,7 +686,8 @@ async function plot() {
     $("go").disabled = false;
     // Allow comparing against spansh after any attempt, including when EDGIS
     // couldn't find a route (spansh often can).
-    if (lastQuery) { $("cmp").disabled = false; $("cmp").title = "Query spansh for this route"; }
+    if (lastQuery) { $("cmp").disabled = false; $("cmp").title = "Query spansh for this route";
+      if (shipInfo) $("cmpGalaxy").disabled = false; }
     loadStatus();
   }
 }
@@ -660,6 +721,7 @@ $("out").addEventListener("change", (e) => {
 
 $("go").addEventListener("click", plot);
 $("cmp").addEventListener("click", compareSpansh);
+$("cmpGalaxy").addEventListener("click", compareGalaxy);
 $("importShip").addEventListener("click", importShip);
 [$("from"), $("to"), $("range")].forEach(el => el.addEventListener("keydown", e => { if (e.key === "Enter") plot(); }));
 // Re-import a remembered loadout so fuel-aware plotting is active on load.
