@@ -12,7 +12,8 @@
     --accent-blue:#3b505966; --accent-white:#f8f8ff; --head-ink:#8fa2ab;
     --text:#e5e7eb; --muted:#8b97a7; --neutron:#ffd36b; --ok:#53d08a; --err:#ff6b6b;
     --line:rgba(255,255,255,.10); --line2:rgba(255,255,255,.08);
-    --panel:rgba(8,12,18,.72); --head:rgba(255,255,255,.04); --field:rgba(255,255,255,.05);
+    /* Match the index .glass panel: a faint translucent tint + blur, not a dark box. */
+    --panel:rgba(255,255,255,.03); --head:rgba(255,255,255,.04); --field:rgba(255,255,255,.05);
     --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   }
   * { box-sizing:border-box; }
@@ -34,12 +35,13 @@
   .banner { border:1px solid var(--line); border-radius:10px; padding:10px 14px;
             margin-bottom:16px; background:var(--panel); font-size:13px; }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px;
-          backdrop-filter:blur(2px); }
+          backdrop-filter:blur(6px); }
   .row { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; }
   .field { display:flex; flex-direction:column; gap:5px; }
   /* From/To grow to fill the row so there's no dead space on the right. */
   .field.grow { flex:1 1 220px; }
-  .field label { font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--accent); }
+  /* Index-style labels: bright (not accent-blue), semibold. */
+  .field label { font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--text); font-weight:600; }
   input, select { background:var(--field); border:1px solid var(--line); color:var(--text);
           border-radius:8px; padding:9px 11px; font-size:14px; outline:none; }
   input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 2px var(--dim-a); }
