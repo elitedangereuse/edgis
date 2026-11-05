@@ -34,6 +34,11 @@
 
   .banner { border:1px solid var(--line); border-radius:10px; padding:10px 14px;
             margin-bottom:16px; background:var(--panel); font-size:13px; }
+  /* Thin "current access" indicator (temporary, removed at full public release). */
+  .access-ind { display:flex; align-items:center; justify-content:flex-end; gap:5px;
+                font-size:11px; color:var(--muted); letter-spacing:.3px; margin:0 2px 8px; }
+  .access-ind .dot { width:7px; height:7px; border-radius:50%; background:var(--ok); flex:none; }
+  .access-ind b { color:var(--text); font-weight:600; }
   .bannerkey { margin-top:10px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
   .bannerkey label { font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--accent); font-weight:600; }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px;
@@ -184,6 +189,7 @@
   </div>
 
   <div class="card">
+    <div id="accessIndicator" class="access-ind" hidden></div>
     <div class="field grow">
       <label for="from"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" style="color:#1294d6" viewBox="0 0 2.6461 2.1167"><g transform="translate(-130.97 -85.46)" fill-rule="evenodd" stroke-width=".26458"><path d="m131.23 86.519a0.13229 0.13229 0 0 1 0.1323-0.13229h1.7973l-0.56806-0.5678a0.13246 0.13246 0 1 1 0.18732-0.18732l0.79375 0.79375a0.13229 0.13229 0 0 1 0 0.18732l-0.79375 0.79375a0.13246 0.13246 0 0 1-0.18732-0.18732l0.56806-0.5678h-1.7973a0.13229 0.13229 0 0 1-0.1323-0.13229"/><path d="m131.1 85.46a0.13229 0.13229 0 0 1 0.13229 0.13229v1.8521a0.1323 0.1323 0 0 1-0.26459 0v-1.8521a0.13229 0.13229 0 0 1 0.1323-0.13229"/></g></svg> From</label>
       <div class="inputrow">
@@ -254,6 +260,7 @@ $("key").addEventListener("input", () => {
   const hasKey = !!$("key").value.trim();
   if (hasKey) $("banner").hidden = true;
   else if ($("bannerMsg").innerHTML.trim()) $("banner").hidden = false;
+  if (typeof renderAccessIndicator === "function") renderAccessIndicator();
 });
 function headers() { const k = ($("key").value || "").trim(); return k ? { "x-route-key": k } : {}; }
 
@@ -389,12 +396,39 @@ function routeSystems() {
   return lastOurs.jumps.map((j, i) => j.system ?? (i === lastOurs.jumps.length - 1 ? lastOurs.destination : null)).filter(Boolean);
 }
 
+// Which access method is currently granting entry, mirroring the backend's
+// precedence (public > key > patron). Temporary: returns null once public, so
+// the indicator disappears at full release. Patron tier distinguishes the
+// future follower / Galactic Hunter waves.
+let lastAccess = { st: null, me: null };
+function accessMethod() {
+  const { st, me } = lastAccess;
+  if (st && st.public) return null;            // fully released -> no indicator
+  if (($("key").value || "").trim()) return "key";
+  if (me && me.patron) {
+    const t = String(me.tier || "").toLowerCase();
+    if (t.includes("hunter")) return "Galactic Hunter";
+    if (t.includes("follower")) return "follower";
+    return "Patreon";
+  }
+  return null;
+}
+function renderAccessIndicator() {
+  const m = accessMethod();
+  const ind = $("accessIndicator");
+  if (!ind) return;
+  if (m) { ind.innerHTML = `<span class="dot"></span>access via <b>${escapeHtml(m)}</b>`; ind.hidden = false; }
+  else { ind.hidden = true; }
+}
+
 async function loadStatus() {
   try {
     const [st, me] = await Promise.all([
       fetch("/route/status").then(r => r.json()),
       fetch("/auth/me", { credentials: "include" }).then(r => r.json()).catch(() => ({})),
     ]);
+    lastAccess = { st, me };
+    renderAccessIndicator();
     const pill = $("accessPill");
     if (st.public) { pill.textContent = "public"; pill.className = "pill ok"; }
     else if (me && me.patron) { pill.textContent = "patron ✓"; pill.className = "pill ok"; }
