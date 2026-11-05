@@ -55,6 +55,16 @@ def test_no_fsd_returns_none():
     assert fsd.parse_loadout('[{"data":{"event":"Loadout","Modules":[]}}]') is None
 
 
+def test_malformed_input_returns_none_not_raises():
+    # Non-JSON / wrong-shape input must yield None, never an exception
+    # (the /route/ship endpoint turns None into a clean 422).
+    assert fsd.parse_loadout("not json at all") is None
+    assert fsd.parse_loadout("") is None
+    assert fsd.parse_loadout("[]") is None
+    assert fsd.parse_loadout("{}") is None
+    assert fsd.parse_loadout('{"data": 123}') is None
+
+
 def _jump(dist, neutron=False, spectral=None):
     return {"distance_jumped": dist, "neutron_star": neutron, "spectral": spectral}
 
