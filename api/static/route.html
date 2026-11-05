@@ -75,7 +75,8 @@
   button:disabled { opacity:.4; cursor:default; }
   button#go { background:var(--accent-blue); color:#fff; }
   .actions { display:flex; gap:10px; align-items:center; margin-top:16px; }
-  .summary-actions { margin-left:auto; display:flex; align-items:center; gap:14px; }
+  /* Actions sit on their own row, right-aligned just above the table. */
+  .summary-actions { display:flex; justify-content:flex-end; align-items:center; gap:14px; margin:10px 0 4px; }
   #copyRoute svg, #exportJson svg { width:15px; height:15px; vertical-align:-2px; margin-right:2px; }
   .go-logo { width:16px; height:16px; }
   .cmp-logo { width:16px; height:16px; border-radius:50%; }
@@ -569,18 +570,18 @@ function renderRoute(r) {
       <div class="stat"><b>${fmt(r.total_distance_ly)}</b><span>LY flown</span></div>
       <div class="stat"><b>${fmt(r.efficiency * 100, 1)}%</b><span>efficiency</span></div>
       <div class="stat"><b>${fmt(r.solve_ms, 0)} ms</b><span>solve</span></div>
-      <div class="summary-actions">
-        <label class="switch" title="Compact: only the waypoints you plot in-game. Off: every jump.">
-          <input type="checkbox" id="compactToggle" ${compactMode ? "checked" : ""} />
-          <span class="track"></span><span>compact</span>
-        </label>
-        <button id="exportJson" class="ghost" title="Download this route as spansh-format JSON (to import into other tools)">${downloadIconSvg} Export JSON</button>
-        <button id="copyRoute" class="ghost" title="Copy the route systems, one per line">${copyIconSvg} Copy route</button>
-      </div>
     </div>
     ${r.fuel ? `<div class="fuelbar">${fuelVerdict(r.fuel)}</div>` : ""}
     <div id="cmpOut"></div>
     ${legend ? `<p class="legend">${legend}</p>` : ""}
+    <div class="summary-actions">
+      <label class="switch" title="Compact: only the waypoints you plot in-game. Off: every jump.">
+        <input type="checkbox" id="compactToggle" ${compactMode ? "checked" : ""} />
+        <span class="track"></span><span>compact</span>
+      </label>
+      <button id="exportJson" class="ghost" title="Download this route as spansh-format JSON (to import into other tools)">${downloadIconSvg} Export JSON</button>
+      <button id="copyRoute" class="ghost" title="Copy the route systems, one per line">${copyIconSvg} Copy route</button>
+    </div>
     <div class="tablewrap">
       <table><thead><tr>${header}</tr></thead>
       <tbody>${rows}</tbody></table>
