@@ -700,6 +700,26 @@
        globalThis.history.replaceState(null, '', newUrl);
      }
 
+     // The active tool, as a shareable URL param. Only 'route' needs it (the
+     // other tools are implied by their search params); kept separate from
+     // updatePermalinkParams so a search never clobbers it.
+     function setActiveToolParam(tool) {
+       if (!globalThis.location || !globalThis.history ||
+           typeof globalThis.history.replaceState !== 'function') {
+         return;
+       }
+       const url = new URL(globalThis.location.href);
+       if (tool === 'route') {
+         url.searchParams.set('tool', 'route');
+         // Route has no search of its own; drop stale search params so a refresh
+         // doesn't also run a hidden lookup/bodies query behind the plotter.
+         for (const name of TRACKED_SEARCH_PARAM_NAMES) url.searchParams.delete(name);
+       } else {
+         url.searchParams.delete('tool');
+       }
+       globalThis.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+     }
+
      if (apiDocsLink) {
        try {
          const docsUrl = new URL('/docs', globalThis.location.origin);
@@ -1149,6 +1169,7 @@
              return;
            }
            activateTab(item.dataset.tool);
+           setActiveToolParam(item.dataset.tool);  // shareable ?tool=route
          });
        }
      }
@@ -1636,6 +1657,14 @@
      }
 
      restoreSearchFromPermalink();
+
+     // Deep link: ?tool=route opens the plotter directly (and survives refresh).
+     // Run after the search restore so the explicit tool wins; the route panel
+     // exists regardless of the menu item's gating, so shared links always work.
+     if (new URLSearchParams(globalThis.location.search).get('tool') === 'route'
+         && tabPanels.route) {
+       activateTab('route');
+     }
 
      if (bodiesEmbedOpenBtn) {
        const openBodiesEmbed = () => {
