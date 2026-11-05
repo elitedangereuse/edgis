@@ -164,7 +164,7 @@
 <body>
 <div class="wrap">
   <h1>Neutron Route Plotter <span id="accessPill" class="pill">…</span></h1>
-  <p class="sub">Plot your route on overclocked Guardian tech. Don't blink: improbably fast, and it will blast your mind.</p>
+  <p class="sub">Plot your route on overclocked Guardian tech.</p>
 
   <div id="banner" class="banner" hidden></div>
 
@@ -216,8 +216,8 @@
     <details class="keyrow">
       <summary>Early-access key</summary>
       <div style="margin-top:10px">
-        <input id="key" type="password" placeholder="x-route-key (from Patreon / maintainer)" />
-        <span class="tiny">Stored in this browser only. Not needed once public, or if you're a signed-in patron.</span>
+        <input id="key" type="password" placeholder="x-route-key" />
+        <span class="tiny">Stored in this browser only.</span>
       </div>
     </details>
   </div>
@@ -487,13 +487,12 @@ function renderRoute(r) {
     </tr>`).join("");
     legend = `<b>${wps.length}</b> waypoints: the neutron supercharge stops ★ + destination you plot in-game; <b>jumps</b> = hops to reach each (the game auto-plots them). <span class="fuel" style="position:relative">${FUEL}</span> fuel-scoopable.`;
   } else {
-    header = `<th class="num">#</th><th>type</th><th>system</th><th>star</th><th class="num">jumped</th><th class="num">left</th><th class="acts-head">actions</th>`;
+    header = `<th class="num">#</th><th>system</th><th>star</th><th class="num">jumped</th><th class="num">left</th><th class="acts-head">actions</th>`;
     rows = r.jumps.map((j, i) => {
       const last = i === r.jumps.length - 1;
       const name = j.system ?? (last ? r.destination : "?");
       return `<tr>
       <td class="num">${i + 1}</td>
-      <td class="${j.neutron_star ? "boost" : ""}">${legLabel(j, last)}</td>
       <td class="sys">${escapeHtml(name)}${copyBtn(j.system ?? r.destination)}</td>
       <td>${spectralCell(j)}</td>
       <td class="num">${fmt(j.distance_jumped, 1)}</td>
@@ -501,7 +500,7 @@ function renderRoute(r) {
       ${actsCell(j.system ?? (last ? r.destination : null), j.x, j.y, j.z)}
     </tr>`;
     }).join("");
-    legend = `<b>neutron ★</b> fly the jet cone to supercharge, then jump · <b>supercharged</b> = that boosted jump · <b>board ★</b> normal jump onto a neutron · <b>bridge</b> = normal jump across a gap · <b>arrive</b> = final jump · <span class="fuel" style="position:relative">${FUEL}</span> fuel-scoopable. <span class="tiny">All boosts are neutron supercharges; EDGIS does not use FSD synthesis (injection).</span>`;
+    legend = "";
   }
   $("out").innerHTML = `
     <div class="summary">
@@ -520,10 +519,9 @@ function renderRoute(r) {
         <button id="copyRoute" class="ghost" title="Copy the route systems, one per line">${copyIconSvg} Copy route</button>
       </div>
     </div>
-    <div class="meta">${escapeHtml(r.source)} → ${escapeHtml(r.destination)} · range ${fmt(r.jump_range,1)} LY (boost ${fmt(r.boost_range,0)}) · beam ${r.beam_width} · access ${r.access || "public"}</div>
     ${r.fuel ? `<div class="fuelbar">${fuelVerdict(r.fuel)}</div>` : ""}
     <div id="cmpOut"></div>
-    <p class="legend">${legend}</p>
+    ${legend ? `<p class="legend">${legend}</p>` : ""}
     <div class="tablewrap">
       <table><thead><tr>${header}</tr></thead>
       <tbody>${rows}</tbody></table>
