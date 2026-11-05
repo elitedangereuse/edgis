@@ -141,7 +141,15 @@ def _modifier(module: dict, label: str) -> Optional[float]:
 
 def parse_loadout(slef) -> Optional[FuelParams]:
     """Parse an EDSY/SLEF export (list wrapper or bare Journal Loadout dict)
-    into FuelParams, or None if no FSD is found."""
+    into FuelParams, or None if it can't be read (bad JSON, no FSD, etc.).
+    Never raises on malformed input -- callers treat None as 'unreadable'."""
+    try:
+        return _parse_loadout(slef)
+    except (ValueError, TypeError, KeyError, IndexError, AttributeError):
+        return None
+
+
+def _parse_loadout(slef) -> Optional[FuelParams]:
     if isinstance(slef, str):
         slef = json.loads(slef)
     if isinstance(slef, list):
