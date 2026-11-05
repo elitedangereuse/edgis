@@ -3700,7 +3700,11 @@ async def spansh_galaxy_route(
         "use_injections": "0",
         "use_injections_when_required": "0",
         "exclude_secondary": "0",
-        "refuel_every_scoopable": "1",
+        # 0 = refuel only when needed (range grows as the tanks empty) -- the
+        # optimal mode serious explorers actually use, so the comparison matches
+        # what they'd get on spansh. 1 (refuel at every scoopable) is safer but
+        # less efficient; expose as a toggle later.
+        "refuel_every_scoopable": "0",
         "fuel_power": f"{params.fuel_power:g}",
         "fuel_multiplier": f"{params.fuel_multiplier:g}",
         "optimal_mass": f"{params.optimal_mass:g}",
