@@ -643,6 +643,9 @@
      const bodiesEmbedCaption = document.getElementById('bodiesEmbedCaption');
      const bodiesEmbedOpenBtn = document.getElementById('bodiesEmbedOpenBtn');
      globalThis.tableVisible = true;
+     // True while a system search auto-loads that system's bodies, so the
+     // 'bodies' result keeps (not hides) the lookup card shown just above it.
+     let autoBodiesForLookup = false;
      const statusEl = document.getElementById('status');
      const apiDocsLink = document.getElementById('apiDocsLink');
      const quotePlaceholder = document.getElementById('quotePlaceholder');
@@ -812,6 +815,19 @@
        updateBodiesEmbed(json, kind, url);
        if (kind !== 'neighbors' || !neighborsPagingState.baseParams) {
          hideNeighborsLoadMore();
+       }
+       // Fewer clicks: a system search immediately shows that system's bodies
+       // (map preview + body table) below the action buttons, so you no longer
+       // have to click "System map" to see them.
+       if (kind === 'system-lookup' && systemMapBtn && systemMapBtn.dataset.systemName) {
+         autoBodiesForLookup = true;
+         submitBodies({
+           overrideValue: systemMapBtn.dataset.systemName,
+           targetTab: null,
+           skipPermalinkUpdate: true,
+         });
+       } else if (kind === 'bodies') {
+         autoBodiesForLookup = false;  // consumed once the bodies render
        }
      }
 
@@ -1551,11 +1567,9 @@
          if (systemMapBtn.disabled) return;
          const systemName = systemMapBtn.dataset.systemName;
          if (systemName) {
-           submitBodies({
-             overrideValue: systemName,
-             updateInputValue: true,
-             targetTab: null,
-           });
+           // The bodies/preview already show after a search; this button now
+           // opens the full interactive system map.
+           openSystemMap(systemName);
          }
        });
      }
@@ -2035,7 +2049,9 @@
          return;
        }
        if (kind !== 'system-lookup') {
-         hideLookupActionButtons();
+         // Keep the buttons when the bodies are being auto-loaded for the very
+         // system shown in the card just above.
+         if (!autoBodiesForLookup) hideLookupActionButtons();
          return;
        }
 
@@ -2171,12 +2187,15 @@
        if (!systemCard) {
          return;
        }
-       applyStarIndicator(null);
        if (kind !== 'system-lookup') {
+         // Preserve the card (and its star/coords) while its bodies auto-load.
+         if (autoBodiesForLookup) return;
+         applyStarIndicator(null);
          systemCard.hidden = true;
          updateSystemNameCopyState('');
          return;
        }
+       applyStarIndicator(null);
 
        const target = getLookupTarget(payload);
        if (!target) {
