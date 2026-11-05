@@ -1101,19 +1101,23 @@
      if (toolMenuItems.length) {
        const routeItem = toolMenuItems.find(item => item.dataset.tool === 'route');
        if (routeItem && !tabPanels.route) {
-         // No embedded route panel: the item opens the standalone plotter.
-         // Hidden while the plotter is in early access (testers get the direct
-         // /plotter URL + key); appears automatically once /route/status says
-         // public (ROUTE_PUBLIC_AFTER cutover).
+         // The item opens the plotter. Hidden while in early access on prod
+         // (testers use the direct /plotter URL + key); always shown on staging
+         // so the plotter styling/integration can be tested, and appears on prod
+         // once /route/status says public (ROUTE_PUBLIC_AFTER cutover).
+         const isStaging = globalThis.location.hostname.includes('staging')
+                        || globalThis.location.hostname === 'localhost';
+         const showRouteItem = () => {
+           routeItem.dataset.href = '/plotter';
+           routeItem.hidden = false;
+         };
          routeItem.hidden = true;
+         if (isStaging) {
+           showRouteItem();
+         }
          fetch('/route/status')
            .then(r => r.json())
-           .then(st => {
-             if (st && st.public) {
-               routeItem.dataset.href = '/plotter';
-               routeItem.hidden = false;
-             }
-           })
+           .then(st => { if (st && st.public) showRouteItem(); })
            .catch(() => {});
        }
 
