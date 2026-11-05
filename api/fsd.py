@@ -20,8 +20,9 @@ are the jumpboost-by-size values. ``parse_loadout`` turns an EDSY/SLEF Loadout
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 # symbol(lowercase) -> [fuel_multiplier, fuel_power, max_fuel_per_jump, optimal_mass]
 FSD_TABLE = {
@@ -263,6 +264,138 @@ def simulate_fuel(jumps, params: "FuelParams", start_fuel: Optional[float] = Non
         "max_dry_jumps": max_dry,
         "final_fuel": fuel,
         "fuel_after": fuel_after,
+    }
+
+
+def _mk_leg(leg_type, name, coord, dist, is_neutron, left, id64=None, spectral=None):
+    """Build a route leg dict matching routing._leg's schema (so the fuel pass
+    can splice scoop detours straight into the realized leg list)."""
+    return {
+        "type": leg_type, "system": name, "id64": id64, "spectral": spectral,
+        "x": float(coord[0]), "y": float(coord[1]), "z": float(coord[2]),
+        "neutron_star": bool(is_neutron), "distance_jumped": float(dist),
+        "distance_left": float(left),
+    }
+
+
+def _nearest_scoopable(fetch_scoopable_near, pos, radius, is_locked):
+    """Nearest scoopable KGBFOAM star to ``pos`` within ``radius`` (ly), skipping
+    permit-locked systems, or None. ``fetch_scoopable_near(pos, radius)`` yields
+    ``(x, y, z, name, mainstar)`` rows."""
+    best = None
+    best_d = None
+    for row in fetch_scoopable_near(tuple(pos), float(radius)) or ():
+        name = row[3] if len(row) > 3 else None
+        if is_locked is not None and name is not None and is_locked(name):
+            continue
+        if not is_scoopable(row[4] if len(row) > 4 else None):
+            continue
+        d = math.dist(pos, (row[0], row[1], row[2]))
+        if d <= 1e-6:
+            continue
+        if best_d is None or d < best_d:
+            best_d, best = d, row
+    return best
+
+
+def enforce_fuel_safety(
+    legs,
+    src,
+    dst,
+    params: "FuelParams",
+    fetch_scoopable_near: Callable,
+    src_name: Optional[str] = None,
+    is_locked: Optional[Callable[[str], bool]] = None,
+):
+    """Insert scoop-stop detours so a realized route never strands (the default-on
+    'fuel-safe' guarantee). Walks the legs tracking the exact tank; before any
+    jump that would leave less than one jump of reserve before a non-scoopable
+    landing (or that the tank can't afford), it diverts to the nearest scoopable
+    star and back, refuelling. The detour is two normal jumps (``cur -> S`` then
+    ``S -> cur``), always valid because the nearest scoopable is within range at
+    the current (low, hence long-ranged) fuel level, and it leaves the rest of
+    the proven geometry untouched. Returns ``(new_legs, info)``; ``info`` carries
+    ``scoop_stops`` and ``safe`` (False with ``unsafe_at`` when no scoopable star
+    is reachable, i.e. genuinely sparse space).
+
+    ``fetch_scoopable_near(pos, radius) -> rows`` supplies candidate scoopable
+    KGBFOAM stars (``(x, y, z, name, mainstar)``). This never touches neutron
+    chains that are already fuel-safe; routes under the tank's dry-run capacity
+    pass through unchanged.
+    """
+    tank = params.tank_size
+    maxf = params.max_fuel_per_jump
+    reserve = maxf  # always keep one full jump to divert to a scoopable star
+    dstp = (float(dst[0]), float(dst[1]), float(dst[2]))
+    out: list[dict] = []
+    # The system we are currently sitting at (start = source).
+    cur = {
+        "pos": (float(src[0]), float(src[1]), float(src[2])),
+        "name": src_name, "id64": None, "spectral": None, "neutron": False,
+    }
+    fuel = tank
+    scoop_stops = 0
+    unsafe_at = None
+
+    if tank_capacity_jumps(params) < 2:
+        # A one-jump tank can't carry a divert margin; nothing we can guarantee.
+        return [dict(l) for l in legs], {
+            "scoop_stops": 0, "safe": False, "unsafe_at": 0,
+            "reason": "tank too small",
+        }
+
+    for leg in legs:
+        d = float(leg.get("distance_jumped", 0.0) or 0.0)
+        landing_scoop = (not leg.get("neutron_star")) and is_scoopable(
+            leg.get("spectral")
+        )
+        if d > 1e-9:
+            cost = min(params.fuel_cost(d, fuel), maxf)
+            breaks_margin = (not landing_scoop) and (fuel - cost) < reserve - 1e-9
+            if (cost > fuel + 1e-9 or breaks_margin) and unsafe_at is None:
+                reach = params.jump_range(fuel)
+                s = _nearest_scoopable(
+                    fetch_scoopable_near, cur["pos"], reach, is_locked
+                )
+                s_pos = None if s is None else (
+                    float(s[0]), float(s[1]), float(s[2])
+                )
+                d1 = None if s_pos is None else math.dist(cur["pos"], s_pos)
+                if s_pos is not None and min(
+                    params.fuel_cost(d1, fuel), maxf
+                ) <= fuel + 1e-9:
+                    # cur -> scoopable S (refuel), then S -> cur (resume).
+                    out.append(_mk_leg(
+                        "regular", s[3], s_pos, d1, False,
+                        math.dist(s_pos, dstp),
+                        spectral=(s[4] if len(s) > 4 else None),
+                    ))
+                    fuel = tank
+                    scoop_stops += 1
+                    d2 = math.dist(s_pos, cur["pos"])
+                    out.append(_mk_leg(
+                        "regular", cur["name"], cur["pos"], d2, cur["neutron"],
+                        math.dist(cur["pos"], dstp),
+                        id64=cur["id64"], spectral=cur["spectral"],
+                    ))
+                    fuel -= min(params.fuel_cost(d2, fuel), maxf)
+                    cost = min(params.fuel_cost(d, fuel), maxf)
+                else:
+                    unsafe_at = len(out)  # no scoopable star in range
+            fuel -= cost
+        out.append(dict(leg))
+        cur = {
+            "pos": (float(leg["x"]), float(leg["y"]), float(leg["z"])),
+            "name": leg.get("system"), "id64": leg.get("id64"),
+            "spectral": leg.get("spectral"), "neutron": bool(leg.get("neutron_star")),
+        }
+        if landing_scoop:
+            fuel = tank
+
+    return out, {
+        "scoop_stops": scoop_stops,
+        "safe": unsafe_at is None,
+        "unsafe_at": unsafe_at,
     }
 
 

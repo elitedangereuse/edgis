@@ -380,18 +380,18 @@ $("to").addEventListener("input", autocomplete);
 
 function fuelVerdict(f) {
   const tank = `tank ≈ ${f.tank_jumps} jumps`;
-  const stops = `${f.refuels} scoop stop${f.refuels === 1 ? "" : "s"}`;
+  const added = f.scoop_stops ? ` · ${f.scoop_stops} scoop stop${f.scoop_stops === 1 ? "" : "s"} added` : "";
   if (f.stranded) {
-    return `<span class="bad">⚠ Fuel: would strand near jump ${f.stranded_at + 1}</span> `
-      + `<span class="tiny">longest run with no scoopable star is ${f.max_dry_jumps} jumps (${tank}). `
-      + `Scoop-stop insertion is coming next; for now shorten the range or pick a scoopable detour.</span>`;
+    return `<span class="bad">⚠ Fuel: may strand near jump ${f.stranded_at + 1}</span> `
+      + `<span class="tiny">no scoopable star within range (${tank})`
+      + `${f.enforced ? " — couldn't insert a refuel detour there (sparse region)" : ""}.</span>`;
   }
   if (!f.safe) {
     return `<span class="bad">⚠ Fuel: tight</span> `
-      + `<span class="tiny">${f.max_dry_jumps} jumps between scoopable stars, ${tank} · ${stops} · min fuel ${fmt(f.min_fuel, 1)} t.</span>`;
+      + `<span class="tiny">${f.max_dry_jumps} jumps between scoopable stars, ${tank}${added} · min fuel ${fmt(f.min_fuel, 1)} t.</span>`;
   }
   return `<span class="good">✓ Fuel-safe</span> `
-    + `<span class="tiny">longest dry run ${f.max_dry_jumps} jumps (${tank}) · ${stops} · min fuel ${fmt(f.min_fuel, 1)} t.</span>`;
+    + `<span class="tiny">longest dry run ${f.max_dry_jumps} jumps (${tank})${added} · min fuel ${fmt(f.min_fuel, 1)} t.</span>`;
 }
 
 // Convert our route to spansh's neutron-plotter result JSON so it imports into
