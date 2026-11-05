@@ -34,6 +34,8 @@
 
   .banner { border:1px solid var(--line); border-radius:10px; padding:10px 14px;
             margin-bottom:16px; background:var(--panel); font-size:13px; }
+  .bannerkey { margin-top:10px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .bannerkey label { font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--accent); font-weight:600; }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px;
           backdrop-filter:blur(6px); }
   .row { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; }
@@ -166,7 +168,14 @@
   <h1>Neutron Route Plotter <span id="accessPill" class="pill">…</span></h1>
   <p class="sub">Plot your route on overclocked Guardian tech.</p>
 
-  <div id="banner" class="banner" hidden></div>
+  <div id="banner" class="banner" hidden>
+    <div id="bannerMsg"></div>
+    <div class="bannerkey">
+      <label for="key">Early-access key</label>
+      <input id="key" type="password" placeholder="x-route-key" />
+      <span class="tiny">Stored in this browser only.</span>
+    </div>
+  </div>
 
   <div class="card">
     <div class="field grow">
@@ -213,13 +222,6 @@
         <span class="tiny">Importing a ship fills the jump range and checks every route against your tank and fuel scoop. Stored in this browser only.</span>
       </div>
     </details>
-    <details class="keyrow">
-      <summary>Early-access key</summary>
-      <div style="margin-top:10px">
-        <input id="key" type="password" placeholder="x-route-key" />
-        <span class="tiny">Stored in this browser only.</span>
-      </div>
-    </details>
   </div>
 
   <div id="out"></div>
@@ -236,7 +238,14 @@
 const $ = (id) => document.getElementById(id);
 const KEY_LS = "edgis_route_key";
 $("key").value = localStorage.getItem(KEY_LS) || "";
-$("key").addEventListener("input", () => localStorage.setItem(KEY_LS, $("key").value.trim()));
+$("key").addEventListener("input", () => {
+  localStorage.setItem(KEY_LS, $("key").value.trim());
+  // Collapse the early-access banner once a key is entered; re-show (if there's
+  // still a message) when it's cleared.
+  const hasKey = !!$("key").value.trim();
+  if (hasKey) $("banner").hidden = true;
+  else if ($("bannerMsg").innerHTML.trim()) $("banner").hidden = false;
+});
 function headers() { const k = ($("key").value || "").trim(); return k ? { "x-route-key": k } : {}; }
 
 // Remember the ship / supercharge choice between visits.
@@ -384,12 +393,14 @@ async function loadStatus() {
     const parts = [];
     if (!st.public) {
       parts.push(`<b>Early access, rolling out in waves:</b> key holders now · Patreon tier 1 from <b>7 Nov</b> · free followers and Galactic Hunters (5+ confirmed submissions) from <b>13 Nov</b> · everyone from <b>${st.public_after || "30 Nov"}</b>.`);
-      if (!(me && me.patron)) parts.push(`Become a patron on <a href="${st.patreon}" target="_blank" rel="noopener">Patreon</a>, or enter an access key below.`);
+      if (!(me && me.patron)) parts.push(`Become a patron on <a href="${st.patreon}" target="_blank" rel="noopener">Patreon</a>, or use the access key below.`);
       else parts.push(`Signed in as <b>${escapeHtml(me.name || "patron")}</b>.`);
     }
     if (!st.index_ready) parts.push(`<span class="pill warn">index warming up…</span>`);
-    const b = $("banner");
-    if (parts.length) { b.innerHTML = parts.join(" "); b.hidden = false; } else { b.hidden = true; }
+    $("bannerMsg").innerHTML = parts.join(" ");
+    // Collapse the banner (with its key field) once a key is set or it's public.
+    const hasKey = !!($("key").value || "").trim();
+    $("banner").hidden = parts.length === 0 || hasKey;
   } catch (e) {}
 }
 
