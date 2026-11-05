@@ -194,6 +194,18 @@ def test_enforce_fuel_safety_respects_permit_lock():
     assert info["safe"] is False
 
 
+def test_cargo_reduces_range_and_is_reported():
+    p0 = fsd.parse_loadout(COBRA_SLEF)
+    p6 = fsd.parse_loadout(COBRA_SLEF, cargo=6)
+    assert p0.cargo == 0 and p6.cargo == 6
+    # Cargo adds mass -> shorter range at the same fuel, costs more fuel per jump.
+    assert p6.jump_range(32) < p0.jump_range(32)
+    assert p6.fuel_cost(50, 32) > p0.fuel_cost(50, 32)
+    s = fsd.ship_summary(p6)
+    assert s["cargo"] == 6
+    assert s["jump_range"] < fsd.ship_summary(p0)["jump_range"]
+
+
 def test_ship_summary_fills_range_and_flags_scoop():
     p = fsd.parse_loadout(COBRA_SLEF)
     s = fsd.ship_summary(p)

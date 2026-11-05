@@ -3508,6 +3508,7 @@ async def plot_route(
 
 class ShipImportRequest(BaseModel):
     loadout: str
+    cargo: float = Field(0.0, ge=0, le=2048)
 
 
 class RouteRequest(BaseModel):
@@ -3517,6 +3518,7 @@ class RouteRequest(BaseModel):
     beam_width: Optional[int] = Field(None, ge=1, le=100)
     supercharge: float = Field(4.0, ge=1.0, le=6.0)
     loadout: Optional[str] = None
+    cargo: float = Field(0.0, ge=0, le=2048)
     fuel_safe: bool = True
     model_config = {"populate_by_name": True}
 
@@ -3528,7 +3530,7 @@ def import_ship(
 ):
     """Parse an EDSY/SLEF loadout into a display summary (no solve): the UI
     uses it to auto-fill the jump range and show tank/scoop on paste."""
-    params = fsd.parse_loadout(req.loadout)
+    params = fsd.parse_loadout(req.loadout, req.cargo)
     if params is None:
         raise HTTPException(
             status_code=422,
@@ -3549,7 +3551,7 @@ async def plot_route_post(
         req.from_, req.to, req.jump_range, req.beam_width, req.supercharge,
         access.get("via"),
     )
-    params = fsd.parse_loadout(req.loadout) if req.loadout else None
+    params = fsd.parse_loadout(req.loadout, req.cargo) if req.loadout else None
     if params is not None:
         # Fuel layer (enforcement + report) runs in a DB task: scoop-stop
         # insertion needs a scoopable-star query. Copies the cached geometry.
@@ -3664,6 +3666,7 @@ class GalaxyRouteRequest(BaseModel):
     from_: str = Field(..., alias="from", min_length=1)
     to: str = Field(..., min_length=1)
     loadout: str
+    cargo: float = Field(0.0, ge=0, le=2048)
     model_config = {"populate_by_name": True}
 
 
@@ -3678,7 +3681,7 @@ async def spansh_galaxy_route(
     first is the source), so total jumps = len(jumps) - 1. The Galaxy Plotter is
     slow (~1 min), hence the long poll."""
 
-    params = fsd.parse_loadout(req.loadout)
+    params = fsd.parse_loadout(req.loadout, req.cargo)
     if params is None:
         raise HTTPException(
             status_code=422,
@@ -3708,7 +3711,8 @@ async def spansh_galaxy_route(
         "fuel_power": f"{params.fuel_power:g}",
         "fuel_multiplier": f"{params.fuel_multiplier:g}",
         "optimal_mass": f"{params.optimal_mass:g}",
-        "base_mass": f"{params.base_mass:g}",
+        # base_mass + cargo so spansh plans laden, like the tester's real ship.
+        "base_mass": f"{params.base_mass + params.cargo:g}",
         "tank_size": f"{params.tank_size:g}",
         "internal_tank_size": f"{params.reserve_size:g}",
         "reserve_size": "0",
