@@ -244,7 +244,15 @@ async function importShip() {
     if (!res.ok) {
       shipInfo = null;
       const d = (await res.json().catch(() => ({}))).detail;
-      $("shipInfo").innerHTML = `<span class="bad">${escapeHtml(d || ("Could not read that loadout (HTTP " + res.status + ")."))}</span>`;
+      // detail can be a string (our 422), a dict (the early-access 403), or a
+      // list (request validation) -- never render an object raw.
+      let msg;
+      if (res.status === 403) {
+        msg = `${(d && d.message) || "This feature is in early access."} Add an access key below, or sign in as a patron.`;
+      } else {
+        msg = (typeof d === "string" ? d : (d && d.message)) || `Could not read that loadout (HTTP ${res.status}).`;
+      }
+      $("shipInfo").innerHTML = `<span class="bad">${escapeHtml(msg)}</span>`;
       return;
     }
     shipInfo = await res.json();
