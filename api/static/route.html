@@ -8,8 +8,10 @@
 <style>
   :root {
     --accent:#80c4e6; --dim:#3b5059; --dim-a:#3b505966;
-    --text:#dce3ec; --muted:#8b97a7; --neutron:#ffd36b; --ok:#53d08a; --err:#ff6b6b;
-    --line:rgba(255,255,255,.10); --line2:rgba(255,255,255,.06);
+    /* Match the index/neighbors results palette (milkyway.css). */
+    --accent-blue:#3b505966; --accent-white:#f8f8ff; --head-ink:#8fa2ab;
+    --text:#e5e7eb; --muted:#8b97a7; --neutron:#ffd36b; --ok:#53d08a; --err:#ff6b6b;
+    --line:rgba(255,255,255,.10); --line2:rgba(255,255,255,.08);
     --panel:rgba(8,12,18,.72); --head:rgba(255,255,255,.04); --field:rgba(255,255,255,.05);
     --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   }
@@ -55,7 +57,7 @@
   button#go { background:var(--accent-blue); color:#fff; }
   .actions { display:flex; gap:10px; align-items:center; margin-top:16px; }
   .summary-actions { margin-left:auto; display:flex; align-items:center; gap:14px; }
-  #copyRoute svg { width:15px; height:15px; vertical-align:-2px; margin-right:2px; }
+  #copyRoute svg, #exportJson svg { width:15px; height:15px; vertical-align:-2px; margin-right:2px; }
   .go-logo { width:16px; height:16px; }
   .cmp-logo { width:16px; height:16px; border-radius:50%; }
 
@@ -82,14 +84,19 @@
   .legend { color:var(--muted); font-size:12px; margin:8px 0 2px; }
   .legend b { color:var(--neutron); }
 
-  .tablewrap { max-height:56vh; overflow:auto; border:1px solid var(--line); border-radius:10px; margin-top:8px;
+  .tablewrap { max-height:56vh; overflow:auto; border:1px solid var(--line); border-radius:12px; margin-top:8px;
                scrollbar-width:thin; scrollbar-color:var(--dim-a) #1a1a1a; }
-  table { width:100%; border-collapse:collapse; font-size:13px; }
-  thead th { position:sticky; top:0; background:rgba(8,12,18,.92); backdrop-filter:blur(8px);
-             color:var(--accent);
-             text-transform:uppercase; letter-spacing:.6px; font-size:11px; font-weight:600;
-             text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }
-  tbody td { padding:6px 10px; border-bottom:1px solid var(--line2); white-space:nowrap; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  /* Sticky header: an OPAQUE base under the light overlay so scrolled rows never
+     bleed through it (the "icons over the header" bug), styled like the index. */
+  thead th { position:sticky; top:0; z-index:2;
+             background:linear-gradient(var(--head),var(--head)), #0a0e15;
+             color:var(--head-ink);
+             text-transform:uppercase; letter-spacing:.5px; font-size:11px; font-weight:600;
+             text-align:left; padding:7px 9px; border-bottom:1px solid var(--line); }
+  thead th.num, thead th.acts-head { text-align:right; }
+  tbody td { padding:6px 9px; border-bottom:1px solid var(--line2); white-space:nowrap; }
+  tbody tr:last-child td { border-bottom:0; }
   tbody tr:hover { background:rgba(255,255,255,.03); }
   .num { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; }
   .sys { font-family:var(--mono); }
@@ -255,6 +262,8 @@ async function importShip() {
 
 // Bootstrap "bi-copy" icon + clipboard helper (matches the main EDGIS app).
 const copyIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/></svg>`;
+// Bootstrap "download" icon.
+const downloadIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="currentColor" viewBox="0 0 16 16"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/></svg>`;
 function copyText(text, btn) {
   navigator.clipboard.writeText(text).then(() => {
     const prev = btn.innerHTML; btn.innerHTML = '<span class="good" style="font-size:11px">Copied</span>';
@@ -377,12 +386,56 @@ function fuelVerdict(f) {
     + `<span class="tiny">longest dry run ${f.max_dry_jumps} jumps (${tank}) · ${stops} · min fuel ${fmt(f.min_fuel, 1)} t.</span>`;
 }
 
+// Convert our route to spansh's neutron-plotter result JSON so it imports into
+// tools that read spansh routes. system_jumps = source first (jumps 0), then
+// each neutron supercharge stop + the destination, with `jumps` = hops to reach
+// it (same grouping as the compact view). total_jumps excludes the source.
+function toSpanshRoute(r) {
+  const r2 = (n) => Math.round(Number(n || 0) * 100) / 100;
+  const sc = r.source_coords || {};
+  const wps = [{
+    system: r.source, id64: null,
+    x: sc.x ?? null, y: sc.y ?? null, z: sc.z ?? null,
+    distance_jumped: 0, distance_left: r2(r.straight_line_ly), jumps: 0, neutron_star: false,
+  }];
+  let jumps = 0, ly = 0;
+  r.jumps.forEach((j, i) => {
+    jumps++; ly += j.distance_jumped;
+    const last = i === r.jumps.length - 1;
+    if (j.neutron_star || last) {
+      wps.push({
+        system: j.system ?? (last ? r.destination : ""),
+        id64: j.id64 ?? null, x: j.x, y: j.y, z: j.z,
+        distance_jumped: r2(ly), distance_left: r2(j.distance_left),
+        jumps, neutron_star: !!j.neutron_star,
+      });
+      jumps = 0; ly = 0;
+    }
+  });
+  return { result: {
+    source_system: r.source, destination_system: r.destination,
+    distance: r2(r.straight_line_ly), range: r.jump_range, efficiency: 60,
+    total_jumps: wps.length - 1, system_jumps: wps,
+  } };
+}
+
+function downloadSpanshJson() {
+  if (!lastOurs) return;
+  const slug = (s) => String(s || "route").trim().replace(/[^\w.-]+/g, "_");
+  const blob = new Blob([JSON.stringify(toSpanshRoute(lastOurs), null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `route_${slug(lastOurs.source)}_to_${slug(lastOurs.destination)}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function renderRoute(r) {
   lastOurs = r;
   let header, rows, legend;
   if (compactMode) {
     const wps = compactRows(r);
-    header = `<th class="num">#</th><th>system</th><th>star</th><th class="num">jumps</th><th class="num">LY</th><th class="num">left</th><th></th>`;
+    header = `<th class="num">#</th><th>system</th><th>star</th><th class="num">jumps</th><th class="num">LY</th><th class="num">left</th><th class="acts-head">actions</th>`;
     rows = wps.map((w, i) => `<tr>
       <td class="num">${i + 1}</td>
       <td class="sys ${w.neutron ? "boost" : ""}">${escapeHtml(w.system)}${copyBtn(w.dest ? r.destination : w.system)}</td>
@@ -394,7 +447,7 @@ function renderRoute(r) {
     </tr>`).join("");
     legend = `<b>${wps.length}</b> waypoints: the neutron supercharge stops ★ + destination you plot in-game; <b>jumps</b> = hops to reach each (the game auto-plots them). <span class="fuel" style="position:relative">${FUEL}</span> fuel-scoopable.`;
   } else {
-    header = `<th class="num">#</th><th>type</th><th>system</th><th>star</th><th class="num">jumped</th><th class="num">left</th><th></th>`;
+    header = `<th class="num">#</th><th>type</th><th>system</th><th>star</th><th class="num">jumped</th><th class="num">left</th><th class="acts-head">actions</th>`;
     rows = r.jumps.map((j, i) => {
       const last = i === r.jumps.length - 1;
       const name = j.system ?? (last ? r.destination : "?");
@@ -423,6 +476,7 @@ function renderRoute(r) {
           <input type="checkbox" id="compactToggle" ${compactMode ? "checked" : ""} />
           <span class="track"></span><span>compact</span>
         </label>
+        <button id="exportJson" class="ghost" title="Download this route as spansh-format JSON (to import into other tools)">${downloadIconSvg} Export JSON</button>
         <button id="copyRoute" class="ghost" title="Copy the route systems, one per line">${copyIconSvg} Copy route</button>
       </div>
     </div>
@@ -541,7 +595,9 @@ $("out").addEventListener("click", (e) => {
     return;
   }
   const copyAll = e.target.closest("#copyRoute");
-  if (copyAll && lastOurs) { copyText(routeSystems().join("\n"), copyAll); }
+  if (copyAll && lastOurs) { copyText(routeSystems().join("\n"), copyAll); return; }
+  const exportBtn = e.target.closest("#exportJson");
+  if (exportBtn && lastOurs) { downloadSpanshJson(); }
 });
 // The compact switch is a checkbox: re-render on change.
 $("out").addEventListener("change", (e) => {

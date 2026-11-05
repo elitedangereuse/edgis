@@ -49,9 +49,20 @@ def test_route_warming_returns_503(monkeypatch):
     assert resp.headers.get("Retry-After") == "15"
 
 
+def _clear_route_cache():
+    # The dev Redis persists real routes between runs; clear so assertions on
+    # freshly-solved fields (e.g. source_coords) aren't served a stale entry.
+    import asyncio
+    try:
+        asyncio.run(systems._route_cache.clear())
+    except Exception:
+        pass
+
+
 def test_route_success_path(monkeypatch):
     _gate_future(monkeypatch)
     monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
+    _clear_route_cache()
     monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())  # truthy = "ready"
 
     async def fake_resolve(value):
@@ -112,6 +123,8 @@ def test_route_success_path(monkeypatch):
     assert body["access"] == "key"
     assert body["total_jumps"] == 2
     assert len(body["jumps"]) == 2
+    # Source coords are attached (for the spansh-format export's leading entry).
+    assert body["source_coords"] == {"x": 0.0, "y": 0.0, "z": 0.0}
 
 
 def test_route_coalesces_concurrent_duplicates(monkeypatch):

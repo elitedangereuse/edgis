@@ -3217,6 +3217,9 @@ class RouteResponse(BaseModel):
     beam_width: int
     solve_ms: float
     access: Optional[str] = None
+    # Source coordinates (the jumps carry their own; the start otherwise has
+    # none). Lets the UI emit a faithful spansh-format export (source first).
+    source_coords: Optional[dict] = None
     # Present only on POST /route when a ship loadout was supplied: the fuel
     # simulation verdict (safe/stranded, refuels, tank capacity in jumps).
     fuel: Optional[dict] = None
@@ -3399,6 +3402,7 @@ async def _solve_route_cached(
 
         result["source"] = src_name
         result["destination"] = dst_name
+        result["source_coords"] = {"x": src[0], "y": src[1], "z": src[2]}
         result["access"] = access_via
         _log_route_trace(
             "route", frm=src_name, to=dst_name, range=jump_range, status="ok",
