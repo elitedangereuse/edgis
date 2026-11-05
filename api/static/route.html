@@ -93,6 +93,10 @@
   #exportJson, #copyRoute { padding:.4rem .7rem; font-size:.8rem; }
   #copyRoute svg, #exportJson svg { width:14px; height:14px; vertical-align:-2px; margin-right:2px; }
   .go-logo { width:16px; height:16px; }
+  /* Plot button "warming up" state: spin the logo, stay visible while disabled. */
+  button#go.warming { opacity:.8; cursor:progress; }
+  button#go.warming .go-logo { animation:gospin .9s linear infinite; }
+  @keyframes gospin { to { transform:rotate(360deg); } }
   .cmp-logo { width:16px; height:16px; border-radius:50%; }
 
   .keyrow { margin-top:12px; font-size:12px; color:var(--muted); }
@@ -237,7 +241,7 @@
     <div class="actions">
       <button id="go">
         <img class="go-logo" src="/static/edgislogo.svg" alt="" />
-        Plot route
+        <span class="go-label">Plot route</span>
       </button>
       <button id="cmp" class="ghost" disabled title="Plot a route first">
         <img class="cmp-logo" src="/static/assets/spansh.png" alt="" /> vs Neutron
@@ -469,6 +473,30 @@ function renderAccessIndicator() {
   else { ind.hidden = true; }
 }
 
+// Plot button "warming up" state while the route index builds: spin the logo,
+// disable the button, and poll /route/status until ready -- the poll is the
+// "event" that reactivates the button.
+let indexPollTimer = null;
+function setPlotWarming(on) {
+  const go = $("go");
+  if (!go) return;
+  go.classList.toggle("warming", on);
+  go.disabled = on;
+  const label = go.querySelector(".go-label");
+  if (label) label.textContent = on ? "Warming up…" : "Plot route";
+  if (on) pollIndexReady();
+}
+function pollIndexReady() {
+  if (indexPollTimer) return;  // already polling
+  const check = async () => {
+    indexPollTimer = null;
+    let ready = false;
+    try { ready = !!(await fetch("/route/status").then(r => r.json())).index_ready; } catch (e) {}
+    if (ready) { setPlotWarming(false); loadStatus(); } else indexPollTimer = setTimeout(check, 3000);
+  };
+  indexPollTimer = setTimeout(check, 3000);
+}
+
 async function loadStatus() {
   try {
     const [st, me] = await Promise.all([
@@ -477,6 +505,7 @@ async function loadStatus() {
     ]);
     lastAccess = { st, me };
     renderAccessIndicator();
+    setPlotWarming(!st.index_ready);
     const pill = $("accessPill");
     if (st.public) { pill.textContent = "public"; pill.className = "pill ok"; }
     else if (me && me.patron) { pill.textContent = "patron ✓"; pill.className = "pill ok"; }
@@ -758,14 +787,16 @@ async function plot() {
       $("out").innerHTML = `<div class="msg warn"><b>Early access.</b> ${escapeHtml(d.message || "")} ${schedule} ${d.patreon ? `Join on <a href="${d.patreon}" target="_blank" rel="noopener">Patreon</a>` : ""} or add an access key above.</div>`;
       return;
     }
-    if (res.status === 503) { $("out").innerHTML = `<div class="msg warn">Route index is warming up, try again in ~15 s.</div>`; setTimeout(loadStatus, 4000); return; }
+    if (res.status === 503) { $("out").innerHTML = `<div class="msg warn">Route index is warming up — the Plot button re-enables automatically when it's ready.</div>`; setPlotWarming(true); return; }
     if (res.status === 404) { $("out").innerHTML = `<div class="msg err">${escapeHtml((await res.json()).detail || "System not found.")}</div>`; return; }
     if (res.status === 422) { const d = (await res.json()).detail || {}; $("out").innerHTML = `<div class="msg err">No route: ${escapeHtml(d.error || "")} ${escapeHtml(d.message || "")}</div>`; return; }
     if (!res.ok) { $("out").innerHTML = `<div class="msg err">Error ${res.status}.</div>`; return; }
     renderRoute(await res.json());
   } catch (e) { $("out").innerHTML = `<div class="msg err">${escapeHtml(e.message || String(e))}</div>`; }
   finally {
-    $("go").disabled = false; setBusy(false);
+    // Keep the button disabled if we entered the warming state (503).
+    if (!$("go").classList.contains("warming")) $("go").disabled = false;
+    setBusy(false);
     // Allow comparing against spansh after any attempt, including when EDGIS
     // couldn't find a route (spansh often can).
     if (lastQuery) { $("cmp").disabled = false; $("cmp").title = "Query spansh for this route";
