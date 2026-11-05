@@ -75,6 +75,16 @@
   button:disabled { opacity:.4; cursor:default; }
   button#go { background:var(--accent-blue); color:#fff; }
   .actions { display:flex; gap:10px; align-items:center; margin-top:16px; }
+  .actions button { justify-content:center; }
+  /* Stack the actions (Plot / vs Neutron / vs Galaxy) on narrow screens. */
+  @media (max-width:560px) {
+    .actions { flex-direction:column; align-items:stretch; }
+    .actions button { width:100%; }
+  }
+  /* The author `button { display:inline-flex }` rule otherwise beats the UA
+     [hidden] rule, so hidden buttons (vs Galaxy before a ship is set) still
+     showed. Re-assert it. */
+  button[hidden] { display:none; }
   /* Actions sit on their own row, right-aligned just above the table. */
   .summary-actions { display:flex; justify-content:flex-end; align-items:center; gap:14px; margin:10px 0 4px; }
   #copyRoute svg, #exportJson svg { width:15px; height:15px; vertical-align:-2px; margin-right:2px; }
@@ -189,25 +199,11 @@
     <div id="accessIndicator" class="access-ind" hidden></div>
     <div class="field grow">
       <label for="from"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" style="color:#1294d6" viewBox="0 0 2.6461 2.1167"><g transform="translate(-130.97 -85.46)" fill-rule="evenodd" stroke-width=".26458"><path d="m131.23 86.519a0.13229 0.13229 0 0 1 0.1323-0.13229h1.7973l-0.56806-0.5678a0.13246 0.13246 0 1 1 0.18732-0.18732l0.79375 0.79375a0.13229 0.13229 0 0 1 0 0.18732l-0.79375 0.79375a0.13246 0.13246 0 0 1-0.18732-0.18732l0.56806-0.5678h-1.7973a0.13229 0.13229 0 0 1-0.1323-0.13229"/><path d="m131.1 85.46a0.13229 0.13229 0 0 1 0.13229 0.13229v1.8521a0.1323 0.1323 0 0 1-0.26459 0v-1.8521a0.13229 0.13229 0 0 1 0.1323-0.13229"/></g></svg> From</label>
-      <div class="inputrow">
-        <input id="from" list="sysopts" placeholder="Sol" autocomplete="off" />
-        <button id="go">
-          <img class="go-logo" src="/static/edgislogo.svg" alt="" />
-          Plot route
-        </button>
-      </div>
+      <input id="from" list="sysopts" placeholder="Sol" autocomplete="off" />
     </div>
     <div class="field grow">
       <label for="to"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" style="color:#1294d6" viewBox="0 0 2.6461 2.1167"><g fill-rule="evenodd" stroke-width=".26458"><path d="m-0.0023 1.0583a0.13229 0.13229 0 0 1 0.13229-0.13229h1.7973l-0.56806-0.5678a0.13246 0.13246 0 1 1 0.18732-0.18732l0.79375 0.79375a0.13229 0.13229 0 0 1 0 0.18732l-0.79375 0.79375a0.13246 0.13246 0 0 1-0.18732-0.18732l0.56806-0.5678h-1.7973a0.13229 0.13229 0 0 1-0.13229-0.13229"/><path d="m2.5112 6.6e-6a0.13229 0.13229 0 0 1 0.13229 0.13229v1.8521a0.13229 0.13229 0 0 1-0.26458 0v-1.8521a0.13229 0.13229 0 0 1 0.13229-0.13229"/></g></svg> To</label>
-      <div class="inputrow">
-        <input id="to" list="sysopts" placeholder="Colonia" autocomplete="off" />
-        <button id="cmp" class="ghost" disabled title="Plot a route first">
-          <img class="cmp-logo" src="/static/assets/spansh.png" alt="" /> vs Neutron
-        </button>
-        <button id="cmpGalaxy" class="ghost" hidden disabled title="Import a ship and plot a route, then compare to spansh's fuel-aware Galaxy Plotter">
-          <img class="cmp-logo" src="/static/assets/spansh.png" alt="" /> vs Galaxy
-        </button>
-      </div>
+      <input id="to" list="sysopts" placeholder="Colonia" autocomplete="off" />
     </div>
     <div class="row">
       <div class="field grow"><label for="range">Jump range (LY)</label><input id="range" type="number" min="1" max="200" step="0.1" value="50" /></div>
@@ -220,7 +216,7 @@
     </div>
     <datalist id="sysopts"></datalist>
     <details class="shiprow">
-      <summary>Ship &amp; fuel (optional)</summary>
+      <summary id="shipSummary">Ship &amp; fuel (optional)</summary>
       <div style="margin-top:10px">
         <textarea id="loadout" spellcheck="false" placeholder="Paste your ship's loadout (SLEF / Journal JSON from EDSY &quot;Export&quot;, Coriolis, or the game) to plot fuel-aware…"></textarea>
         <div class="shipline">
@@ -234,6 +230,18 @@
         <span class="tiny">Importing a ship fills the jump range and checks every route against your tank and fuel scoop. Stored in this browser only.</span>
       </div>
     </details>
+    <div class="actions">
+      <button id="go">
+        <img class="go-logo" src="/static/edgislogo.svg" alt="" />
+        Plot route
+      </button>
+      <button id="cmp" class="ghost" disabled title="Plot a route first">
+        <img class="cmp-logo" src="/static/assets/spansh.png" alt="" /> vs Neutron
+      </button>
+      <button id="cmpGalaxy" class="ghost" hidden disabled title="Import a ship, plot a route, then compare to spansh's fuel-aware Galaxy Plotter">
+        <img class="cmp-logo" src="/static/assets/spansh.png" alt="" /> vs Galaxy
+      </button>
+    </div>
   </div>
 
   <div id="out"></div>
@@ -293,9 +301,39 @@ $("fuelSafe").checked = (localStorage.getItem(FUELSAFE_LS) ?? "1") === "1";
 $("fuelSafe").addEventListener("change", () =>
   localStorage.setItem(FUELSAFE_LS, $("fuelSafe").checked ? "1" : "0"));
 
+// Friendly ship label from a SLEF loadout, shown on the Ship & fuel summary so
+// it's visible even when collapsed. Prefers the commander's ship name.
+const SHIP_TYPES = {
+  cobramkv: "Cobra Mk V", cobramkiii: "Cobra Mk III", cobramkiv: "Cobra Mk IV",
+  anaconda: "Anaconda", asp: "Asp Explorer", asp_scout: "Asp Scout",
+  diamondbackxl: "Diamondback Explorer", diamondback: "Diamondback Scout",
+  krait_mkii: "Krait Mk II", krait_light: "Krait Phantom", mamba: "Mamba",
+  python: "Python", python_nx: "Python Mk II", mandalay: "Mandalay",
+  federation_corvette: "Federal Corvette", cutter: "Imperial Cutter",
+  type9: "Type-9 Heavy", type6: "Type-6", type7: "Type-7", type8: "Type-8",
+  sidewinder: "Sidewinder", dolphin: "Dolphin", orca: "Orca", corsair: "Corsair",
+};
+function shipLabel(loadout) {
+  try {
+    let d = JSON.parse(loadout);
+    if (Array.isArray(d)) d = d[0];
+    d = (d && d.data) || d;
+    const name = String(d.ShipName || "").trim();
+    const type = SHIP_TYPES[String(d.Ship || "").toLowerCase()]
+              || String(d.Ship || "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    if (name && type) return `${name} (${type})`;
+    return name || type || "ship";
+  } catch (e) { return "ship"; }
+}
+function setShipSummary() {
+  $("shipSummary").textContent = shipInfo
+    ? `Ship & fuel · ${shipLabel($("loadout").value)}`
+    : "Ship & fuel (optional)";
+}
+
 async function importShip() {
   const loadout = ($("loadout").value || "").trim();
-  if (!loadout) { shipInfo = null; localStorage.removeItem(SLEF_LS); $("shipInfo").textContent = ""; $("cmpGalaxy").hidden = true; return; }
+  if (!loadout) { shipInfo = null; localStorage.removeItem(SLEF_LS); $("shipInfo").textContent = ""; $("cmpGalaxy").hidden = true; setShipSummary(); return; }
   $("importShip").disabled = true;
   $("shipInfo").innerHTML = `<span class="tiny">Reading loadout…</span>`;
   try {
@@ -328,7 +366,7 @@ async function importShip() {
   } catch (e) {
     shipInfo = null;
     $("shipInfo").innerHTML = `<span class="bad">${escapeHtml(e.message || String(e))}</span>`;
-  } finally { $("importShip").disabled = false; $("cmpGalaxy").hidden = !shipInfo; }
+  } finally { $("importShip").disabled = false; $("cmpGalaxy").hidden = !shipInfo; setShipSummary(); }
 }
 
 // Bootstrap "bi-copy" icon + clipboard helper (matches the main EDGIS app).
