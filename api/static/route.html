@@ -109,6 +109,9 @@
                      border-radius:8px; padding:9px 11px; font-size:12px; font-family:var(--mono); outline:none; }
   textarea#loadout:focus { border-color:var(--accent); box-shadow:0 0 0 2px var(--dim-a); }
   .shipline { margin:8px 0; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .cargo-field { font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted);
+                 display:inline-flex; align-items:center; gap:6px; }
+  input#cargo { width:64px; padding:5px 8px; }
   #shipInfo { font-family:var(--mono); }
   .fuelbar { margin:12px 0 2px; font-size:13px; }
 
@@ -229,6 +232,9 @@
         <textarea id="loadout" spellcheck="false" placeholder="Paste your ship's loadout (SLEF / Journal JSON from EDSY &quot;Export&quot;, Coriolis, or the game) to plot fuel-aware…"></textarea>
         <div class="shipline">
           <button id="importShip" class="ghost" type="button">Import ship</button>
+          <label class="cargo-field" title="Cargo tonnage aboard — adds mass and shortens range.">Cargo (t)
+            <input id="cargo" type="number" min="0" step="1" value="0" />
+          </label>
           <span id="shipInfo" class="tiny"></span>
           <label class="switch" title="Fuel-safe: keep enough fuel to always divert to a scoopable star, so you're never stranded.">
             <input type="checkbox" id="fuelSafe" checked />
@@ -309,6 +315,15 @@ $("fuelSafe").checked = (localStorage.getItem(FUELSAFE_LS) ?? "1") === "1";
 $("fuelSafe").addEventListener("change", () =>
   localStorage.setItem(FUELSAFE_LS, $("fuelSafe").checked ? "1" : "0"));
 
+// Cargo tonnage (dynamic, not in the loadout): adds mass, shortens range.
+const CARGO_LS = "edgis_route_cargo";
+$("cargo").value = localStorage.getItem(CARGO_LS) || "0";
+const cargoTons = () => Math.max(0, Number($("cargo").value) || 0);
+$("cargo").addEventListener("change", () => {
+  localStorage.setItem(CARGO_LS, String(cargoTons()));
+  if (shipInfo) importShip();  // re-read the ship so the range reflects cargo
+});
+
 // Friendly ship label from a SLEF loadout, shown on the Ship & fuel summary so
 // it's visible even when collapsed. Prefers the commander's ship name.
 const SHIP_TYPES = {
@@ -348,7 +363,7 @@ async function importShip() {
     const res = await fetch("/route/ship", {
       method: "POST", credentials: "include",
       headers: { ...headers(), "Content-Type": "application/json" },
-      body: JSON.stringify({ loadout }),
+      body: JSON.stringify({ loadout, cargo: cargoTons() }),
     });
     if (!res.ok) {
       shipInfo = null;
@@ -736,7 +751,7 @@ async function compareGalaxy() {
     const res = await fetch("/spansh/galaxy-route", {
       method: "POST", credentials: "include",
       headers: { ...headers(), "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to, loadout }),
+      body: JSON.stringify({ from, to, loadout, cargo: cargoTons() }),
     });
     if (!res.ok) {
       const d = (await res.json().catch(() => ({}))).detail;
@@ -770,7 +785,7 @@ async function plot() {
         headers: { ...headers(), "Content-Type": "application/json" },
         body: JSON.stringify({
           from, to, range: Number(range), supercharge: Number(supercharge),
-          loadout, fuel_safe: $("fuelSafe").checked,
+          loadout, cargo: cargoTons(), fuel_safe: $("fuelSafe").checked,
         }),
       });
     } else {

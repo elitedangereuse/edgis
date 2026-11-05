@@ -110,10 +110,11 @@ class FuelParams:
     reserve_size: float
     has_scoop: bool
     max_jump_range: float       # from the loadout, for display/validation
+    cargo: float = 0.0          # cargo tonnage (dynamic; set per-request/plugin)
 
     def jump_range(self, fuel: float) -> float:
         """Max single-jump distance (ly) at this main-tank fuel level."""
-        mass = self.base_mass + max(0.0, fuel)
+        mass = self.base_mass + self.cargo + max(0.0, fuel)
         base = (self.optimal_mass / mass
                 * (self.max_fuel_per_jump / self.fuel_multiplier)
                 ** (1.0 / self.fuel_power))
@@ -121,7 +122,7 @@ class FuelParams:
 
     def fuel_cost(self, dist: float, fuel: float) -> float:
         """Fuel (tons) to jump ``dist`` ly at this fuel level (uncapped)."""
-        mass = self.base_mass + max(0.0, fuel)
+        mass = self.base_mass + self.cargo + max(0.0, fuel)
         d = max(0.0, dist - self.range_boost)
         return self.fuel_multiplier * ((d * mass) / self.optimal_mass) ** self.fuel_power
 
@@ -140,17 +141,19 @@ def _modifier(module: dict, label: str) -> Optional[float]:
     return None
 
 
-def parse_loadout(slef) -> Optional[FuelParams]:
+def parse_loadout(slef, cargo: float = 0.0) -> Optional[FuelParams]:
     """Parse an EDSY/SLEF export (list wrapper or bare Journal Loadout dict)
     into FuelParams, or None if it can't be read (bad JSON, no FSD, etc.).
-    Never raises on malformed input -- callers treat None as 'unreadable'."""
+    ``cargo`` (tonnage) is dynamic -- not in the loadout -- so it's passed in
+    (manual field or the EDMC plugin) and folded into mass. Never raises on
+    malformed input -- callers treat None as 'unreadable'."""
     try:
-        return _parse_loadout(slef)
+        return _parse_loadout(slef, cargo)
     except (ValueError, TypeError, KeyError, IndexError, AttributeError):
         return None
 
 
-def _parse_loadout(slef) -> Optional[FuelParams]:
+def _parse_loadout(slef, cargo: float = 0.0) -> Optional[FuelParams]:
     if isinstance(slef, str):
         slef = json.loads(slef)
     if isinstance(slef, list):
@@ -195,6 +198,7 @@ def _parse_loadout(slef) -> Optional[FuelParams]:
         reserve_size=reserve,
         has_scoop=has_scoop,
         max_jump_range=float(data.get("MaxJumpRange", 0.0)),
+        cargo=max(0.0, float(cargo or 0.0)),
     )
 
 
@@ -203,7 +207,10 @@ def ship_summary(params: "FuelParams") -> dict:
     import (fills the jump-range field, shows tank/scoop at a glance). The
     plotting range is the laden max (``max_jump_range`` from the loadout) when
     present, else the lightest-practical one-jump range."""
-    plot_range = params.max_jump_range or params.max_range_light()
+    # With cargo the effective max drops below the loadout's stated (unladen)
+    # range, so use the cargo-aware light range once cargo is aboard.
+    plot_range = (params.max_range_light() if params.cargo > 0
+                  else (params.max_jump_range or params.max_range_light()))
     return {
         "ok": True,
         "jump_range": round(plot_range, 2),
@@ -214,6 +221,7 @@ def ship_summary(params: "FuelParams") -> dict:
         "tank_jumps": tank_capacity_jumps(params),
         "has_scoop": params.has_scoop,
         "range_boost": params.range_boost,
+        "cargo": params.cargo,
     }
 
 
