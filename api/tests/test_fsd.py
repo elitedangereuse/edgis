@@ -76,3 +76,48 @@ def test_simulate_fuel_safe_with_periodic_scooping():
     sim = fsd.simulate_fuel(legs, p)
     assert sim["stranded_at"] is None
     assert sim["refuels"] >= 9
+
+
+def test_tank_capacity_jumps():
+    p = fsd.parse_loadout(COBRA_SLEF)  # tank 32, max fuel/jump 3.2
+    assert fsd.tank_capacity_jumps(p) == 10
+
+
+def test_fuel_report_flags_long_neutron_chain_unsafe():
+    p = fsd.parse_loadout(COBRA_SLEF)
+    chain = [_jump(60, neutron=True, spectral="N") for _ in range(20)]
+    rep = fsd.fuel_report(chain, p)
+    assert rep["safe"] is False
+    assert rep["stranded"] is True
+    assert rep["stranded_at"] is not None
+    assert "fuel_after" not in rep  # trimmed from the report
+
+
+def test_fuel_report_safe_with_periodic_scooping():
+    p = fsd.parse_loadout(COBRA_SLEF)
+    legs = [_jump(55, neutron=(i % 4 != 3),
+                  spectral="N" if i % 4 != 3 else "K (Yellow-Orange) Star")
+            for i in range(40)]
+    rep = fsd.fuel_report(legs, p)
+    assert rep["safe"] is True
+    assert rep["stranded"] is False
+    assert rep["max_dry_jumps"] < rep["tank_jumps"]
+
+
+def test_fuel_report_short_dry_run_within_margin_is_safe():
+    p = fsd.parse_loadout(COBRA_SLEF)  # capacity 10 jumps
+    # 8 neutron hops then a scoopable landing: under the 10-jump tank, safe.
+    legs = [_jump(50, neutron=True, spectral="N") for _ in range(8)]
+    legs.append(_jump(40, neutron=False, spectral="G (White-Yellow) Star"))
+    rep = fsd.fuel_report(legs, p)
+    assert rep["safe"] is True
+    assert rep["max_dry_jumps"] == 8
+
+
+def test_ship_summary_fills_range_and_flags_scoop():
+    p = fsd.parse_loadout(COBRA_SLEF)
+    s = fsd.ship_summary(p)
+    assert s["ok"] is True
+    assert abs(s["jump_range"] - 67.72) < 0.5
+    assert s["tank_jumps"] == 10
+    assert s["has_scoop"] is True

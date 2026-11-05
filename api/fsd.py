@@ -189,6 +189,25 @@ def parse_loadout(slef) -> Optional[FuelParams]:
     )
 
 
+def ship_summary(params: "FuelParams") -> dict:
+    """A compact, display-ready view of a parsed loadout for the UI's ship
+    import (fills the jump-range field, shows tank/scoop at a glance). The
+    plotting range is the laden max (``max_jump_range`` from the loadout) when
+    present, else the lightest-practical one-jump range."""
+    plot_range = params.max_jump_range or params.max_range_light()
+    return {
+        "ok": True,
+        "jump_range": round(plot_range, 2),
+        "max_jump_range": round(params.max_jump_range, 2),
+        "max_range_light": round(params.max_range_light(), 2),
+        "max_range_full": round(params.max_range_full(), 2),
+        "tank_size": params.tank_size,
+        "tank_jumps": tank_capacity_jumps(params),
+        "has_scoop": params.has_scoop,
+        "range_boost": params.range_boost,
+    }
+
+
 def is_scoopable(spectral: Optional[str]) -> bool:
     """KGBFOAM main-sequence stars are fuel-scoopable (matches the UI rule)."""
     return bool(spectral) and str(spectral).strip()[:1].upper() in "KGBFOAM"
@@ -236,4 +255,43 @@ def simulate_fuel(jumps, params: "FuelParams", start_fuel: Optional[float] = Non
         "max_dry_jumps": max_dry,
         "final_fuel": fuel,
         "fuel_after": fuel_after,
+    }
+
+
+def tank_capacity_jumps(params: "FuelParams") -> int:
+    """Conservative count of consecutive non-scoopable jumps a full tank
+    sustains, assuming each burns the worst case (a long boosted jump costs
+    ``max_fuel_per_jump``). Real dry runs may go one or two further on short
+    jumps; this is the floor used for the 'keep a divert margin' guarantee."""
+    if params.max_fuel_per_jump <= 0:
+        return 0
+    # +epsilon so 32 / 3.2 (= 9.999... in float) floors to 10, not 9.
+    return int(params.tank_size / params.max_fuel_per_jump + 1e-9)
+
+
+def fuel_report(jumps, params: "FuelParams", start_fuel: Optional[float] = None):
+    """Summarize a realized route's fuel safety for a given ship.
+
+    Builds on ``simulate_fuel`` (exact per-jump burn) and adds a verdict:
+    ``safe`` is True only when the route never strands AND its longest run of
+    non-scoopable landings stays within the tank's conservative capacity, i.e.
+    the commander can always divert to a scoopable star (the default-on
+    fuel-safe margin). Returns the simulation fields plus ``tank_jumps``,
+    ``stranded``, and ``safe``; ``fuel_after`` is dropped (per-leg detail the
+    UI does not need)."""
+    sim = simulate_fuel(jumps, params, start_fuel)
+    cap = tank_capacity_jumps(params)
+    stranded = sim["stranded_at"] is not None
+    safe = (not stranded) and (cap <= 0 or sim["max_dry_jumps"] < cap)
+    return {
+        "safe": safe,
+        "stranded": stranded,
+        "stranded_at": sim["stranded_at"],
+        "refuels": sim["refuels"],
+        "max_dry_jumps": sim["max_dry_jumps"],
+        "tank_jumps": cap,
+        "min_fuel": round(sim["min_fuel"], 2),
+        "final_fuel": round(sim["final_fuel"], 2),
+        "tank_size": params.tank_size,
+        "has_scoop": params.has_scoop,
     }
