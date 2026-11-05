@@ -292,6 +292,40 @@ def test_route_post_without_loadout_has_no_fuel(monkeypatch):
     assert resp.json().get("fuel") is None
 
 
+def test_resolve_endpoint_handles_edts_vector_with_buggy_bool(monkeypatch):
+    # EDTS predicts a Vector3 whose __bool__ returns a float (raises TypeError in
+    # a truthiness test). Resolving a not-in-DB procedural system must not 500.
+    import asyncio
+
+    class _BuggyVec:
+        def __init__(self, c):
+            self._c = c
+
+        def __bool__(self):
+            raise TypeError("__bool__ should return bool, returned float")
+
+        def __getitem__(self, i):
+            return self._c[i]
+
+    class _FakeSys:
+        position = _BuggyVec([1975.0, -305.0, -225.0])
+        name = "Col 173 Sector CK-Q d5-54"
+        mainstar = "K"
+
+    async def _no_db(_value):
+        return None
+
+    monkeypatch.setattr(systems, "fetch_system_from_db", _no_db)
+    monkeypatch.setattr(systems.system, "from_name", lambda *a, **k: _FakeSys())
+
+    coords, name, star = asyncio.run(
+        systems._resolve_route_endpoint("Col 173 Sector CK-Q d5-54")
+    )
+    assert coords == (1975.0, -305.0, -225.0)
+    assert name == "Col 173 Sector CK-Q d5-54"
+    assert star == "K"
+
+
 def test_route_patron_access(monkeypatch):
     _gate_future(monkeypatch)
     monkeypatch.delenv("ENTITLEMENT_KEYS", raising=False)
