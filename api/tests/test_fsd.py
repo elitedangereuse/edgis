@@ -88,6 +88,41 @@ def test_simulate_fuel_safe_with_periodic_scooping():
     assert sim["refuels"] >= 9
 
 
+def test_simulate_fuel_flags_over_range_jump():
+    p = fsd.parse_loadout(COBRA_SLEF)  # full-tank range ~58.65, light ~67.7
+    # A 63 ly regular jump is unreachable on a full tank (heavy ship -> short
+    # range), even though the tank has fuel to spare -- flagged over_range, NOT
+    # stranded (the two are different failures).
+    sim = fsd.simulate_fuel([_jump(63)], p)
+    assert sim["over_range_at"] == 0
+    assert sim["stranded_at"] is None
+
+
+def test_simulate_fuel_over_range_feasible_when_light():
+    p = fsd.parse_loadout(COBRA_SLEF)
+    # The same 63 ly jump IS makeable once the ship is light (longer range).
+    sim = fsd.simulate_fuel([_jump(63)], p, start_fuel=10.0)
+    assert sim["over_range_at"] is None
+    assert sim["stranded_at"] is None
+
+
+def test_simulate_fuel_boosted_jump_not_over_range():
+    p = fsd.parse_loadout(COBRA_SLEF)
+    # A 200 ly leap on a full tank is impossible unboosted but fine as a neutron
+    # supercharge (4x range), so it must NOT be flagged over_range.
+    boosted = {"distance_jumped": 200, "neutron_star": False,
+               "spectral": "G", "type": "boost"}
+    sim = fsd.simulate_fuel([boosted], p)
+    assert sim["over_range_at"] is None
+
+
+def test_fuel_report_over_range_route_is_unsafe():
+    p = fsd.parse_loadout(COBRA_SLEF)
+    rep = fsd.fuel_report([_jump(63)], p)
+    assert rep["over_range"] is True
+    assert rep["safe"] is False
+
+
 def test_tank_capacity_jumps():
     p = fsd.parse_loadout(COBRA_SLEF)  # tank 32, max fuel/jump 3.2
     assert fsd.tank_capacity_jumps(p) == 10
