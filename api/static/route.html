@@ -857,6 +857,7 @@ $("importShip").addEventListener("click", importShip);
 (function () {
   const q = new URLSearchParams(location.search);
   const from = q.get("from"); if (from) $("from").value = from;
+  const to = q.get("to"); if (to) $("to").value = to;
   const cargo = q.get("cargo");
   if (cargo != null && cargo !== "") { $("cargo").value = cargo; localStorage.setItem(CARGO_LS, String(cargoTons())); }
 })();

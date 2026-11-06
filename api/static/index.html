@@ -1133,6 +1133,7 @@
          const q = new URLSearchParams(globalThis.location.search);
          let src = '/plotter?embed=1';
          if (q.get('from')) src += '&from=' + encodeURIComponent(q.get('from'));
+         if (q.get('to')) src += '&to=' + encodeURIComponent(q.get('to'));
          if (q.get('cargo')) src += '&cargo=' + encodeURIComponent(q.get('cargo'));
          routeFrame.src = src;
        }
