@@ -44,6 +44,8 @@ TMP_CHANGED_FILE_LIST=$(mktemp)
     echo permit_zones.py
     echo requirements.txt
     echo static/route.html
+    echo static/route-panel.css
+    echo static/route-panel.js
     echo static/index.html
     echo static/galaxymap.html
     echo static/sysmap.html

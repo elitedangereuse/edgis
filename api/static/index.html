@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="/static/tailwind.css">
     <link rel="preload" href="/static/milkyway.css" as="style">
     <link rel="stylesheet" href="/static/milkyway.css">
+    <link rel="stylesheet" href="/static/route-panel.css" />
     <style>
      @keyframes neutron-search-wobble {
        0%, 100% { transform: rotate(0deg); }
@@ -41,7 +42,14 @@
      #resultTable.is-refreshing button,
      #resultTable.is-refreshing a,
      #resultTable.is-refreshing p,
-     #resultTable.is-refreshing span {
+     #resultTable.is-refreshing span,
+     .result-table.is-refreshing table,
+     .result-table.is-refreshing td,
+     .result-table.is-refreshing th,
+     .result-table.is-refreshing button,
+     .result-table.is-refreshing a,
+     .result-table.is-refreshing p,
+     .result-table.is-refreshing span {
        animation: neighbors-table-refresh 0.8s ease-out;
      }
     </style>
@@ -254,10 +262,69 @@
         </section>
 
         <section id="panel-route" class="tool-panel mt-6 hidden" role="tabpanel" aria-labelledby="toolMenuToggle" aria-hidden="true">
-          <iframe id="routeFrame" title="Route plotter"
-                  class="w-full block"
-                  style="border:0;width:100%;min-height:240px;display:block;background:transparent;"
-                  loading="lazy"></iframe>
+
+          <div id="banner" class="banner" hidden>
+            <div id="bannerMsg"></div>
+            <div class="bannerkey">
+              <label for="key">Early-access key</label>
+              <input id="key" type="password" placeholder="x-route-key" class="bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" style="max-width:16rem" />
+              <span class="tiny">Stored in this browser only.</span>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-3">
+            <div id="accessIndicator" class="access-ind" hidden></div>
+            <div class="flex flex-col gap-2">
+              <label for="from" class="text-sm font-semibold flex items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" style="color:#1294d6" viewBox="0 0 2.6461 2.1167"><g transform="translate(-130.97 -85.46)" fill-rule="evenodd" stroke-width=".26458"><path d="m131.23 86.519a0.13229 0.13229 0 0 1 0.1323-0.13229h1.7973l-0.56806-0.5678a0.13246 0.13246 0 1 1 0.18732-0.18732l0.79375 0.79375a0.13229 0.13229 0 0 1 0 0.18732l-0.79375 0.79375a0.13246 0.13246 0 0 1-0.18732-0.18732l0.56806-0.5678h-1.7973a0.13229 0.13229 0 0 1-0.1323-0.13229"/><path d="m131.1 85.46a0.13229 0.13229 0 0 1 0.13229 0.13229v1.8521a0.1323 0.1323 0 0 1-0.26459 0v-1.8521a0.13229 0.13229 0 0 1 0.1323-0.13229"/></g></svg> From</label>
+              <input id="from" list="sysopts" placeholder="Sol" autocomplete="off" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+            </div>
+            <div class="flex flex-col gap-2">
+              <label for="to" class="text-sm font-semibold flex items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" style="color:#1294d6" viewBox="0 0 2.6461 2.1167"><g fill-rule="evenodd" stroke-width=".26458"><path d="m-0.0023 1.0583a0.13229 0.13229 0 0 1 0.13229-0.13229h1.7973l-0.56806-0.5678a0.13246 0.13246 0 1 1 0.18732-0.18732l0.79375 0.79375a0.13229 0.13229 0 0 1 0 0.18732l-0.79375 0.79375a0.13246 0.13246 0 0 1-0.18732-0.18732l0.56806-0.5678h-1.7973a0.13229 0.13229 0 0 1-0.13229-0.13229"/><path d="m2.5112 6.6e-6a0.13229 0.13229 0 0 1 0.13229 0.13229v1.8521a0.13229 0.13229 0 0 1-0.26458 0v-1.8521a0.13229 0.13229 0 0 1 0.13229-0.13229"/></g></svg> To</label>
+              <input id="to" list="sysopts" placeholder="Colonia" autocomplete="off" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+            </div>
+            <div class="flex flex-wrap gap-3">
+              <div class="flex-1 flex flex-col gap-2" style="min-width:180px"><label for="range" class="text-sm font-semibold">Jump range (LY)</label><input id="range" type="number" min="1" max="200" step="0.1" value="50" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" /></div>
+              <div class="flex-1 flex flex-col gap-2" style="min-width:180px"><label for="ship" class="text-sm font-semibold">Supercharge</label>
+                <select id="ship" title="Neutron supercharge: standard ships 4x, Caspian Explorer Mk II SCO drive 6x" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2">
+                  <option value="4">Standard (4x)</option>
+                  <option value="6">Caspian SCO (6x)</option>
+                </select>
+              </div>
+            </div>
+            <datalist id="sysopts"></datalist>
+            <details class="shiprow">
+              <summary id="shipSummary">Ship &amp; fuel (optional)</summary>
+              <div style="margin-top:10px">
+                <textarea id="loadout" spellcheck="false" placeholder="Paste your ship's loadout (SLEF / Journal JSON from EDSY &quot;Export&quot;, Coriolis, or the game) to plot fuel-aware…" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" style="min-height:140px;resize:vertical;font-family:var(--mono)"></textarea>
+                <div class="shipline">
+                  <button id="importShip" class="tool-action" type="button">Import ship</button>
+                  <label class="cargo-field" title="Cargo tonnage aboard — adds mass and shortens range.">Cargo (t)
+                    <input id="cargo" type="number" min="0" step="1" value="0" class="bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" style="width:64px" />
+                  </label>
+                  <span id="shipInfo" class="tiny"></span>
+                  <label class="switch" title="Fuel-safe: keep enough fuel to always divert to a scoopable star, so you're never stranded.">
+                    <input type="checkbox" id="fuelSafe" checked />
+                    <span class="track"></span><span>fuel-safe</span>
+                  </label>
+                </div>
+                <span class="tiny">Importing a ship fills the jump range and checks every route against your tank and fuel scoop. Stored in this browser only.</span>
+              </div>
+            </details>
+            <div class="actions">
+              <button id="go">
+                <img class="go-logo" src="/static/edgislogo.svg" alt="" />
+                <span class="go-label">Plot route</span>
+              </button>
+              <button id="cmp" class="ghost" disabled title="Plot a route first">
+                <img class="cmp-logo" src="/static/assets/spansh.png" alt="" /> vs Neutron
+              </button>
+              <button id="cmpGalaxy" class="ghost" hidden disabled title="Import a ship, plot a route, then compare to spansh's fuel-aware Galaxy Plotter">
+                <img class="cmp-logo" src="/static/assets/spansh.png" alt="" /> vs Galaxy
+              </button>
+            </div>
+          </div>
+
+          <div id="out"></div>
         </section>
 
         <div id="status" class="mt-4 text-sm text-gray-400"></div>
@@ -865,14 +932,17 @@
      }
 
      let activeApiRequests = 0;
-     // The embedded Route plotter reports its busy state so the hero logo
-     // animates while plotting, just like the index's own queries.
+     // The native Route plotter panel (route-panel.js) reports its busy state so
+     // the hero logo animates while plotting, just like the index's own queries.
      let routeToolBusy = false;
 
      function updateHeroLogoSearchingState() {
        if (!heroLogo) return;
        heroLogo.classList.toggle('is-searching', activeApiRequests > 0 || routeToolBusy);
      }
+
+     // Bridge so the Route plotting panel (route-panel.js) can drive the hero logo.
+     window.edgisSetRouteBusy = function (on) { routeToolBusy = !!on; updateHeroLogoSearchingState(); };
 
      function beginApiRequest() {
        activeApiRequests += 1;
@@ -1123,34 +1193,14 @@
          }
        }
 
-       // Route plotting is an embedded iframe panel that carries its own results,
-       // so hide the shared result/quote area and lazy-load the plotter on first use.
+       // Route plotting is a native panel (panel-route) that carries its own
+       // results (route-panel.js), so hide the shared result/quote area for it.
        const routeActive = resolved === 'route';
        if (result) result.classList.toggle('hidden', routeActive);
-       const routeFrame = document.getElementById('routeFrame');
-       if (routeActive && routeFrame && !routeFrame.getAttribute('src')) {
-         // Forward From/cargo deep-link params (EDMC plugin hand-off) to the plotter.
-         const q = new URLSearchParams(globalThis.location.search);
-         let src = '/plotter?embed=1';
-         if (q.get('from')) src += '&from=' + encodeURIComponent(q.get('from'));
-         if (q.get('to')) src += '&to=' + encodeURIComponent(q.get('to'));
-         if (q.get('cargo')) src += '&cargo=' + encodeURIComponent(q.get('cargo'));
-         routeFrame.src = src;
-       }
+       // Initialize the route panel (status/auth/ship fetches) only when it's
+       // first opened, not on every index load.
+       if (routeActive && window.edgisInitRoutePanel) window.edgisInitRoutePanel();
      }
-
-     // The embedded plotter reports its content height (iframe autosize) and its
-     // busy state (animate the hero logo while plotting, like other queries).
-     globalThis.addEventListener('message', (event) => {
-       if (event.origin !== globalThis.location.origin) return;
-       const d = event.data || {};
-       const frame = document.getElementById('routeFrame');
-       if (d.edgisRouteHeight && frame) frame.style.height = Math.max(240, Math.ceil(d.edgisRouteHeight)) + 'px';
-       if (typeof d.edgisPlotting === 'boolean') {
-         routeToolBusy = d.edgisPlotting;
-         updateHeroLogoSearchingState();
-       }
-     });
 
      const initialTab = 'lookup';
      activateTab(initialTab);
@@ -2865,5 +2915,6 @@
        return 0;
      }
     </script>
+    <script src="/static/route-panel.js" defer></script>
   </body>
 </html>
