@@ -230,7 +230,8 @@ def is_scoopable(spectral: Optional[str]) -> bool:
     return bool(spectral) and str(spectral).strip()[:1].upper() in "KGBFOAM"
 
 
-def simulate_fuel(jumps, params: "FuelParams", start_fuel: Optional[float] = None):
+def simulate_fuel(jumps, params: "FuelParams", start_fuel: Optional[float] = None,
+                  boost_mult: float = 4.0):
     """Simulate the tank along a realized route to find fuel stranding.
 
     Starts full (or ``start_fuel``), burns ``fuel_cost`` per jump, and refuels to
@@ -239,9 +240,16 @@ def simulate_fuel(jumps, params: "FuelParams", start_fuel: Optional[float] = Non
     or None), the lowest fuel reached, the number of refuels, and the longest run
     of jumps between scoopable refuels. This is the basis for the default-on
     'fuel-safe' guarantee (keep margin to divert to a scoopable star).
-    """
+
+    Also reports ``over_range_at``: the first leg whose distance exceeds the
+    range achievable at the current fuel level (``jump_range(fuel)``, times
+    ``boost_mult`` on a supercharged leg). A heavier tank jumps shorter, so a
+    long bridge jump right after a brim refuel can be physically unmakeable even
+    with fuel to spare -- a separate failure from running dry, and one a scoop
+    detour makes worse (more fuel = more mass = less range)."""
     fuel = params.tank_size if start_fuel is None else float(start_fuel)
     stranded_at = None
+    over_range_at = None
     fuel_after = []
     dry = 0
     max_dry = 0
@@ -251,6 +259,11 @@ def simulate_fuel(jumps, params: "FuelParams", start_fuel: Optional[float] = Non
         if d <= 1e-9:
             fuel_after.append(fuel)
             continue
+        reach = params.jump_range(fuel) * (
+            boost_mult if j.get("type") == "boost" else 1.0
+        )
+        if d > reach + 1e-6 and over_range_at is None:
+            over_range_at = i  # unreachable at this fuel level (too heavy)
         cost = min(params.fuel_cost(d, fuel), params.max_fuel_per_jump)
         if cost > fuel + 1e-9:
             stranded_at = i
@@ -267,6 +280,7 @@ def simulate_fuel(jumps, params: "FuelParams", start_fuel: Optional[float] = Non
             max_dry = max(max_dry, dry)
     return {
         "stranded_at": stranded_at,
+        "over_range_at": over_range_at,
         "min_fuel": min(fuel_after) if fuel_after else fuel,
         "refuels": refuels,
         "max_dry_jumps": max_dry,
@@ -314,6 +328,7 @@ def enforce_fuel_safety(
     fetch_scoopable_near: Callable,
     src_name: Optional[str] = None,
     is_locked: Optional[Callable[[str], bool]] = None,
+    boost_mult: float = 4.0,
 ):
     """Insert scoop-stop detours so a realized route never strands (the default-on
     'fuel-safe' guarantee). Walks the legs tracking the exact tank; before any
@@ -358,9 +373,16 @@ def enforce_fuel_safety(
             leg.get("spectral")
         )
         if d > 1e-9:
+            reach_now = params.jump_range(fuel) * (
+                boost_mult if leg.get("type") == "boost" else 1.0
+            )
             cost = min(params.fuel_cost(d, fuel), maxf)
             breaks_margin = (not landing_scoop) and (fuel - cost) < reserve - 1e-9
-            if (cost > fuel + 1e-9 or breaks_margin) and unsafe_at is None:
+            if d > reach_now + 1e-6 and unsafe_at is None:
+                # Over-range: unmakeable at this (heavy) fuel level; a scoop
+                # detour only adds mass and shortens range, so it can't fix it.
+                unsafe_at = len(out)
+            elif (cost > fuel + 1e-9 or breaks_margin) and unsafe_at is None:
                 reach = params.jump_range(fuel)
                 s = _nearest_scoopable(
                     fetch_scoopable_near, cur["pos"], reach, is_locked
@@ -418,24 +440,30 @@ def tank_capacity_jumps(params: "FuelParams") -> int:
     return int(params.tank_size / params.max_fuel_per_jump + 1e-9)
 
 
-def fuel_report(jumps, params: "FuelParams", start_fuel: Optional[float] = None):
+def fuel_report(jumps, params: "FuelParams", start_fuel: Optional[float] = None,
+                boost_mult: float = 4.0):
     """Summarize a realized route's fuel safety for a given ship.
 
     Builds on ``simulate_fuel`` (exact per-jump burn) and adds a verdict:
-    ``safe`` is True only when the route never strands AND its longest run of
-    non-scoopable landings stays within the tank's conservative capacity, i.e.
-    the commander can always divert to a scoopable star (the default-on
-    fuel-safe margin). Returns the simulation fields plus ``tank_jumps``,
-    ``stranded``, and ``safe``; ``fuel_after`` is dropped (per-leg detail the
-    UI does not need)."""
-    sim = simulate_fuel(jumps, params, start_fuel)
+    ``safe`` is True only when the route never strands, has no jump that is
+    physically unreachable at the fuel it is attempted with (``over_range``),
+    AND its longest run of non-scoopable landings stays within the tank's
+    conservative capacity, i.e. the commander can always divert to a scoopable
+    star (the default-on fuel-safe margin). Returns the simulation fields plus
+    ``tank_jumps``, ``stranded``, ``over_range``, and ``safe``; ``fuel_after``
+    is dropped (per-leg detail the UI does not need)."""
+    sim = simulate_fuel(jumps, params, start_fuel, boost_mult)
     cap = tank_capacity_jumps(params)
     stranded = sim["stranded_at"] is not None
-    safe = (not stranded) and (cap <= 0 or sim["max_dry_jumps"] < cap)
+    over_range = sim["over_range_at"] is not None
+    safe = ((not stranded) and (not over_range)
+            and (cap <= 0 or sim["max_dry_jumps"] < cap))
     return {
         "safe": safe,
         "stranded": stranded,
         "stranded_at": sim["stranded_at"],
+        "over_range": over_range,
+        "over_range_at": sim["over_range_at"],
         "refuels": sim["refuels"],
         "max_dry_jumps": sim["max_dry_jumps"],
         "tank_jumps": cap,

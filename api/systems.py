@@ -3156,7 +3156,8 @@ def _solve_route_sync(
         )
 
 
-def _enforce_fuel_sync(base_result: dict, params, fuel_safe: bool) -> dict:
+def _enforce_fuel_sync(base_result: dict, params, fuel_safe: bool,
+                       boost_mult: float = 4.0) -> dict:
     """Run the fuel layer on an already-solved (ship-agnostic) route: when
     ``fuel_safe``, insert scoop-stop detours so it never strands, then attach a
     fuel report. Runs in a DB task because scoop stops need a scoopable-star
@@ -3190,6 +3191,7 @@ def _enforce_fuel_sync(base_result: dict, params, fuel_safe: bool) -> dict:
                 legs, src_t, dst, params, fetch_scoopable_near,
                 src_name=base_result.get("source"),
                 is_locked=permit_zones.is_locked,
+                boost_mult=boost_mult,
             )
         flown = sum(leg["distance_jumped"] for leg in new_legs)
         straight = base_result.get("straight_line_ly") or 0.0
@@ -3199,18 +3201,20 @@ def _enforce_fuel_sync(base_result: dict, params, fuel_safe: bool) -> dict:
         result["bridge_jumps"] = sum(1 for leg in new_legs if leg["type"] == "regular")
         result["total_distance_ly"] = flown
         result["efficiency"] = (straight / flown) if flown else 0.0
-        fuel = fsd.fuel_report(new_legs, params)
+        fuel = fsd.fuel_report(new_legs, params, boost_mult=boost_mult)
         fuel["scoop_stops"] = info["scoop_stops"]
         fuel["enforced"] = True
         # Post-enforcement the route keeps an exact one-jump reserve, so the
-        # authoritative verdict is "didn't actually strand AND every needed
-        # scoop was insertable" -- not fuel_report's conservative max_dry<cap
-        # proxy (which a fully-used tank can trip even when safe).
-        fuel["safe"] = (not fuel["stranded"]) and info["safe"]
+        # authoritative verdict is "didn't actually strand, no jump is
+        # over-range, AND every needed scoop was insertable" -- not
+        # fuel_report's conservative max_dry<cap proxy (which a fully-used tank
+        # can trip even when safe).
+        fuel["safe"] = ((not fuel["stranded"]) and (not fuel["over_range"])
+                        and info["safe"])
         result["fuel"] = fuel
     else:
         # Report-only (fuel-safe off, or no source coords to anchor detours).
-        result["fuel"] = fsd.fuel_report(legs, params)
+        result["fuel"] = fsd.fuel_report(legs, params, boost_mult=boost_mult)
         result["fuel"]["enforced"] = False
     return result
 
@@ -3556,7 +3560,7 @@ async def plot_route_post(
         # Fuel layer (enforcement + report) runs in a DB task: scoop-stop
         # insertion needs a scoopable-star query. Copies the cached geometry.
         result = await _run_db_task(
-            _enforce_fuel_sync, result, params, req.fuel_safe
+            _enforce_fuel_sync, result, params, req.fuel_safe, req.supercharge
         )
     return result
 
