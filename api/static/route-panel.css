@@ -55,8 +55,8 @@
 #panel-route .summary-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center;
                    gap:8px 12px; margin:10px 0 4px; }
 #panel-route .summary-actions .switch { margin-right:auto; }   /* compact toggle stays left */
-#panel-route #exportBtn, #panel-route #copyRoute { padding:.4rem .7rem; font-size:.8rem; }
-#panel-route #copyRoute svg, #panel-route #exportBtn svg { width:14px; height:14px; vertical-align:-2px; margin-right:2px; }
+#panel-route #exportBtn, #panel-route #copyRoute, #panel-route #shareRoute { padding:.4rem .7rem; font-size:.8rem; }
+#panel-route #copyRoute svg, #panel-route #exportBtn svg, #panel-route #shareRoute svg { width:14px; height:14px; vertical-align:-2px; margin-right:2px; }
 /* Export format picker sits next to the Export button in the actions row. */
 #panel-route .export-group { display:inline-flex; align-items:center; gap:6px; }
 #panel-route #exportFmt { background:rgba(255,255,255,.04); color:var(--text);
