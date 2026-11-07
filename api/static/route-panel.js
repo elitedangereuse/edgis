@@ -172,6 +172,7 @@ function actsCell(name, x, y, z) {
 
 let lastOurs = null, lastQuery = null;
 let compactMode = localStorage.getItem("edgis_route_compact") !== "0";  // default compact (like spansh)
+let exportFmt = localStorage.getItem("edgis_route_export_fmt") === "csv" ? "csv" : "json";
 
 // Collapse to the systems you actually plot in-game: neutron supercharge stops
 // + the destination, with the jump count to reach each (the game auto-plots the
@@ -340,13 +341,37 @@ function toSpanshRoute(r) {
   } };
 }
 
-function downloadSpanshJson() {
+// Full per-jump route as CSV (every leg, source first), for spreadsheets. Not
+// compacted like the view: gives all legs with a neutron/boost flag to filter.
+function toCsvRoute(r) {
+  const r2 = (n) => Math.round(Number(n || 0) * 100) / 100;
+  const esc = (v) => {
+    const s = String(v == null ? "" : v);
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const sc = r.source_coords || {};
+  const header = ["#", "system", "star", "neutron", "type", "jumped_ly", "left_ly", "x", "y", "z"];
+  const rows = [[1, r.source, "", "no", "source", 0, r2(r.straight_line_ly), sc.x ?? "", sc.y ?? "", sc.z ?? ""]];
+  r.jumps.forEach((j, i) => {
+    const last = i === r.jumps.length - 1;
+    const star = j.spectral || (j.neutron_star ? "Neutron Star" : "");
+    rows.push([i + 2, j.system ?? (last ? r.destination : ""), star,
+      j.neutron_star ? "yes" : "no", j.type || "regular",
+      r2(j.distance_jumped), r2(j.distance_left), j.x ?? "", j.y ?? "", j.z ?? ""]);
+  });
+  return [header, ...rows].map((row) => row.map(esc).join(",")).join("\r\n");
+}
+
+function downloadRoute(fmt) {
   if (!lastOurs) return;
   const slug = (s) => String(s || "route").trim().replace(/[^\w.-]+/g, "_");
-  const blob = new Blob([JSON.stringify(toSpanshRoute(lastOurs), null, 2)], { type: "application/json" });
+  const name = `route_${slug(lastOurs.source)}_to_${slug(lastOurs.destination)}`;
+  const csv = fmt === "csv";
+  const data = csv ? toCsvRoute(lastOurs) : JSON.stringify(toSpanshRoute(lastOurs), null, 2);
+  const blob = new Blob([data], { type: csv ? "text/csv;charset=utf-8" : "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = `route_${slug(lastOurs.source)}_to_${slug(lastOurs.destination)}.json`;
+  a.href = url; a.download = `${name}.${csv ? "csv" : "json"}`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
@@ -400,7 +425,13 @@ function renderRoute(r) {
         <input type="checkbox" id="compactToggle" ${compactMode ? "checked" : ""} />
         <span class="track"></span><span>compact</span>
       </label>
-      <button id="exportJson" class="ghost" title="Download this route as spansh-format JSON (to import into other tools)">${downloadIconSvg} Export JSON</button>
+      <span class="export-group">
+        <select id="exportFmt" title="Export format" aria-label="Export format">
+          <option value="json"${exportFmt === "json" ? " selected" : ""}>spansh JSON</option>
+          <option value="csv"${exportFmt === "csv" ? " selected" : ""}>CSV</option>
+        </select>
+        <button id="exportBtn" class="ghost" title="Download this route in the selected format">${downloadIconSvg} Export</button>
+      </span>
       <button id="copyRoute" class="ghost" title="Copy the route systems, one per line">${copyIconSvg} Copy route</button>
     </div>
     <div class="tablewrap result-table">
@@ -577,16 +608,22 @@ $("out").addEventListener("click", (e) => {
   }
   const copyAll = e.target.closest("#copyRoute");
   if (copyAll && lastOurs) { copyText(routeSystems().join("\n"), copyAll); return; }
-  const exportBtn = e.target.closest("#exportJson");
-  if (exportBtn && lastOurs) { downloadSpanshJson(); }
+  const exportBtn = e.target.closest("#exportBtn");
+  if (exportBtn && lastOurs) { downloadRoute(exportFmt); }
 });
-// The compact switch is a checkbox: re-render on change.
+// The compact switch and export-format picker both change on input.
 $("out").addEventListener("change", (e) => {
   const toggle = e.target.closest("#compactToggle");
   if (toggle && lastOurs) {
     compactMode = toggle.checked;
     localStorage.setItem("edgis_route_compact", compactMode ? "1" : "0");
     renderRoute(lastOurs);
+    return;
+  }
+  const fmt = e.target.closest("#exportFmt");
+  if (fmt) {
+    exportFmt = fmt.value === "csv" ? "csv" : "json";
+    localStorage.setItem("edgis_route_export_fmt", exportFmt);
   }
 });
 
