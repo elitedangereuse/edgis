@@ -269,6 +269,80 @@ def test_route_post_attaches_fuel_report(monkeypatch):
     assert body["fuel"]["enforced"] is False
 
 
+def test_route_post_inflight_scoop_avoids_divert_stops(monkeypatch):
+    # Every neutron waypoint has a scoopable companion in-system (the annotation
+    # query returns one), so enforcement inserts NO divert stops and the chain is
+    # safe at its original length.
+    _gate_future(monkeypatch)
+    monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
+    _clear_route_cache()
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
+
+    async def fake_resolve(value):
+        coords = {"A": (0.0, 0.0, 0.0), "B": (1200.0, 0.0, 0.0)}
+        return coords[value], value, None
+
+    monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
+
+    def fake_solve(src, dst, jump_range, beam_width, boost_mult=4.0):
+        legs, x = [], 0.0
+        for i in range(20):
+            x += 60.0
+            legs.append({"system": f"N{i}", "id64": None, "x": x, "y": 0.0,
+                         "z": 0.0, "spectral": "N", "type": "boost",
+                         "neutron_star": True, "distance_jumped": 60.0,
+                         "distance_left": 1200.0 - x})
+        return {
+            "jump_range": jump_range, "boost_range": 4 * jump_range,
+            "straight_line_ly": 1200.0, "total_jumps": 20, "neutron_jumps": 20,
+            "bridge_jumps": 0, "total_distance_ly": 1200.0, "efficiency": 1.0,
+            "beam_width": 3, "solve_ms": 1.0, "jumps": legs,
+        }
+
+    monkeypatch.setattr(systems, "_solve_route_sync", fake_solve)
+
+    class _FakeCursor:
+        def execute(self, sql, params):
+            if "distance_from_arrival_ls" in sql:
+                # Every queried neutron system has a scoopable companion at 25 Ls.
+                # params[0] is lowercased (the query matches lower(name)); the real
+                # DB returns the original-case name, so echo "N0" not "n0".
+                names = params[0]
+                self._rows = [(n[:1].upper() + n[1:], 25.0) for n in names]
+            else:
+                self._rows = []  # should never need a divert
+
+        def fetchall(self):
+            return self._rows
+
+        def close(self):
+            pass
+
+    class _FakeCtx:
+        def __enter__(self):
+            return type("C", (), {"cursor": lambda self: _FakeCursor()})()
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(systems, "_db_connection", lambda: _FakeCtx())
+
+    resp = client.post(
+        "/route",
+        json={"from": "A", "to": "B", "range": 50, "loadout": COBRA_SLEF,
+              "fuel_safe": True},
+        headers={"x-route-key": "k"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["fuel"]["enforced"] is True
+    assert body["fuel"]["scoop_stops"] == 0        # no diverts
+    assert body["fuel"]["safe"] is True
+    assert body["total_jumps"] == 20               # chain untouched
+    assert all(j.get("inflight_scoop") for j in body["jumps"])
+    assert body["jumps"][0]["scoop_ls"] == 25.0
+
+
 def test_route_post_fuel_safe_inserts_scoop_stops(monkeypatch):
     # fuel_safe=True drives enforcement: a stranding neutron chain gets scoop
     # detours inserted. A fake DB supplies a scoopable star near each query.
@@ -302,9 +376,15 @@ def test_route_post_fuel_safe_inserts_scoop_stops(monkeypatch):
 
     class _FakeCursor:
         def execute(self, sql, params):
-            # params = (pattern, x, y, z, radius, x, y, z); scoopable 20 ly off.
-            self._rows = [(params[1], params[2] + 20.0, params[3], "ScoopK",
-                           "K (Yellow-Orange) Star")]
+            if "distance_from_arrival_ls" in sql:
+                # In-system refuel lookup: no neutron here has a companion, so
+                # enforcement still has to insert divert scoop-stops.
+                self._rows = []
+            else:
+                # Scoopable-near query: params = (pattern, x, y, z, radius, ...);
+                # a scoopable star 20 ly off.
+                self._rows = [(params[1], params[2] + 20.0, params[3], "ScoopK",
+                               "K (Yellow-Orange) Star")]
 
         def fetchall(self):
             return self._rows

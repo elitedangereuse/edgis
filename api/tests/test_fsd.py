@@ -236,6 +236,45 @@ def test_enforce_fuel_safety_respects_permit_lock():
     assert info["safe"] is False
 
 
+def test_is_refuel_landing_covers_scoopable_and_inflight():
+    # Plain scoopable primary.
+    assert fsd.is_refuel_landing({"neutron_star": False, "spectral": "K"}) is True
+    # Neutron with no companion -> not a refuel landing.
+    assert fsd.is_refuel_landing({"neutron_star": True, "spectral": "N"}) is False
+    # Neutron flagged with an in-system scoopable companion -> refuel landing.
+    assert fsd.is_refuel_landing(
+        {"neutron_star": True, "spectral": "N", "inflight_scoop": True}
+    ) is True
+
+
+def test_simulate_fuel_safe_when_neutrons_have_inflight_scoops():
+    p = fsd.parse_loadout(COBRA_SLEF)  # ~10-jump tank
+    # A 20-neutron chain strands on its own, but if every neutron carries a
+    # scoopable companion you brim in-system each hop -> never strands.
+    chain = []
+    for i in range(20):
+        chain.append({"distance_jumped": 60.0, "neutron_star": True,
+                      "spectral": "N", "inflight_scoop": True})
+    sim = fsd.simulate_fuel(chain, p)
+    assert sim["stranded_at"] is None
+    assert sim["refuels"] == 20
+    assert sim["max_dry_jumps"] == 0
+
+
+def test_enforce_fuel_safety_no_divert_when_neutrons_scoop_inflight():
+    p = fsd.parse_loadout(COBRA_SLEF)
+    legs, dst = _neutron_chain(20)  # would strand and force divert stops
+    for leg in legs:
+        leg["inflight_scoop"] = True  # each neutron refuels in-system
+    new_legs, info = fsd.enforce_fuel_safety(
+        legs, (0.0, 0.0, 0.0), dst, p, _scoop_fetch(), src_name="Start"
+    )
+    assert info["safe"] is True
+    assert info["scoop_stops"] == 0          # no +2-jump diverts needed
+    assert len(new_legs) == len(legs)        # chain untouched
+    assert not any(j["system"] == "ScoopK" for j in new_legs)
+
+
 def test_cargo_reduces_range_and_is_reported():
     p0 = fsd.parse_loadout(COBRA_SLEF)
     p6 = fsd.parse_loadout(COBRA_SLEF, cargo=6)
