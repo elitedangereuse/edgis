@@ -80,6 +80,21 @@ const SHIP_TYPES = {
   typex_3: "Alliance Challenger", viper: "Viper Mk III", viper_mkiv: "Viper Mk IV",
   vulture: "Vulture",
 };
+// Neutron supercharge multiplier for a loadout: 6x only on the Caspian Explorer
+// (explorer_nx) fitted with the Mk II overcharge-booster SCO drive; 4x for every
+// other ship/FSD. The MKII drive currently exists only as 8A on the Caspian, but
+// require BOTH so a future MKII variant on another hull does not wrongly get 6x.
+function detectSupercharge(loadout) {
+  try {
+    let d = JSON.parse(loadout);
+    if (Array.isArray(d)) d = d[0];
+    d = (d && d.data) || d;
+    const ship = String(d.Ship || "").toLowerCase();
+    const fsd = (d.Modules || []).find(m => m.Slot === "FrameShiftDrive");
+    const item = String((fsd && fsd.Item) || "").toLowerCase();
+    return (ship === "explorer_nx" && item.includes("overchargebooster_mkii")) ? "6" : "4";
+  } catch (e) { return "4"; }
+}
 function shipLabel(loadout) {
   try {
     let d = JSON.parse(loadout);
@@ -140,6 +155,12 @@ async function importShip() {
     localStorage.setItem(SLEF_LS, loadout);
     $("range").value = shipInfo.jump_range;
     localStorage.setItem(RANGE_LS, String(shipInfo.jump_range));
+    // Auto-set the neutron supercharge for the imported ship (6x only on the
+    // Caspian Explorer's Mk II SCO drive, 4x otherwise), so swapping ships does
+    // not silently keep a stale 6x (tester got caught by this with a Mandalay).
+    const sc = detectSupercharge(loadout);
+    $("ship").value = sc;
+    localStorage.setItem(SHIP_LS, sc);
     // Plots at the full-tank range (always feasible); note the lighter max so
     // the lower-than-EDSY number isn't a surprise (range grows as fuel burns).
     const upTo = (shipInfo.max_range_light && shipInfo.max_range_light > shipInfo.jump_range + 0.1)
@@ -842,6 +863,14 @@ $("go").addEventListener("click", plot);
 $("cmp").addEventListener("click", compareSpansh);
 $("cmpGalaxy").addEventListener("click", compareGalaxy);
 $("importShip").addEventListener("click", importShip);
+// Swap departure and arrival, then re-plot if both are set (tester: "to go back
+// I have to retype the systems").
+$("swapFromTo").addEventListener("click", () => {
+  const f = $("from").value;
+  $("from").value = $("to").value;
+  $("to").value = f;
+  if ($("from").value.trim() && $("to").value.trim()) plot();
+});
 [$("from"), $("to"), $("range")].forEach(el => el.addEventListener("keydown", e => { if (e.key === "Enter") plot(); }));
 // Lazy init: defer the network calls (/route/status, /auth/me, remembered-ship
 // /route/ship) and URL-param prefill until the Route tab is first opened, so
