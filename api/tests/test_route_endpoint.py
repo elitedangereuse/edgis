@@ -204,7 +204,8 @@ def test_route_ship_import_parses_loadout(monkeypatch):
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["ok"] is True
-    assert abs(body["jump_range"] - 67.72) < 0.5
+    # Full-tank range (feasible by construction), not the lightest-tank max.
+    assert abs(body["jump_range"] - 60.34) < 0.5
     assert body["tank_jumps"] == 10
     assert body["has_scoop"] is True
 
