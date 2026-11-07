@@ -947,8 +947,16 @@ def _finalize(
         if leg["neutron_star"] and not leg.get("spectral"):
             leg["spectral"] = "N"
     total_flown = sum(leg["distance_jumped"] for leg in legs)
-    neutron_jumps = sum(1 for leg in legs if leg["type"] == "boost")
-    bridge_jumps = sum(1 for leg in legs if leg["type"] == "regular")
+    # A non-boosted jump that LANDS on a neutron is boarding (or re-boarding) the
+    # neutron highway, not a void-crossing bridge. Count only the regular hops
+    # that never reach a neutron as bridges, so the count matches what a pilot
+    # sees in-game (the truly sparse-space crossings); everything else -- boosts
+    # plus those entry hops -- is a neutron-chain jump. (Reported by a tester:
+    # the jump onto the first neutron was wrongly tallied as a 3rd bridge.)
+    bridge_jumps = sum(
+        1 for leg in legs if leg["type"] == "regular" and not leg["neutron_star"]
+    )
+    neutron_jumps = len(legs) - bridge_jumps
     return {
         "jump_range": jump_range,
         "boost_range": boost,
