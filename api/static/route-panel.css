@@ -55,8 +55,18 @@
 #panel-route .summary-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center;
                    gap:8px 12px; margin:10px 0 4px; }
 #panel-route .summary-actions .switch { margin-right:auto; }   /* compact toggle stays left */
-#panel-route #exportJson, #panel-route #copyRoute { padding:.4rem .7rem; font-size:.8rem; }
-#panel-route #copyRoute svg, #panel-route #exportJson svg { width:14px; height:14px; vertical-align:-2px; margin-right:2px; }
+#panel-route #exportBtn, #panel-route #copyRoute { padding:.4rem .7rem; font-size:.8rem; }
+#panel-route #copyRoute svg, #panel-route #exportBtn svg { width:14px; height:14px; vertical-align:-2px; margin-right:2px; }
+/* Export format picker sits next to the Export button in the actions row. */
+#panel-route .export-group { display:inline-flex; align-items:center; gap:6px; }
+#panel-route #exportFmt { background:rgba(255,255,255,.04); color:var(--text);
+         border:1px solid var(--line); border-radius:.5rem; padding:.34rem .5rem; font-size:.8rem; cursor:pointer; }
+/* Native <select> popups render on the OS layer and don't inherit the glass
+   panel, so the unselected option showed as near-invisible light text on the
+   UA's white. Force a dark background + light text on every panel dropdown. */
+#panel-route select { color:var(--text); }
+#panel-route select option { background:#0c1218; color:var(--text); }
+#panel-route select option:checked { background:#107CB2; color:#fff; }
 #panel-route .go-logo { width:16px; height:16px; }
 /* Plot button "warming up" state: the logo rotates slowly, stays visible while
    disabled. The mark's blades converge above box centre, so pivot on that hub
