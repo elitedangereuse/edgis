@@ -48,6 +48,7 @@ TMP_CHANGED_FILE_LIST=$(mktemp)
     echo static/route-panel.js
     echo static/index.html
     echo static/galaxymap.html
+    echo static/neutron-cloud.html
     echo static/sysmap.html
     echo static/sysmap-body-palette.html
     echo static/sysmap.css
