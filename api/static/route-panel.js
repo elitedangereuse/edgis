@@ -362,37 +362,62 @@ function riskBadge(info) {
     : "";
 }
 
-// Convert our route to spansh's neutron-plotter result JSON so it imports into
+// Convert our route to spansh's neutron-plotter job JSON so it imports into
 // tools that read spansh routes. system_jumps = source first (jumps 0), then
-// each neutron supercharge stop + the destination, with `jumps` = hops to reach
-// it (same grouping as the compact view). total_jumps excludes the source.
+// each neutron supercharge stop + the destination; `jumps` = hops to reach it
+// (same grouping as the compact view); total_jumps excludes the source. Mirrors
+// spansh's exact shape: the job wrapper (created_at/job/parameters/state/
+// status/updated_at), string-typed range/efficiency/supercharge_multiplier,
+// and full-precision distances -- distance_jumped is the straight-line distance
+// between consecutive WAYPOINTS (not summed flown LY), distance_left the
+// straight-line to the destination, matching a real spansh result field-for-
+// field. (id64 is null: our realized legs don't carry it yet -- backend gap.)
 function toSpanshRoute(r) {
-  const r2 = (n) => Math.round(Number(n || 0) * 100) / 100;
-  const sc = r.source_coords || {};
+  const dist3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+  const sc = r.source_coords || { x: 0, y: 0, z: 0 };
+  const rangeStr = String(r.jump_range);
+  // boost_range / jump_range = the neutron supercharge multiplier (4 or 6).
+  const scMul = String(r.boost_range && r.jump_range
+    ? Math.round(r.boost_range / r.jump_range) : 4);
   const wps = [{
     system: r.source, id64: null,
     x: sc.x ?? null, y: sc.y ?? null, z: sc.z ?? null,
-    distance_jumped: 0, distance_left: r2(r.straight_line_ly), jumps: 0, neutron_star: false,
+    distance_jumped: 0, distance_left: r.straight_line_ly, jumps: 0, neutron_star: false,
   }];
-  let jumps = 0, ly = 0;
+  let jumps = 0, prev = { x: sc.x ?? 0, y: sc.y ?? 0, z: sc.z ?? 0 };
   r.jumps.forEach((j, i) => {
-    jumps++; ly += j.distance_jumped;
+    jumps++;
     const last = i === r.jumps.length - 1;
     if (j.neutron_star || last) {
+      const here = { x: j.x, y: j.y, z: j.z };
       wps.push({
         system: j.system ?? (last ? r.destination : ""),
         id64: j.id64 ?? null, x: j.x, y: j.y, z: j.z,
-        distance_jumped: r2(ly), distance_left: r2(j.distance_left),
+        distance_jumped: dist3(here, prev), distance_left: j.distance_left,
         jumps, neutron_star: !!j.neutron_star,
       });
-      jumps = 0; ly = 0;
+      jumps = 0; prev = here;
     }
   });
-  return { result: {
-    source_system: r.source, destination_system: r.destination,
-    distance: r2(r.straight_line_ly), range: r.jump_range, efficiency: 60,
-    total_jumps: wps.length - 1, system_jumps: wps,
-  } };
+  const now = new Date().toISOString().slice(0, 19);  // "YYYY-MM-DDTHH:MM:SS"
+  const job = (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : "").toUpperCase();
+  // efficiency is spansh's plot parameter (0-100), not our achieved ratio; emit
+  // its default so the shape matches (we don't use an efficiency search knob).
+  const efficiency = "60";
+  const parameters = {
+    efficiency, from: r.source, range: rangeStr,
+    supercharge_multiplier: scMul, to: r.destination, via: [],
+  };
+  return {
+    created_at: now, job,
+    parameters,
+    result: {
+      destination_system: r.destination, distance: r.straight_line_ly,
+      efficiency, job, range: rangeStr, source_system: r.source,
+      system_jumps: wps, total_jumps: wps.length - 1, via: [],
+    },
+    state: "completed", status: "ok", updated_at: now,
+  };
 }
 
 // Full per-jump route as CSV (every leg, source first), for spreadsheets. Not
