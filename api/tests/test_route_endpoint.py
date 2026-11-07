@@ -71,7 +71,7 @@ def test_route_success_path(monkeypatch):
 
     monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
 
-    def fake_solve(src, dst, jump_range, beam_width, boost_mult=4.0):
+    def fake_solve(src, dst, jump_range, beam_width, boost_mult=4.0, companion_max_ls=0.0):
         return {
             "jump_range": jump_range,
             "boost_range": 4 * jump_range,
@@ -127,6 +127,43 @@ def test_route_success_path(monkeypatch):
     assert body["source_coords"] == {"x": 0.0, "y": 0.0, "z": 0.0}
 
 
+def test_route_companion_max_ls_threaded_and_arrival_ls_passthrough(monkeypatch):
+    _gate_future(monkeypatch)
+    monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
+    _clear_route_cache()
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
+
+    async def fake_resolve(value):
+        return {"A": (0.0, 0.0, 0.0), "B": (0.0, 0.0, 360.0)}[value], value, None
+
+    monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
+
+    seen = {}
+
+    def fake_solve(src, dst, jump_range, beam_width, boost_mult=4.0, companion_max_ls=0.0):
+        seen["cml"] = companion_max_ls
+        return {
+            "jump_range": jump_range, "boost_range": 4 * jump_range,
+            "straight_line_ly": 360.0, "total_jumps": 1, "neutron_jumps": 1,
+            "bridge_jumps": 0, "total_distance_ly": 360.0, "efficiency": 1.0,
+            "beam_width": 3, "solve_ms": 1.0,
+            "jumps": [{
+                "system": "N1", "id64": None, "x": 0.0, "y": 0.0, "z": 200.0,
+                "type": "boost", "neutron_star": True, "distance_jumped": 200.0,
+                "distance_left": 160.0, "arrival_ls": 50.0,
+            }],
+        }
+
+    monkeypatch.setattr(systems, "_solve_route_sync", fake_solve)
+
+    resp = client.get("/route", params={"from": "A", "to": "B", "range": 50,
+                                        "companion_max_ls": 100},
+                      headers={"x-route-key": "k"})
+    assert resp.status_code == 200, resp.text
+    assert seen["cml"] == 100.0                       # threaded to the solver
+    assert resp.json()["jumps"][0]["arrival_ls"] == 50.0  # annotation passed through
+
+
 def test_route_coalesces_concurrent_duplicates(monkeypatch):
     import asyncio
     import time
@@ -144,7 +181,7 @@ def test_route_coalesces_concurrent_duplicates(monkeypatch):
 
     calls = {"n": 0}
 
-    def fake_solve(src, dst, jump_range, beam_width, boost_mult=4.0):
+    def fake_solve(src, dst, jump_range, beam_width, boost_mult=4.0, companion_max_ls=0.0):
         calls["n"] += 1
         time.sleep(0.3)  # hold the solve so the second request overlaps it
         return {
@@ -233,7 +270,7 @@ def test_route_post_attaches_fuel_report(monkeypatch):
 
     monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
 
-    def fake_solve(src, dst, jump_range, beam_width, boost_mult=4.0):
+    def fake_solve(src, dst, jump_range, beam_width, boost_mult=4.0, companion_max_ls=0.0):
         return {
             "jump_range": jump_range, "boost_range": 4 * jump_range,
             "straight_line_ly": 80.0, "total_jumps": 2, "neutron_jumps": 1,
@@ -284,7 +321,7 @@ def test_route_post_inflight_scoop_avoids_divert_stops(monkeypatch):
 
     monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
 
-    def fake_solve(src, dst, jump_range, beam_width, boost_mult=4.0):
+    def fake_solve(src, dst, jump_range, beam_width, boost_mult=4.0, companion_max_ls=0.0):
         legs, x = [], 0.0
         for i in range(20):
             x += 60.0
@@ -357,7 +394,7 @@ def test_route_post_fuel_safe_inserts_scoop_stops(monkeypatch):
 
     monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
 
-    def fake_solve(src, dst, jump_range, beam_width, boost_mult=4.0):
+    def fake_solve(src, dst, jump_range, beam_width, boost_mult=4.0, companion_max_ls=0.0):
         legs, x = [], 0.0
         for i in range(20):  # 20 neutron boosts -> strands a ~10-jump tank
             x += 60.0

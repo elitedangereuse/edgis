@@ -113,6 +113,7 @@ def _beam(
     jump_range: float,
     width: int,
     boost_mult: float = 4.0,
+    allowed: Optional[np.ndarray] = None,
 ) -> tuple[str, list[int]]:
     """Layered beam search over neutrons; returns ("ok"|"stuck", path).
 
@@ -147,6 +148,8 @@ def _beam(
             for m in neighbors:
                 if m in visited or m in candidates:
                     continue
+                if allowed is not None and not allowed[m]:
+                    continue  # companion neutron beyond the opted-in Ls cap
                 candidates[m] = parent_node
         if not candidates:
             return "stuck", _reconstruct(parent, best)
@@ -206,8 +209,9 @@ def _leg(
     left: float,
     id64: Optional[int] = None,
     spectral: Optional[str] = None,
+    arrival_ls: Optional[float] = None,
 ) -> dict:
-    return {
+    leg = {
         "type": leg_type,
         "system": name,
         "id64": id64,
@@ -219,6 +223,12 @@ def _leg(
         "distance_jumped": float(dist),
         "distance_left": float(left),
     }
+    # Only set for a companion neutron (boost source you supercruise to in-system
+    # before charging); the UI shows it as "neutron at X Ls". Main-star neutrons
+    # and bridge stars leave it unset.
+    if arrival_ls is not None and float(arrival_ls) > 0.0:
+        leg["arrival_ls"] = float(arrival_ls)
+    return leg
 
 
 def solve_route(
@@ -229,19 +239,30 @@ def solve_route(
     fetch_stars_within: FetchStarsWithin,
     width: Optional[int] = None,
     boost_mult: float = 4.0,
+    companion_max_ls: float = 0.0,
 ) -> dict:
     """Plot a neutron-boosted route from ``src`` to ``dst``.
 
     Returns a dict with ``jumps`` (one per hop) and totals. Raises
     :class:`RouteError` when no legal route exists (e.g. the destination sits
     in a void with no star within one jump). ``boost_mult`` is the neutron
-    supercharge multiplier (4.0 normal, 6.0 Caspian).
+    supercharge multiplier (4.0 normal, 6.0 Caspian). ``companion_max_ls``
+    mirrors :func:`graph_route`: companion neutrons (arrival_ls > 0) are usable
+    only within that supercruise distance (0 = main-star neutrons only, the
+    default and a no-op on a main-only index).
     """
 
     coords = index.coords
     tree = index.tree
     names = index.names
     id64 = index.id64
+    # Which index nodes this request may board: all main-star neutrons, plus
+    # companion neutrons within the opted-in Ls cap. None when nothing is
+    # filtered out (keeps the hot path allocation-free and behaviour-identical).
+    als = getattr(index, "arrival_ls", None)
+    allowed = None
+    if als is not None and len(als) and float(als.max()) > float(companion_max_ls):
+        allowed = als <= float(companion_max_ls)
     boost = boost_mult * jump_range
     src_v = np.asarray(src, dtype=np.float64)
     dst_v = np.asarray(dst, dtype=np.float64)
@@ -265,6 +286,8 @@ def solve_route(
     # ---- Entry: board the first neutron (bridge through the field if needed).
     pos = list(src)
     entry_within = tree.query_ball_point(pos, jump_range)
+    if allowed is not None:
+        entry_within = [n for n in entry_within if allowed[n]]
     if entry_within:
         start = min(entry_within, key=lambda n: _dist(coords[n], dst_v))
         legs.append(
@@ -288,12 +311,16 @@ def solve_route(
         # neutron-sparse start (the bubble / the x~=0 / z~=0 voids).
         knn = np.atleast_1d(tree.query(pos, k=min(200, index.count))[1])
         forward = [
-            int(n) for n in knn if _dist(coords[int(n)], dst_v) < straight - 1e-6
+            int(n) for n in knn
+            if _dist(coords[int(n)], dst_v) < straight - 1e-6
+            and (allowed is None or allowed[int(n)])
         ]
         entry_target = tuple(coords[forward[0]]) if forward else tuple(coords[int(knn[0])])
         while True:
             _check_caps()
             near = tree.query_ball_point(pos, jump_range)
+            if allowed is not None:
+                near = [n for n in near if allowed[n]]
             if near:
                 start = min(near, key=lambda n: _dist(coords[n], dst_v))
                 legs.append(
@@ -333,7 +360,9 @@ def solve_route(
 
     # ---- Boost march, bridging across voids until we arrive.
     for _safety in range(_MAX_TOTAL_JUMPS):
-        status, path = _beam(index, starts, dst_v, jump_range, width, boost_mult)
+        status, path = _beam(
+            index, starts, dst_v, jump_range, width, boost_mult, allowed=allowed
+        )
 
         prev = coords[path[0]]
         for node in path[1:]:
@@ -347,6 +376,7 @@ def solve_route(
                     True,
                     _dist(c, dst_v),
                     id64[node],
+                    arrival_ls=float(index.arrival_ls[node]),
                 )
             )
             prev = c
@@ -859,6 +889,8 @@ def _realize_graph(
                 name, tuple(tgt), d, is_neut,
                 float(np.linalg.norm(tgt - dst_v)),
                 id64=idv, spectral="N" if is_neut else None,
+                arrival_ls=(float(index.arrival_ls[gid])
+                            if is_neut and gid >= 0 else None),
             )
         )
         pos = tgt
