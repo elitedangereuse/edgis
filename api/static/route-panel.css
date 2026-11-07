@@ -70,6 +70,10 @@
 #panel-route tr.risk-row > td:first-child { box-shadow:inset 3px 0 0 var(--err); }
 #panel-route tr.risk-row .sys { color:var(--err); font-weight:600; }
 
+/* Departure system shown as row #0 (like spansh): mark it as the origin. */
+#panel-route tr.src-row .sys { color:var(--accent); }
+#panel-route tr.src-row > td:first-child { color:var(--muted); }
+
 /* Native <select> popups render on the OS layer and don't inherit the glass
    panel, so the unselected option showed as near-invisible light text on the
    UA's white. Force a dark background + light text on every panel dropdown. */

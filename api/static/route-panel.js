@@ -455,6 +455,24 @@ function downloadRoute(fmt) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// The departure system as row #0 (like spansh): jumps/LY from source are 0,
+// "left" is the straight-line distance to the destination. Compact has three
+// numeric columns (jumps/LY/left), full has two (jumped/left).
+function sourceRow(r, compact) {
+  const sc = r.source_coords || {};
+  const left = fmt(r.straight_line_ly, 0);
+  const nums = compact
+    ? `<td class="num">0</td><td class="num">0</td><td class="num">${left}</td>`
+    : `<td class="num">0</td><td class="num">${left}</td>`;
+  return `<tr class="src-row">
+      <td class="num">0</td>
+      <td class="sys">${escapeHtml(r.source)}${copyBtn(r.source)}</td>
+      <td></td>
+      ${nums}
+      ${actsCell(r.source, sc.x, sc.y, sc.z)}
+    </tr>`;
+}
+
 function renderRoute(r) {
   lastOurs = r;
   let header, rows, legend;
@@ -474,6 +492,7 @@ function renderRoute(r) {
       ${actsCell(w.dest ? r.destination : w.system, w.x, w.y, w.z)}
     </tr>`;
     }).join("");
+    rows = sourceRow(r, true) + rows;
     legend = "";
   } else {
     header = `<th class="num">#</th><th>system</th><th>star</th><th class="num">jumped</th><th class="num">left</th><th class="acts-head">actions</th>`;
@@ -490,6 +509,7 @@ function renderRoute(r) {
       ${actsCell(j.system ?? (last ? r.destination : null), j.x, j.y, j.z)}
     </tr>`;
     }).join("");
+    rows = sourceRow(r, false) + rows;
     legend = "";
   }
   $("out").innerHTML = `
