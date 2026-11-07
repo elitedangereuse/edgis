@@ -3158,43 +3158,100 @@ def _solve_route_sync(
         )
 
 
+# In-system refuel distance: a neutron waypoint whose system carries a scoopable
+# KGBFOAM companion within this many light-seconds lets the commander refuel
+# WITHOUT a divert jump (supercruise to the companion, scoop, jump out, chain
+# unbroken). ~100 Ls matches spansh's "secondary scoopable near arrival" rule.
+INFLIGHT_SCOOP_MAX_LS = 100.0
+
+
+def _annotate_inflight_scoops(legs: list, conn, max_ls: float = INFLIGHT_SCOOP_MAX_LS) -> int:
+    """Flag neutron-landing legs whose system has a scoopable companion within
+    ``max_ls`` (read from the bodies table), so the fuel layer treats them as
+    in-highway refuels instead of forcing a +2-jump divert. Mutates ``legs`` in
+    place -- pass COPIES, never the cached geometry. Returns the count flagged."""
+    names = sorted({
+        leg.get("system") for leg in legs
+        if leg.get("neutron_star") and leg.get("system")
+    })
+    if not names:
+        return 0
+    cursor = conn.cursor()
+    try:
+        # lower(name) = ANY hits idx_systems_big_name_lower_prefix (a plain
+        # name= ANY seq-scans the 40M-row table, ~34s). substr(name,1,1) IN
+        # KGBFOAM mirrors fsd.is_scoopable (first-letter rule). Result keeps the
+        # DB's original-case name, which matches the leg's `system`.
+        cursor.execute(
+            "SELECT s.name, min(b.distance_from_arrival_ls) "
+            "FROM systems_big s "
+            "JOIN bodies b ON b.system_id64 = s.id64 "
+            "JOIN star_types st ON b.star_type_id = st.id "
+            "WHERE lower(s.name) = ANY(%s) "
+            "AND b.distance_from_arrival_ls > 0 "
+            "AND b.distance_from_arrival_ls <= %s "
+            "AND substr(st.name, 1, 1) IN ('K','G','B','F','O','A','M') "
+            "GROUP BY s.name",
+            ([n.lower() for n in names], float(max_ls)),
+        )
+        scoop_ls = {row[0]: float(row[1]) for row in cursor.fetchall()}
+    finally:
+        cursor.close()
+    count = 0
+    for leg in legs:
+        if leg.get("neutron_star") and leg.get("system") in scoop_ls:
+            leg["inflight_scoop"] = True
+            leg["scoop_ls"] = scoop_ls[leg["system"]]
+            count += 1
+    return count
+
+
 def _enforce_fuel_sync(base_result: dict, params, fuel_safe: bool,
                        boost_mult: float = 4.0) -> dict:
-    """Run the fuel layer on an already-solved (ship-agnostic) route: when
-    ``fuel_safe``, insert scoop-stop detours so it never strands, then attach a
-    fuel report. Runs in a DB task because scoop stops need a scoopable-star
-    query. The base geometry stays cached and untouched; this returns a copy."""
+    """Run the fuel layer on an already-solved (ship-agnostic) route: annotate
+    neutron waypoints that allow an in-system refuel, then (when ``fuel_safe``)
+    insert scoop-stop detours so it never strands, and attach a fuel report. Runs
+    in a DB task because scoop detours and the companion lookup need queries. The
+    base geometry stays cached and untouched; this works on copies."""
     result = dict(base_result)
-    legs = base_result.get("jumps") or []
+    legs = [dict(leg) for leg in (base_result.get("jumps") or [])]
     src = base_result.get("source_coords")
-    if fuel_safe and src and legs:
-        dst = (legs[-1]["x"], legs[-1]["y"], legs[-1]["z"])
-        src_t = (src["x"], src["y"], src["z"])
+    do_enforce = bool(fuel_safe and src and legs)
+    has_neutron = any(leg.get("neutron_star") for leg in legs)
+    new_legs = None
+    info = None
+    if do_enforce or has_neutron:
         with _db_connection() as conn:
+            if has_neutron:
+                _annotate_inflight_scoops(legs, conn)
+            if do_enforce:
+                dst = (legs[-1]["x"], legs[-1]["y"], legs[-1]["z"])
+                src_t = (src["x"], src["y"], src["z"])
 
-            def fetch_scoopable_near(pos, radius):
-                cursor = conn.cursor()
-                try:
-                    cursor.execute(
-                        "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name, "
-                        "mainstar FROM systems_big "
-                        "WHERE mainstar ~ %s AND ST_3DDWithin("
-                        "coords, ST_MakePoint(%s, %s, %s), %s) "
-                        "ORDER BY ST_3DDistance(coords, ST_MakePoint(%s, %s, %s)) "
-                        "LIMIT 48",
-                        ("^[KGBFOAM]", pos[0], pos[1], pos[2], radius,
-                         pos[0], pos[1], pos[2]),
-                    )
-                    return cursor.fetchall()
-                finally:
-                    cursor.close()
+                def fetch_scoopable_near(pos, radius):
+                    cursor = conn.cursor()
+                    try:
+                        cursor.execute(
+                            "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name, "
+                            "mainstar FROM systems_big "
+                            "WHERE mainstar ~ %s AND ST_3DDWithin("
+                            "coords, ST_MakePoint(%s, %s, %s), %s) "
+                            "ORDER BY ST_3DDistance(coords, ST_MakePoint(%s, %s, %s)) "
+                            "LIMIT 48",
+                            ("^[KGBFOAM]", pos[0], pos[1], pos[2], radius,
+                             pos[0], pos[1], pos[2]),
+                        )
+                        return cursor.fetchall()
+                    finally:
+                        cursor.close()
 
-            new_legs, info = fsd.enforce_fuel_safety(
-                legs, src_t, dst, params, fetch_scoopable_near,
-                src_name=base_result.get("source"),
-                is_locked=permit_zones.is_locked,
-                boost_mult=boost_mult,
-            )
+                new_legs, info = fsd.enforce_fuel_safety(
+                    legs, src_t, dst, params, fetch_scoopable_near,
+                    src_name=base_result.get("source"),
+                    is_locked=permit_zones.is_locked,
+                    boost_mult=boost_mult,
+                )
+    if do_enforce:
         flown = sum(leg["distance_jumped"] for leg in new_legs)
         straight = base_result.get("straight_line_ly") or 0.0
         result["jumps"] = new_legs
@@ -3216,6 +3273,8 @@ def _enforce_fuel_sync(base_result: dict, params, fuel_safe: bool,
         result["fuel"] = fuel
     else:
         # Report-only (fuel-safe off, or no source coords to anchor detours).
+        # Use the annotated copies so in-system refuels show in the report + UI.
+        result["jumps"] = legs
         result["fuel"] = fsd.fuel_report(legs, params, boost_mult=boost_mult)
         result["fuel"]["enforced"] = False
     return result
@@ -3266,6 +3325,10 @@ class RouteJump(BaseModel):
     neutron_star: bool
     distance_jumped: float
     distance_left: float
+    # In-system refuel: set on a neutron waypoint that has a scoopable companion
+    # within supercruise range (scoop_ls), so you refuel without a divert jump.
+    inflight_scoop: Optional[bool] = None
+    scoop_ls: Optional[float] = None
 
 
 class RouteResponse(BaseModel):

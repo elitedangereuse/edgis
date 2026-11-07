@@ -241,6 +241,19 @@ def is_scoopable(spectral: Optional[str]) -> bool:
     return bool(spectral) and str(spectral).strip()[:1].upper() in "KGBFOAM"
 
 
+def is_refuel_landing(leg: dict) -> bool:
+    """True when the commander can brim the tank at this landing WITHOUT leaving
+    the neutron highway. Either the star jumped to is itself scoopable, or it is a
+    neutron whose system carries a scoopable companion within supercruise range --
+    arrive at the neutron, supercharge, hop in-system to the companion to scoop,
+    jump out, chain unbroken. The companion case is flagged ``inflight_scoop`` by
+    the DB layer that reads the bodies table (plain-Python fuel functions have no
+    DB access, so they trust the annotation)."""
+    if leg.get("inflight_scoop"):
+        return True
+    return (not leg.get("neutron_star")) and is_scoopable(leg.get("spectral"))
+
+
 def simulate_fuel(jumps, params: "FuelParams", start_fuel: Optional[float] = None,
                   boost_mult: float = 4.0):
     """Simulate the tank along a realized route to find fuel stranding.
@@ -282,7 +295,7 @@ def simulate_fuel(jumps, params: "FuelParams", start_fuel: Optional[float] = Non
             break
         fuel -= cost
         fuel_after.append(fuel)
-        if not j.get("neutron_star") and is_scoopable(j.get("spectral")):
+        if is_refuel_landing(j):
             fuel = params.tank_size
             refuels += 1
             dry = 0
@@ -380,9 +393,9 @@ def enforce_fuel_safety(
 
     for leg in legs:
         d = float(leg.get("distance_jumped", 0.0) or 0.0)
-        landing_scoop = (not leg.get("neutron_star")) and is_scoopable(
-            leg.get("spectral")
-        )
+        # A refuel landing = scoopable primary OR a neutron with a scoopable
+        # companion in supercruise range (in-highway refuel, no divert jump).
+        landing_scoop = is_refuel_landing(leg)
         if d > 1e-9:
             reach_now = params.jump_range(fuel) * (
                 boost_mult if leg.get("type") == "boost" else 1.0
