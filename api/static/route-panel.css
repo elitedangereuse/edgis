@@ -72,7 +72,12 @@
 
 /* Departure system shown as row #0 (like spansh): mark it as the origin. */
 #panel-route tr.src-row .sys { color:var(--accent); }
-#panel-route tr.src-row > td:first-child { color:var(--muted); }
+
+/* Per-row "done" progress checkboxes (manual tracking, like spansh). */
+#panel-route th.chk-head, #panel-route td.chk { width:26px; text-align:center; padding-left:6px; padding-right:2px; }
+#panel-route .done-box { cursor:pointer; accent-color:var(--ok); width:15px; height:15px; vertical-align:middle; margin:0; }
+#panel-route tr.done > td:not(.chk) { opacity:.45; }       /* keep the box fully usable */
+#panel-route tr.done .sys { text-decoration:line-through; }
 
 /* Native <select> popups render on the OS layer and don't inherit the glass
    panel, so the unselected option showed as near-invisible light text on the

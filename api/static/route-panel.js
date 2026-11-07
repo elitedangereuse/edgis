@@ -472,6 +472,37 @@ function downloadRoute(fmt) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// Per-row "done" progress tracking (manual, like spansh). Keyed by system name
+// within the plotted route (from|to|range|supercharge) and persisted in
+// localStorage, so ticks survive reloads and the compact/full toggle (a neutron
+// waypoint ticked in one mode stays ticked in the other). A future step is
+// auto-ticking from live game state via the EDMC plugin / FDev cAPI (see memory).
+const DONE_LS = "edgis_route_done";
+let doneSet = new Set();
+function routeDoneKey() {
+  const q = lastQuery || {};
+  return `${q.from || ""}|${q.to || ""}|${q.range || ""}|${q.supercharge || "4"}`;
+}
+function loadDone() {
+  doneSet = new Set();
+  try {
+    const arr = JSON.parse(localStorage.getItem(DONE_LS) || "{}")[routeDoneKey()];
+    if (Array.isArray(arr)) doneSet = new Set(arr);
+  } catch (e) { /* ignore */ }
+}
+function saveDone() {
+  try {
+    const all = JSON.parse(localStorage.getItem(DONE_LS) || "{}");
+    if (doneSet.size) all[routeDoneKey()] = [...doneSet];
+    else delete all[routeDoneKey()];
+    localStorage.setItem(DONE_LS, JSON.stringify(all));
+  } catch (e) { /* ignore */ }
+}
+function doneBox(sys) {
+  return `<td class="chk"><input type="checkbox" class="done-box" data-sys="${escapeHtml(sys)}"`
+    + `${doneSet.has(sys) ? " checked" : ""} title="Mark this system done" /></td>`;
+}
+
 // The departure system as row #0 (like spansh): jumps/LY from source are 0,
 // "left" is the straight-line distance to the destination. Compact has three
 // numeric columns (jumps/LY/left), full has two (jumped/left).
@@ -481,7 +512,8 @@ function sourceRow(r, compact) {
   const nums = compact
     ? `<td class="num">0</td><td class="num">0</td><td class="num">${left}</td>`
     : `<td class="num">0</td><td class="num">${left}</td>`;
-  return `<tr class="src-row">
+  return `<tr class="src-row${doneSet.has(r.source) ? " done" : ""}">
+      ${doneBox(r.source)}
       <td class="num">0</td>
       <td class="sys">${escapeHtml(r.source)}${copyBtn(r.source)}</td>
       <td></td>
@@ -492,16 +524,19 @@ function sourceRow(r, compact) {
 
 function renderRoute(r) {
   lastOurs = r;
+  loadDone();
   let header, rows, legend;
   const riskMap = fuelRisks(r);
   if (compactMode) {
     const wps = compactRows(r);
-    header = `<th class="num">#</th><th>system</th><th>star</th><th class="num">jumps</th><th class="num">LY</th><th class="num">left</th><th class="acts-head">actions</th>`;
+    header = `<th class="chk-head" title="Done"></th><th class="num">#</th><th>system</th><th>star</th><th class="num">jumps</th><th class="num">LY</th><th class="num">left</th><th class="acts-head">actions</th>`;
     rows = wps.map((w, i) => {
       const risk = riskInRange(riskMap, w.i0, w.i1);
-      return `<tr class="${risk ? "risk-row" : ""}">
+      const cname = w.dest ? r.destination : w.system;
+      return `<tr class="${risk ? "risk-row " : ""}${doneSet.has(cname) ? "done" : ""}">
+      ${doneBox(cname)}
       <td class="num">${i + 1}</td>
-      <td class="sys ${w.neutron ? "boost" : ""}">${escapeHtml(w.system)}${riskBadge(risk)}${copyBtn(w.dest ? r.destination : w.system)}</td>
+      <td class="sys ${w.neutron ? "boost" : ""}">${escapeHtml(w.system)}${riskBadge(risk)}${copyBtn(cname)}</td>
       <td>${spectralCell({ spectral: w.spectral, neutron_star: w.neutron })}</td>
       <td class="num">${fmt(w.jumps)}</td>
       <td class="num">${fmt(w.ly, 0)}</td>
@@ -512,12 +547,13 @@ function renderRoute(r) {
     rows = sourceRow(r, true) + rows;
     legend = "";
   } else {
-    header = `<th class="num">#</th><th>system</th><th>star</th><th class="num">jumped</th><th class="num">left</th><th class="acts-head">actions</th>`;
+    header = `<th class="chk-head" title="Done"></th><th class="num">#</th><th>system</th><th>star</th><th class="num">jumped</th><th class="num">left</th><th class="acts-head">actions</th>`;
     rows = r.jumps.map((j, i) => {
       const last = i === r.jumps.length - 1;
       const name = j.system ?? (last ? r.destination : "?");
       const risk = riskMap.get(i);
-      return `<tr class="${risk ? "risk-row" : ""}">
+      return `<tr class="${risk ? "risk-row " : ""}${doneSet.has(name) ? "done" : ""}">
+      ${doneBox(name)}
       <td class="num">${i + 1}</td>
       <td class="sys">${escapeHtml(name)}${riskBadge(risk)}${copyBtn(j.system ?? r.destination)}</td>
       <td>${spectralCell(j)}</td>
@@ -737,6 +773,14 @@ $("out").addEventListener("click", (e) => {
 });
 // The compact switch and export-format picker both change on input.
 $("out").addEventListener("change", (e) => {
+  const box = e.target.closest(".done-box");
+  if (box) {
+    const sys = box.dataset.sys;
+    if (box.checked) doneSet.add(sys); else doneSet.delete(sys);
+    saveDone();
+    box.closest("tr")?.classList.toggle("done", box.checked);
+    return;
+  }
   const toggle = e.target.closest("#compactToggle");
   if (toggle && lastOurs) {
     compactMode = toggle.checked;
