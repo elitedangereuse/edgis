@@ -53,10 +53,19 @@ class NeutronIndex:
         coords: np.ndarray,
         id64: list[int],
         names: list[str],
+        arrival_ls: Optional[np.ndarray] = None,
     ) -> None:
         self.coords = coords
         self.id64 = id64
         self.names = names
+        # Distance-from-arrival (Ls) of the neutron within its system: 0 for a
+        # main (arrival) star, >0 for a companion neutron you must fly to before
+        # supercharging. All-zero unless companion neutrons were folded in.
+        self.arrival_ls = (
+            np.asarray(arrival_ls, dtype=np.float64)
+            if arrival_ls is not None
+            else np.zeros(len(id64), dtype=np.float64)
+        )
         self.tree = cKDTree(coords)
         self.count = len(id64)
         self.built_at = time.time()
@@ -67,7 +76,12 @@ class NeutronIndex:
         if not rows:
             raise ValueError("no neutron rows returned for index build")
         coords = np.asarray([(r[0], r[1], r[2]) for r in rows], dtype=np.float64)
-        return cls(coords, [r[3] for r in rows], [r[4] for r in rows])
+        # Optional 6th column = arrival_ls (companion neutrons); default 0.
+        arrival = np.asarray(
+            [float(r[5]) if len(r) > 5 and r[5] is not None else 0.0 for r in rows],
+            dtype=np.float64,
+        )
+        return cls(coords, [r[3] for r in rows], [r[4] for r in rows], arrival)
 
 
 @dataclass
@@ -868,6 +882,7 @@ def graph_route(
     time_cap: float = 60.0,
     is_locked: Optional[Callable[[str], bool]] = None,
     boost_mult: float = 4.0,
+    companion_max_ls: float = 0.0,
 ) -> Optional[dict]:
     """Min-**jumps** route via corridor-bounded neutron-graph A*, realized into
     legs with greedy + capsule-BFS bridging. Edges the realizer proves
@@ -895,6 +910,14 @@ def graph_route(
     entry_r = entry_jumps * J
 
     cand = _corridor_candidates(index, sv, dv, corridor_ly, entry_r)
+    # Companion neutrons (arrival_ls > 0) are boost sources you must fly to
+    # in-system first; keep only those within companion_max_ls. Main-star
+    # neutrons have arrival_ls == 0 so are always kept; companion_max_ls == 0
+    # (the default) drops every companion, leaving the main-only behaviour
+    # byte-for-byte. No-op on a main-only index (all arrival_ls == 0).
+    als = getattr(index, "arrival_ls", None)
+    if als is not None and len(cand) and float(companion_max_ls) >= 0.0:
+        cand = cand[als[cand] <= float(companion_max_ls)]
     if is_locked is not None and len(cand):
         names = index.names
         cand = cand[np.array(
