@@ -2579,7 +2579,9 @@ async def system_map(
     return result
 
 
-@app.post("/bodies/{system_id64}/spansh-refresh", include_in_schema=False)
+# Not an HTTP route any more: the public "refresh system from Spansh" button was
+# removed (it was useful early on, no longer). Kept as a plain helper for the
+# admin-gated ADMIN_ACTIONS["bodies-spansh-refresh"] tool only.
 async def refresh_bodies_from_spansh(system_id64: int):
     if system_id64 <= 0:
         raise HTTPException(
