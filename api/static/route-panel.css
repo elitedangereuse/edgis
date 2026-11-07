@@ -13,6 +13,20 @@
   --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
 }
 #panel-route * { box-sizing:border-box; }
+
+/* Swap From/To: a circular accent button on the divider between the two fields;
+   rotates 180deg on hover as the swap affordance. */
+#panel-route .swap-row { display:flex; justify-content:center; margin:-4px 0; }
+#panel-route .swap-btn {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:34px; height:34px; border-radius:999px; flex:none;
+  color:var(--accent); background:rgba(128,196,230,.12);
+  border:1px solid rgba(128,196,230,.35); cursor:pointer;
+  transition:transform .18s ease, background .15s ease, color .15s ease;
+}
+#panel-route .swap-btn:hover { background:rgba(128,196,230,.22); color:#fff; transform:rotate(180deg); }
+#panel-route .swap-btn:active { transform:rotate(180deg) scale(.92); }
+#panel-route .swap-btn svg { display:block; }
 #panel-route a { color:var(--accent); text-decoration:none; }
 #panel-route a:hover { text-decoration:underline; }
 
