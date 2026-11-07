@@ -60,8 +60,10 @@ def test_straight_boost_route_no_bridging():
     )
     assert_legal(result, 50.0)
     assert result["neutron_jumps"] >= 1
-    # Only the initial board is a regular jump; the void-free path never bridges.
-    assert result["bridge_jumps"] == 1
+    # The initial board lands ON a neutron, so it counts as a neutron jump, not a
+    # bridge. A void-free path has zero bridges (regular hops that never reach a
+    # neutron) -- matching what a pilot counts in-game.
+    assert result["bridge_jumps"] == 0
 
 
 def test_bridges_across_a_void_and_resumes_boost():
