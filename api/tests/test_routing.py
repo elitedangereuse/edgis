@@ -179,3 +179,59 @@ def test_adaptive_beam_width_by_distance():
         index, (0.0, 0.0, 0.0), (0.0, 0.0, 2000.0), 50.0, no_stars
     )
     assert short["beam_width"] == 3  # straight-line < 5000
+
+
+def make_arrival_index(points, arrival):
+    coords = np.asarray(points, dtype=np.float64)
+    return routing.NeutronIndex(
+        coords,
+        list(range(len(points))),
+        [f"N{i}" for i in range(len(points))],
+        np.asarray(arrival, dtype=np.float64),
+    )
+
+
+def test_neutron_index_arrival_ls_defaults_zero():
+    # Main-only indexes (no 4th build column) have all-zero arrival_ls, so the
+    # companion filter is a no-op for them.
+    idx = make_index([(0.0, 0.0, 40.0), (0.0, 0.0, 220.0)])
+    assert idx.arrival_ls.tolist() == [0.0, 0.0]
+
+
+def test_build_reads_optional_arrival_ls_column():
+    rows = [
+        (0.0, 0.0, 40.0, 10, "A"),            # main: no arrival column -> 0
+        (0.0, 0.0, 200.0, 11, "B", 50.0),     # companion: arrival 50 Ls
+    ]
+    idx = routing.NeutronIndex.build(lambda: rows)
+    assert idx.arrival_ls.tolist() == [0.0, 50.0]
+
+
+def test_companion_neutron_gated_by_threshold():
+    # src -> main(40) -> companion(200, 50 Ls) -> dst(360). The companion is the
+    # only boost source past the first neutron, so the route exists only when
+    # companion_max_ls admits it; the default (0) drops it and the route fails.
+    J = 50.0
+    idx = make_arrival_index(
+        [(0.0, 0.0, 40.0), (0.0, 0.0, 200.0)], [0.0, 50.0]
+    )
+    src, dst = (0.0, 0.0, 0.0), (0.0, 0.0, 360.0)
+    on = routing.graph_route(idx, src, dst, J, no_stars, companion_max_ls=100.0, time_cap=10.0)
+    off = routing.graph_route(idx, src, dst, J, no_stars, companion_max_ls=0.0, time_cap=10.0)
+    assert on is not None
+    assert_legal(on, J)
+    assert any(leg.get("system") == "N1" for leg in on["jumps"])  # companion used
+    assert off is None  # default: companion excluded, no other boost source
+
+
+def test_companion_below_threshold_excluded():
+    # Same layout but the companion sits at 300 Ls; a 100 Ls cap must exclude it.
+    J = 50.0
+    idx = make_arrival_index(
+        [(0.0, 0.0, 40.0), (0.0, 0.0, 200.0)], [0.0, 300.0]
+    )
+    src, dst = (0.0, 0.0, 0.0), (0.0, 0.0, 360.0)
+    near = routing.graph_route(idx, src, dst, J, no_stars, companion_max_ls=100.0, time_cap=10.0)
+    far = routing.graph_route(idx, src, dst, J, no_stars, companion_max_ls=500.0, time_cap=10.0)
+    assert near is None       # 300 Ls > 100 cap -> excluded
+    assert far is not None     # 300 Ls <= 500 cap -> usable
