@@ -55,16 +55,30 @@ $("cargo").addEventListener("change", () => {
 });
 
 // Friendly ship label from a SLEF loadout, shown on the Ship & fuel summary so
-// it's visible even when collapsed. Prefers the commander's ship name.
+// it's visible even when collapsed. Prefers the commander's ship name. The SLEF
+// `Ship` field is the FDev internal symbol (e.g. "explorer_nx"); this maps it to
+// the display name. Source: EDHM-UI Ship_List.json (ed_short -> name), Mk-numbers
+// canonicalised to Roman. New ships need adding here as FDev ships them; the
+// canonical upstream to sync from is EDCD FDevIDs ship.csv.
 const SHIP_TYPES = {
-  cobramkv: "Cobra Mk V", cobramkiii: "Cobra Mk III", cobramkiv: "Cobra Mk IV",
-  anaconda: "Anaconda", asp: "Asp Explorer", asp_scout: "Asp Scout",
-  diamondbackxl: "Diamondback Explorer", diamondback: "Diamondback Scout",
-  krait_mkii: "Krait Mk II", krait_light: "Krait Phantom", mamba: "Mamba",
-  python: "Python", python_nx: "Python Mk II", mandalay: "Mandalay",
-  federation_corvette: "Federal Corvette", cutter: "Imperial Cutter",
-  type9: "Type-9 Heavy", type6: "Type-6", type7: "Type-7", type8: "Type-8",
-  sidewinder: "Sidewinder", dolphin: "Dolphin", orca: "Orca", corsair: "Corsair",
+  adder: "Adder", anaconda: "Anaconda", anacondamkii: "Anaconda Mk II",
+  asp: "Asp Explorer", asp_scout: "Asp Scout", belugaliner: "Beluga Liner",
+  cobramkiii: "Cobra Mk III", cobramkiv: "Cobra Mk IV", cobramkv: "Cobra Mk V",
+  combat_multicrew_srv_01: "SRV Scorpion", corsair: "Corsair", cutter: "Imperial Cutter",
+  diamondback: "Diamondback Scout", diamondbackxl: "Diamondback Explorer", dolphin: "Dolphin",
+  eagle: "Eagle Mk II", empire_courier: "Imperial Courier", empire_eagle: "Imperial Eagle",
+  empire_trader: "Imperial Clipper", explorer_nx: "Caspian Explorer", federation_corvette: "Federal Corvette",
+  federation_dropship: "Federal Dropship", federation_dropship_mkii: "Federal Assault Ship", federation_gunship: "Federal Gunship",
+  ferdelance: "Fer-de-lance", hauler: "Hauler", independant_trader: "Keelback",
+  krait_light: "Krait Phantom", krait_mkii: "Krait Mk II", lakonminer: "Type 11 Prospector",
+  mamba: "Mamba", mandalay: "Mandalay", mediumtransport01: "Lynx Highliner",
+  mev_rhino: "SRV Rhino", orca: "Orca", panthermkii: "Panther Clipper Mk II",
+  python: "Python", python_nx: "Python Mk II", sidewinder: "Sidewinder",
+  smallcombat01_nx: "Kestrel Mk II", testbuggy: "SRV Scarab", type6: "Type 6 Transporter",
+  type7: "Type 7 Transporter", type8: "Type 8 Transporter", type9: "Type 9 Heavy",
+  type9_military: "Type 10 Defender", typex: "Alliance Chieftain", typex_2: "Alliance Crusader",
+  typex_3: "Alliance Challenger", viper: "Viper Mk III", viper_mkiv: "Viper Mk IV",
+  vulture: "Vulture",
 };
 function shipLabel(loadout) {
   try {
@@ -568,7 +582,7 @@ function renderRoute(r) {
   $("out").innerHTML = `
     <div class="summary">
       <div class="stat"><b>${fmt(r.total_jumps)}</b><span>jumps</span></div>
-      <div class="stat"><b>${fmt(r.neutron_jumps)}</b><span>neutron boosts</span></div>
+      <div class="stat"><b>${fmt(r.neutron_jumps)}</b><span>neutron jumps</span></div>
       <div class="stat"><b>${fmt(r.bridge_jumps)}</b><span>regular jumps</span></div>
       <div class="stat"><b>${fmt(r.total_distance_ly)}</b><span>LY flown</span></div>
       <div class="stat"><b>${fmt(r.efficiency * 100, 1)}%</b><span>efficiency</span></div>
