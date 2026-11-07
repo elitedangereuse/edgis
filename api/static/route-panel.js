@@ -221,9 +221,22 @@ function starName(s) {
 // map to their base letter, e.g. A_BlueWhiteSuperGiant -> "A" -> scoopable;
 // Ae/Be, DQ, N, etc. are not).
 function scoopable(s) { return /^[KGBFOAM]$/.test(starShort(s)); }
+// The same fuel-pump glyph, tinted, for a neutron whose system has a scoopable
+// companion in supercruise range: you refuel there WITHOUT leaving the route.
+const FUEL_INFLIGHT = FUEL
+  .replace('class="fuel"', 'class="fuel inflight"')
+  .replace('<title>Fuel-scoopable (KGBFOAM)</title>', '');
+function inflightScoopMarker(ls) {
+  const t = (ls != null)
+    ? `In-system scoop: scoopable companion ~${fmt(ls, 0)} Ls (refuel without leaving the route)`
+    : "In-system scoop (scoopable companion star)";
+  return `<span class="inflight-scoop" title="${escapeHtml(t)}">${FUEL_INFLIGHT}</span>`;
+}
 function spectralCell(j) {
   if (!j.spectral) return "";
-  return `<span class="starcell">${scoopable(j.spectral) ? FUEL : ""}<span class="spec" title="${escapeHtml(starName(j.spectral))}">${escapeHtml(starShort(j.spectral))}</span></span>`;
+  const scoop = scoopable(j.spectral) ? FUEL
+    : (j.inflight_scoop ? inflightScoopMarker(j.scoop_ls) : "");
+  return `<span class="starcell">${scoop}<span class="spec" title="${escapeHtml(starName(j.spectral))}">${escapeHtml(starShort(j.spectral))}</span></span>`;
 }
 function legLabel(j, last) {
   if (last) return "arrive";
@@ -264,6 +277,7 @@ function compactRows(r) {
     if (j.neutron_star || last) {
       out.push({ system: j.system ?? (last ? r.destination : "?"), spectral: j.spectral,
                  jumps, ly, left: j.distance_left, neutron: j.neutron_star, dest: last,
+                 inflight_scoop: j.inflight_scoop, scoop_ls: j.scoop_ls,
                  x: j.x, y: j.y, z: j.z, i0: start, i1: i });  // i0..i1 = this leg group
       jumps = 0; ly = 0; start = i + 1;
     }
@@ -592,7 +606,7 @@ function renderRoute(r) {
       ${doneBox(cname)}
       <td class="num">${i + 1}</td>
       <td class="sys ${w.neutron ? "boost" : ""}">${escapeHtml(w.system)}${riskBadge(risk)}${copyBtn(cname)}</td>
-      <td>${spectralCell({ spectral: w.spectral, neutron_star: w.neutron })}</td>
+      <td>${spectralCell({ spectral: w.spectral, neutron_star: w.neutron, inflight_scoop: w.inflight_scoop, scoop_ls: w.scoop_ls })}</td>
       <td class="num">${fmt(w.jumps)}</td>
       <td class="num">${fmt(w.ly, 0)}</td>
       <td class="num">${fmt(w.left, 0)}</td>

@@ -136,6 +136,10 @@
 /* Fuel icon + spectral letter on one baseline-centred line. */
 #panel-route .starcell { display:inline-flex; align-items:center; gap:5px; }
 #panel-route .fuel { color:var(--ok); flex:none; }
+/* In-system scoop (neutron with a scoopable companion): tint neutron-amber, and
+   let its help cursor show the companion distance tooltip. */
+#panel-route .inflight-scoop { display:inline-flex; cursor:help; }
+#panel-route .fuel.inflight { color:var(--neutron); }
 
 /* Icons inherit gray-100 (#f3f4f6); .55 at rest, full on row/icon hover. */
 #panel-route .copy-btn { all:unset; cursor:pointer; color:#f3f4f6; opacity:.55; margin-left:8px;
