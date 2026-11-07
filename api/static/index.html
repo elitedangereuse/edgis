@@ -2256,6 +2256,12 @@
        return String(value).trim().split(' ')[0] || '-';
      }
 
+     // Expose the star-type helpers so the embedded route panel (route-panel.js)
+     // shows friendly names instead of raw FDev codes (e.g.
+     // "A_BlueWhiteSuperGiant" becomes "A (Blue-White super giant) Star").
+     window.edgisStarName = getHumanReadableStarType;
+     window.edgisStarShort = getShortStarType;
+
      function getStarIndicatorConfig(value) {
        if (!value) return null;
        const normalized = normalizeStarType(value);
