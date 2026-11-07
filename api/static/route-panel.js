@@ -823,4 +823,12 @@ window.edgisInitRoutePanel = function () {
   // applied before plot() reads it.
   if (from && to) setTimeout(plot, 0);
 };
+
+// The index's init is a deferred module that runs BEFORE this (deferred) script,
+// so for a deep/shared link (?tool=route&from=...) it activates the panel but
+// calls window.edgisInitRoutePanel before it exists -> no prefill. Self-init
+// here if the URL already requests the route tool (idempotent via _routeInited).
+if (new URLSearchParams(location.search).get("tool") === "route") {
+  window.edgisInitRoutePanel();
+}
 })();
