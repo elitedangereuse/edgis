@@ -112,8 +112,12 @@ async function importShip() {
     localStorage.setItem(SLEF_LS, loadout);
     $("range").value = shipInfo.jump_range;
     localStorage.setItem(RANGE_LS, String(shipInfo.jump_range));
+    // Plots at the full-tank range (always feasible); note the lighter max so
+    // the lower-than-EDSY number isn't a surprise (range grows as fuel burns).
+    const upTo = (shipInfo.max_range_light && shipInfo.max_range_light > shipInfo.jump_range + 0.1)
+      ? ` <span class="tiny">(up to ${fmt(shipInfo.max_range_light, 1)} as fuel burns)</span>` : "";
     $("shipInfo").innerHTML = `<span class="good">Ship imported ✓</span> `
-      + `${FUEL} range ${fmt(shipInfo.jump_range, 2)} LY · tank ≈ ${shipInfo.tank_jumps} jumps · `
+      + `${FUEL} range ${fmt(shipInfo.jump_range, 2)} LY${upTo} · tank ≈ ${shipInfo.tank_jumps} jumps · `
       + (shipInfo.has_scoop ? "fuel scoop fitted" : `<span class="bad">no fuel scoop</span>`);
   } catch (e) {
     shipInfo = null;
