@@ -40,6 +40,7 @@ const SLEF_LS = "edgis_route_loadout";
 const FUELSAFE_LS = "edgis_route_fuelsafe";
 let shipInfo = null;  // parsed ship summary, or null when no ship is imported
 $("loadout").value = localStorage.getItem(SLEF_LS) || "";
+setShipSummary();  // reflect a restored (saved, not-yet-imported) loadout at once
 $("fuelSafe").checked = (localStorage.getItem(FUELSAFE_LS) ?? "1") === "1";
 $("fuelSafe").addEventListener("change", () =>
   localStorage.setItem(FUELSAFE_LS, $("fuelSafe").checked ? "1" : "0"));
@@ -77,10 +78,22 @@ function shipLabel(loadout) {
     return name || type || "ship";
   } catch (e) { return "ship"; }
 }
+// The Ship & fuel section is collapsed by default, so its summary is the only
+// always-visible signal. Make it state-explicit: a saved loadout that hasn't
+// been imported (e.g. just after a page reload, before the auto-import lands)
+// must not look the same as an active fuel-aware ship.
 function setShipSummary() {
-  $("shipSummary").textContent = shipInfo
-    ? `Ship & fuel · ${shipLabel($("loadout").value)}`
-    : "Ship & fuel (optional)";
+  const el = $("shipSummary");
+  const hasText = !!($("loadout").value || "").trim();
+  if (shipInfo) {
+    el.innerHTML = `Ship &amp; fuel <span class="good">✓</span> · `
+      + `${escapeHtml(shipLabel($("loadout").value))} · ${fmt(shipInfo.jump_range, 2)} LY`;
+  } else if (hasText) {
+    el.innerHTML = `Ship &amp; fuel · ${escapeHtml(shipLabel($("loadout").value))} `
+      + `<span class="tiny">(saved — not imported)</span>`;
+  } else {
+    el.textContent = "Ship & fuel (optional)";
+  }
 }
 
 async function importShip() {
@@ -88,6 +101,7 @@ async function importShip() {
   if (!loadout) { shipInfo = null; localStorage.removeItem(SLEF_LS); $("shipInfo").textContent = ""; $("cmpGalaxy").hidden = true; setShipSummary(); return; }
   $("importShip").disabled = true;
   $("shipInfo").innerHTML = `<span class="tiny">Reading loadout…</span>`;
+  $("shipSummary").innerHTML = `Ship &amp; fuel · <span class="tiny">reading loadout…</span>`;
   try {
     const res = await fetch("/route/ship", {
       method: "POST", credentials: "include",
@@ -122,7 +136,12 @@ async function importShip() {
   } catch (e) {
     shipInfo = null;
     $("shipInfo").innerHTML = `<span class="bad">${escapeHtml(e.message || String(e))}</span>`;
-  } finally { $("importShip").disabled = false; $("cmpGalaxy").hidden = !shipInfo; setShipSummary(); }
+  } finally {
+    $("importShip").disabled = false; $("cmpGalaxy").hidden = !shipInfo; setShipSummary();
+    // A non-empty loadout that failed to import (bad JSON, access gate): open
+    // the section so the reason in #shipInfo is visible, not hidden when collapsed.
+    if (!shipInfo) { const dt = $("loadout").closest("details"); if (dt) dt.open = true; }
+  }
 }
 
 // Bootstrap "bi-copy" icon + clipboard helper (matches the main EDGIS app).
