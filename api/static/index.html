@@ -461,6 +461,9 @@
         </div>
       </div>
     </main>
+    <!-- Raw-material grade lookup, reused by the body-detail card (loads before the
+         module script, which is deferred, so globalThis.SysmapMaterials is ready). -->
+    <script src="/static/js/sysmap_materials.js"></script>
     <script type="module">
      const COLUMN_LABELS = {
        mainstar: 'type',
@@ -2584,11 +2587,17 @@
        };
        const scalars = [];
        const blocks = [];
+       // Rendered with dedicated UI (grade icons / clickable tree) instead of the
+       // generic JSON block; collected here, rendered once CELL/LBL/VAL exist.
+       let materialsRaw = null;
+       let parentsRaw = null;
        for (const [key, raw] of Object.entries(rec)) {
          if (SKIP.has(key)) continue;
          if (raw === null || raw === undefined) continue;
          if (typeof raw === 'object') {
            if (Array.isArray(raw) ? !raw.length : !Object.keys(raw).length) continue;
+           if (key === 'materials') { materialsRaw = raw; continue; }
+           if (key === 'parents') { parentsRaw = raw; continue; }
            blocks.push([key, raw]);
            continue;
          }
@@ -2607,6 +2616,58 @@
        const statsHtml = scalars.length
          ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px">${scalars.map(stat).join('')}</div>`
          : `<p style="color:#9aa6b2;font-size:14px">No further details.</p>`;
+
+       // Materials with grade icons (same lookup the system map uses).
+       const titleCase = (s) => String(s).replace(/\b\w/g, (c) => c.toUpperCase());
+       const renderMaterials = (raw) => {
+         const SM = globalThis.SysmapMaterials;
+         const entries = SM ? SM.normalizePercentageEntries(raw) : [];
+         if (!entries.length) return '';
+         const rows = entries.map((m) => {
+           const grade = SM.getRawMaterialGrade(m.name);
+           const icon = grade
+             ? `<img src="${grade.icon}" alt="Grade ${grade.grade}: ${escapeHtml(grade.rarity)}" title="Grade ${grade.grade}: ${escapeHtml(grade.rarity)}" style="width:16px;height:16px;flex:none">`
+             : `<span title="Unclassified" style="width:16px;height:16px;flex:none;border-radius:3px;background:rgba(255,255,255,0.08);display:inline-block"></span>`;
+           const pct = Number.isFinite(m.percent)
+             ? `${m.percent.toLocaleString('en-US', { maximumFractionDigits: 2 })}%` : '';
+           return `<div style="${CELL};display:flex;align-items:center;gap:8px">`
+             + `${icon}<span style="flex:1;${VAL};margin-top:0">${escapeHtml(titleCase(m.name))}</span>`
+             + `<span style="font-size:13px;color:#8fb3d9;font-variant-numeric:tabular-nums">${escapeHtml(pct)}</span></div>`;
+         }).join('');
+         return `<div style="margin-top:12px"><div style="${LBL};margin-bottom:6px">Materials</div>`
+           + `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px">${rows}</div></div>`;
+       };
+
+       // Parents as an indented, clickable ancestry chain (root ancestor on top,
+       // this body at the bottom). Barycentres aren't scanned bodies -> not clickable.
+       const sysId = rec.system_id64;
+       const renderParents = (raw) => {
+         if (!Array.isArray(raw) || !raw.length) return '';
+         const CHIP = 'display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:5px 10px;border-radius:9px';
+         const ARROW = '<span style="color:#55657a;margin-right:4px">&#8627;</span>';
+         const chain = raw.slice().reverse();
+         const rows = chain.map((entry, i) => {
+           const pair = (entry && typeof entry === 'object') ? Object.entries(entry)[0] : null;
+           if (!pair) return '';
+           const [type, bodyId] = pair;
+           const lower = String(type).toLowerCase();
+           const isBary = type === 'Null' || lower.includes('barycentre') || lower.includes('barycenter');
+           const typeLabel = isBary ? 'Barycentre' : escapeHtml(titleCase(type));
+           const label = `${typeLabel} <span style="color:#8fb3d9">#${escapeHtml(String(bodyId))}</span>`;
+           const canClick = !isBary && sysId !== undefined && sysId !== null && bodyId !== undefined && bodyId !== null;
+           const connector = i > 0 ? ARROW : '';
+           const chip = canClick
+             ? `<button type="button" title="Fetch this body" onclick="fetchBodyDetails('${escapeQuotes(String(sysId))}','${escapeQuotes(String(bodyId))}')" style="${CHIP};color:#e6edf3;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);cursor:pointer">${label}</button>`
+             : `<span style="${CHIP};color:#9aa6b2;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">${label}</span>`;
+           return `<div style="margin-left:${i * 14}px;margin-top:4px">${connector}${chip}</div>`;
+         }).join('');
+         const selfRow = `<div style="margin-left:${chain.length * 14}px;margin-top:4px">${ARROW}`
+           + `<span style="${CHIP};color:#e6edf3;background:rgba(143,179,217,0.12);border:1px solid rgba(143,179,217,0.25)">${escapeHtml(String(name))}</span></div>`;
+         return `<div style="margin-top:12px"><div style="${LBL};margin-bottom:6px">Parents</div>${rows}${selfRow}</div>`;
+       };
+
+       const materialsHtml = materialsRaw ? renderMaterials(materialsRaw) : '';
+       const parentsHtml = parentsRaw ? renderParents(parentsRaw) : '';
        return `
       <div style="background:rgba(9,13,19,0.82);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,0.12);border-radius:14px;padding:16px">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
@@ -2624,6 +2685,8 @@
           </div>
         </div>
         ${statsHtml}
+        ${parentsHtml}
+        ${materialsHtml}
         ${blocks.map(block).join('')}
       </div>`;
      }
