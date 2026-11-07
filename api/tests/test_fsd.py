@@ -20,13 +20,17 @@ COBRA_SLEF = (
 )
 
 
-def test_parse_loadout_matches_spansh_params():
+def test_parse_loadout_game_accurate_params():
     p = fsd.parse_loadout(COBRA_SLEF)
     assert p is not None
     assert p.fuel_power == 2.3
     assert p.fuel_multiplier == 0.013
     assert p.optimal_mass == 1034.28
-    assert round(p.base_mass, 2) == 195.34  # unladen + reserve
+    # base_mass is UnladenMass only; the reserve is tracked separately and is
+    # NOT part of the jump mass (the game excludes it). spansh's base_mass
+    # convention (unladen + reserve) is re-applied only in the spansh request.
+    assert round(p.base_mass, 2) == 194.85
+    assert round(p.reserve_size, 2) == 0.49
     assert p.max_fuel_per_jump == 3.2
     assert p.range_boost == 10.5             # Guardian booster size 5
     assert p.tank_size == 32.0
@@ -35,8 +39,11 @@ def test_parse_loadout_matches_spansh_params():
 
 def test_max_range_matches_edsy():
     p = fsd.parse_loadout(COBRA_SLEF)
-    # EDSY reports 67.72 ly; the lightest-practical (one-jump fuel) range.
-    assert abs(p.max_range_light() - 67.72) < 0.5
+    # Must reproduce the game/EDSY numbers exactly (reserve excluded from mass).
+    # Lightest-practical (one-jump fuel) range = the ship's advertised max.
+    assert abs(p.max_range_light() - 67.72) < 0.1
+    # Full-tank (laden) range = what the plotter plans at; EDSY shows ~60.45.
+    assert abs(p.max_range_full() - 60.45) < 0.1
 
 
 def test_range_grows_as_fuel_burns():
@@ -89,7 +96,7 @@ def test_simulate_fuel_safe_with_periodic_scooping():
 
 
 def test_simulate_fuel_flags_over_range_jump():
-    p = fsd.parse_loadout(COBRA_SLEF)  # full-tank range ~58.65, light ~67.7
+    p = fsd.parse_loadout(COBRA_SLEF)  # full-tank range ~60.45, light ~67.72
     # A 63 ly regular jump is unreachable on a full tank (heavy ship -> short
     # range), even though the tank has fuel to spare -- flagged over_range, NOT
     # stranded (the two are different failures).

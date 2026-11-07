@@ -1,7 +1,9 @@
 """Elite Dangerous FSD fuel + jump-range model, for fuel-aware routing.
 
-Jump range grows as the tank empties (lighter ship). Formula, validated against
-EDSY/spansh for a Caspian-class build (max range 67.7 ly):
+Jump range grows as the tank empties (lighter ship). Formula, validated to 6
+decimals against the game's own MaxJumpRange and EDSY's getJumpDistance for a
+Cobra Mk V build (max range 67.72 ly). ``base_mass`` is UnladenMass only; the
+reserve tank's fuel is not part of the jump mass (the game excludes it):
 
     range(fuel) = optimal_mass / (base_mass + fuel)
                   * (max_fuel_per_jump / fuel_multiplier) ** (1 / fuel_power)
@@ -50,12 +52,12 @@ FSD_TABLE = {
     'int_hyperdrive_overcharge_size6_class2': [0.012, 2.6, 8.0, 1800.0],
     'int_hyperdrive_overcharge_size6_class3': [0.012, 2.6, 8.0, 1800.0],
     'int_hyperdrive_overcharge_size6_class4': [0.012, 2.6, 8.0, 1800.0],
-    'int_hyperdrive_overcharge_size6_class5': [0.013, 2.6, 8.3, 2.0],
+    'int_hyperdrive_overcharge_size6_class5': [0.013, 2.6, 8.3, 2000.0],
     'int_hyperdrive_overcharge_size7_class1': [0.008, 2.75, 8.5, 1800.0],
     'int_hyperdrive_overcharge_size7_class2': [0.012, 2.75, 12.8, 2700.0],
     'int_hyperdrive_overcharge_size7_class3': [0.012, 2.75, 12.8, 2700.0],
     'int_hyperdrive_overcharge_size7_class4': [0.012, 2.75, 12.8, 2700.0],
-    'int_hyperdrive_overcharge_size7_class5': [0.013, 2.75, 13.1, 3.0],
+    'int_hyperdrive_overcharge_size7_class5': [0.013, 2.75, 13.1, 3000.0],
     'int_hyperdrive_overcharge_size8_class1': [0.008, 2.9, 13.6, 2800.0],
     'int_hyperdrive_overcharge_size8_class2': [0.012, 2.9, 20.4, 4200.0],
     'int_hyperdrive_overcharge_size8_class3': [0.012, 2.9, 20.4, 4200.0],
@@ -103,7 +105,7 @@ class FuelParams:
     fuel_power: float
     fuel_multiplier: float
     optimal_mass: float
-    base_mass: float            # unladen + reserve
+    base_mass: float            # UnladenMass only (no reserve -- see _parse_loadout)
     max_fuel_per_jump: float
     range_boost: float          # Guardian booster flat add
     tank_size: float
@@ -187,11 +189,16 @@ def _parse_loadout(slef, cargo: float = 0.0) -> Optional[FuelParams]:
     unladen = float(data.get("UnladenMass", 0.0))
     has_scoop = any("fuelscoop" in str(m.get("Item", "")).lower() for m in modules)
 
+    # Jump mass is UnladenMass + main-tank fuel + cargo. The reserve tank's fuel
+    # is NOT counted (verified against the game's own MaxJumpRange field and
+    # EDSY's getJumpDistance, which both use mass + main_fuel only). spansh's
+    # frontend folds the reserve into base_mass instead; that convention is
+    # applied only where we build the spansh comparison request, not here.
     return FuelParams(
         fuel_power=float(fuel_power),
         fuel_multiplier=float(fuel_multiplier),
         optimal_mass=float(optmass),
-        base_mass=unladen + reserve,
+        base_mass=unladen,
         max_fuel_per_jump=float(max_fuel),
         range_boost=float(range_boost),
         tank_size=tank,

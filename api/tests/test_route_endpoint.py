@@ -205,7 +205,8 @@ def test_route_ship_import_parses_loadout(monkeypatch):
     body = resp.json()
     assert body["ok"] is True
     # Full-tank range (feasible by construction), not the lightest-tank max.
-    assert abs(body["jump_range"] - 60.34) < 0.5
+    # EDSY/game-accurate value with the reserve excluded from jump mass.
+    assert abs(body["jump_range"] - 60.45) < 0.1
     assert body["tank_jumps"] == 10
     assert body["has_scoop"] is True
 

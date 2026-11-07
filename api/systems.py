@@ -3715,8 +3715,11 @@ async def spansh_galaxy_route(
         "fuel_power": f"{params.fuel_power:g}",
         "fuel_multiplier": f"{params.fuel_multiplier:g}",
         "optimal_mass": f"{params.optimal_mass:g}",
-        # base_mass + cargo so spansh plans laden, like the tester's real ship.
-        "base_mass": f"{params.base_mass + params.cargo:g}",
+        # spansh's own frontend folds the reserve tank into base_mass (its
+        # convention differs from the game's jump-mass, which excludes it), so
+        # add reserve_size back here to keep the comparison apples-to-apples.
+        # + cargo so spansh plans laden, like the tester's real ship.
+        "base_mass": f"{params.base_mass + params.reserve_size + params.cargo:g}",
         "tank_size": f"{params.tank_size:g}",
         "internal_tank_size": f"{params.reserve_size:g}",
         "reserve_size": "0",
