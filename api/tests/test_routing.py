@@ -235,3 +235,34 @@ def test_companion_below_threshold_excluded():
     far = routing.graph_route(idx, src, dst, J, no_stars, companion_max_ls=500.0, time_cap=10.0)
     assert near is None       # 300 Ls > 100 cap -> excluded
     assert far is not None     # 300 Ls <= 500 cap -> usable
+
+
+def test_companion_waypoint_leg_carries_arrival_ls():
+    # The realized companion waypoint should expose its arrival distance so the UI
+    # can label it "neutron at X Ls"; a main-star neutron leg must not.
+    J = 50.0
+    idx = make_arrival_index(
+        [(0.0, 0.0, 40.0), (0.0, 0.0, 200.0)], [0.0, 50.0]
+    )
+    src, dst = (0.0, 0.0, 0.0), (0.0, 0.0, 360.0)
+    r = routing.graph_route(idx, src, dst, J, no_stars, companion_max_ls=100.0, time_cap=10.0)
+    assert r is not None
+    main_leg = next(l for l in r["jumps"] if l.get("system") == "N0")
+    comp_leg = next(l for l in r["jumps"] if l.get("system") == "N1")
+    assert "arrival_ls" not in main_leg          # main star: no annotation
+    assert comp_leg.get("arrival_ls") == 50.0     # companion: its Ls
+
+
+def test_solve_route_beam_respects_companion_cap():
+    # The beam fallback must honour companion_max_ls too, or a default (cml=0)
+    # request could board a companion when graph_route isn't used. Same layout
+    # as the gating test, solved via the beam directly.
+    J = 50.0
+    idx = make_arrival_index(
+        [(0.0, 0.0, 40.0), (0.0, 0.0, 200.0)], [0.0, 50.0]
+    )
+    src, dst = (0.0, 0.0, 0.0), (0.0, 0.0, 360.0)
+    on = routing.solve_route(idx, src, dst, J, no_stars, companion_max_ls=100.0)
+    assert any(leg.get("system") == "N1" for leg in on["jumps"])  # companion used
+    with pytest.raises(routing.RouteError):
+        routing.solve_route(idx, src, dst, J, no_stars, companion_max_ls=0.0)

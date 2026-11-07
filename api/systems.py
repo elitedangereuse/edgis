@@ -3018,6 +3018,13 @@ _route_cache = RedisCache(
 )
 
 
+# Companion (secondary) neutrons are folded into the index up to this arrival
+# distance; each request then opts in via companion_max_ls (0 = main-star only,
+# the default, filtered back out in graph_route/solve_route). A build cap keeps
+# the index lean and bars absurd supercruise distances. star_type_id 28 = 'N'.
+COMPANION_NEUTRON_BUILD_MAX_LS = 2000.0
+
+
 def _fetch_neutron_rows_sync():
     with _db_connection() as conn:
         cursor = conn.cursor()
@@ -3026,7 +3033,20 @@ def _fetch_neutron_rows_sync():
                 "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), id64, name "
                 "FROM systems_big WHERE mainstar IN ('N', 'Neutron Star')"
             )
-            return cursor.fetchall()
+            rows = cursor.fetchall()  # main-star neutrons; arrival_ls defaults 0
+            # One point per system with a companion neutron (the closest one),
+            # arrival distance as the 6th column. Uses idx_bodies_companion_neutron.
+            cursor.execute(
+                "SELECT ST_X(s.coords), ST_Y(s.coords), ST_Z(s.coords), "
+                "b.system_id64, s.name, min(b.distance_from_arrival_ls) "
+                "FROM bodies b JOIN systems_big s ON s.id64 = b.system_id64 "
+                "WHERE b.star_type_id = 28 AND b.distance_from_arrival_ls > 0 "
+                "AND b.distance_from_arrival_ls <= %s "
+                "GROUP BY b.system_id64, s.coords, s.name",
+                (COMPANION_NEUTRON_BUILD_MAX_LS,),
+            )
+            rows.extend(cursor.fetchall())
+            return rows
         finally:
             cursor.close()
 
@@ -3066,6 +3086,7 @@ def _solve_route_sync(
     jump_range: float,
     beam_width: int | None,
     boost_mult: float = 4.0,
+    companion_max_ls: float = 0.0,
 ):
     index = _neutron_index
     if index is None:  # pragma: no cover - guarded by caller
@@ -3149,12 +3170,13 @@ def _solve_route_sync(
             time_cap=60.0 + math.dist(src, dst) / 500.0,
             is_locked=permit_zones.is_locked,
             boost_mult=boost_mult,
+            companion_max_ls=companion_max_ls,
         )
         if result is not None:
             return result
         return routing.solve_route(
             index, src, dst, jump_range, fetch_stars_within, width=beam_width,
-            boost_mult=boost_mult,
+            boost_mult=boost_mult, companion_max_ls=companion_max_ls,
         )
 
 
@@ -3329,6 +3351,9 @@ class RouteJump(BaseModel):
     # within supercruise range (scoop_ls), so you refuel without a divert jump.
     inflight_scoop: Optional[bool] = None
     scoop_ls: Optional[float] = None
+    # Set on a companion (secondary) neutron waypoint: its distance from arrival
+    # (Ls). The UI shows "neutron at X Ls" (you supercruise to it to supercharge).
+    arrival_ls: Optional[float] = None
 
 
 class RouteResponse(BaseModel):
@@ -3423,6 +3448,7 @@ async def _solve_route_cached(
     beam_width: Optional[int],
     supercharge: float,
     access_via: Optional[str],
+    companion_max_ls: float = 0.0,
 ) -> dict:
     """Resolve + solve a route with the Redis cache and in-flight coalescing.
     Shared by GET and POST /route; the fuel layer (POST only) runs on top of
@@ -3444,6 +3470,9 @@ async def _solve_route_cached(
     cache_key = (
         f"{from_.strip().lower()}|{to.strip().lower()}"
         f"|{jump_range:g}|{beam_width}|sc{supercharge:g}|v{_neutron_index.count}"
+        # Only append when opted in, so the default path keeps its existing key
+        # (no cache fragmentation / one-time miss on the common route).
+        + (f"|cml{companion_max_ls:g}" if companion_max_ls > 0 else "")
     )
     try:
         cached = await _route_cache.get(cache_key)
@@ -3506,7 +3535,7 @@ async def _solve_route_cached(
             try:
                 result = await _run_db_task(
                     _solve_route_sync, src, dst, jump_range, beam_width,
-                    supercharge,
+                    supercharge, companion_max_ls,
                 )
             except routing.RouteError as exc:
                 _log_route_trace(
@@ -3566,12 +3595,18 @@ async def plot_route(
         description="Neutron supercharge multiplier: 4 normal, 6 for a "
         "Caspian Explorer's Mk II SCO drive.",
     ),
+    companion_max_ls: float = Query(
+        0.0, ge=0.0, le=COMPANION_NEUTRON_BUILD_MAX_LS,
+        description="Also boost from companion (secondary) neutron stars within "
+        "this many light-seconds of arrival. 0 = main-star neutrons only.",
+    ),
     access: dict = Depends(entitlements.require_entitlement("route")),
 ):
     """Plot a neutron-boosted route (ship-agnostic). For fuel-aware plotting,
     POST the same parameters plus an EDSY/SLEF ``loadout``."""
     return await _solve_route_cached(
-        from_, to, jump_range, beam_width, supercharge, access.get("via")
+        from_, to, jump_range, beam_width, supercharge, access.get("via"),
+        companion_max_ls=companion_max_ls,
     )
 
 
@@ -3586,6 +3621,7 @@ class RouteRequest(BaseModel):
     jump_range: float = Field(50.0, alias="range", gt=0, le=200)
     beam_width: Optional[int] = Field(None, ge=1, le=100)
     supercharge: float = Field(4.0, ge=1.0, le=6.0)
+    companion_max_ls: float = Field(0.0, ge=0.0, le=COMPANION_NEUTRON_BUILD_MAX_LS)
     loadout: Optional[str] = None
     cargo: float = Field(0.0, ge=0, le=2048)
     fuel_safe: bool = True
@@ -3618,7 +3654,7 @@ async def plot_route_post(
     ``fuel_safe`` will drive scoop-stop enforcement; for now it reports."""
     result = await _solve_route_cached(
         req.from_, req.to, req.jump_range, req.beam_width, req.supercharge,
-        access.get("via"),
+        access.get("via"), companion_max_ls=req.companion_max_ls,
     )
     params = fsd.parse_loadout(req.loadout, req.cargo) if req.loadout else None
     if params is not None:

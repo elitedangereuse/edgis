@@ -295,6 +295,9 @@
                   <option value="6">Caspian SCO (6x)</option>
                 </select>
               </div>
+              <div class="flex-1 flex flex-col gap-2" style="min-width:180px"><label for="companionLs" class="text-sm font-semibold">Companion neutrons (Ls)</label>
+                <input id="companionLs" type="number" min="0" max="2000" step="10" value="0" title="Also boost from secondary (companion) neutron stars within this many light-seconds of arrival. 0 = main-star neutrons only." class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+              </div>
             </div>
             <datalist id="sysopts"></datalist>
             <details class="shiprow">

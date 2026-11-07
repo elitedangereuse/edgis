@@ -54,6 +54,14 @@ $("cargo").addEventListener("change", () => {
   if (shipInfo) importShip();  // re-read the ship so the range reflects cargo
 });
 
+// Opt-in companion (secondary) neutrons within N Ls of arrival (0 = off).
+const COMPANION_LS = "edgis_route_companion_ls";
+$("companionLs").value = localStorage.getItem(COMPANION_LS) || "0";
+const companionMaxLs = () =>
+  Math.min(2000, Math.max(0, Number($("companionLs").value) || 0));
+$("companionLs").addEventListener("change", () =>
+  localStorage.setItem(COMPANION_LS, String(companionMaxLs())));
+
 // Friendly ship label from a SLEF loadout, shown on the Ship & fuel summary so
 // it's visible even when collapsed. Prefers the commander's ship name. The SLEF
 // `Ship` field is the FDev internal symbol (e.g. "explorer_nx"); this maps it to
@@ -236,7 +244,11 @@ function spectralCell(j) {
   if (!j.spectral) return "";
   const scoop = scoopable(j.spectral) ? FUEL
     : (j.inflight_scoop ? inflightScoopMarker(j.scoop_ls) : "");
-  return `<span class="starcell">${scoop}<span class="spec" title="${escapeHtml(starName(j.spectral))}">${escapeHtml(starShort(j.spectral))}</span></span>`;
+  // Companion (secondary) neutron: show how far in-system you supercruise to it.
+  const companion = (j.neutron_star && j.arrival_ls > 0)
+    ? ` <span class="arrls" title="Companion neutron ${escapeHtml(fmt(j.arrival_ls, 0))} Ls from arrival (supercruise to it, then supercharge)">@${escapeHtml(fmt(j.arrival_ls, 0))} Ls</span>`
+    : "";
+  return `<span class="starcell">${scoop}<span class="spec" title="${escapeHtml(starName(j.spectral))}">${escapeHtml(starShort(j.spectral))}</span>${companion}</span>`;
 }
 function legLabel(j, last) {
   if (last) return "arrive";
@@ -277,7 +289,7 @@ function compactRows(r) {
     if (j.neutron_star || last) {
       out.push({ system: j.system ?? (last ? r.destination : "?"), spectral: j.spectral,
                  jumps, ly, left: j.distance_left, neutron: j.neutron_star, dest: last,
-                 inflight_scoop: j.inflight_scoop, scoop_ls: j.scoop_ls,
+                 inflight_scoop: j.inflight_scoop, scoop_ls: j.scoop_ls, arrival_ls: j.arrival_ls,
                  x: j.x, y: j.y, z: j.z, i0: start, i1: i });  // i0..i1 = this leg group
       jumps = 0; ly = 0; start = i + 1;
     }
@@ -295,6 +307,7 @@ function shareUrl() {
   if (q.to) p.set("to", q.to);
   if (q.range) p.set("range", q.range);
   if (q.supercharge && q.supercharge !== "4") p.set("supercharge", q.supercharge);
+  if (q.companionLs > 0) p.set("companion_max_ls", String(q.companionLs));
   const cargo = cargoTons();
   if (cargo > 0) p.set("cargo", String(cargo));
   return `${location.origin}${location.pathname}?${p.toString()}`;
@@ -606,7 +619,7 @@ function renderRoute(r) {
       ${doneBox(cname)}
       <td class="num">${i + 1}</td>
       <td class="sys ${w.neutron ? "boost" : ""}">${escapeHtml(w.system)}${riskBadge(risk)}${copyBtn(cname)}</td>
-      <td>${spectralCell({ spectral: w.spectral, neutron_star: w.neutron, inflight_scoop: w.inflight_scoop, scoop_ls: w.scoop_ls })}</td>
+      <td>${spectralCell({ spectral: w.spectral, neutron_star: w.neutron, inflight_scoop: w.inflight_scoop, scoop_ls: w.scoop_ls, arrival_ls: w.arrival_ls })}</td>
       <td class="num">${fmt(w.jumps)}</td>
       <td class="num">${fmt(w.ly, 0)}</td>
       <td class="num">${fmt(w.left, 0)}</td>
@@ -773,9 +786,10 @@ async function plot() {
   if (!from || !to) { $("out").innerHTML = `<div class="msg warn">Enter both a start and destination system.</div>`; return; }
   const range = $("range").value || "50";
   const supercharge = $("ship").value || "4";
+  const companionLs = companionMaxLs();
   // Fuel-aware plotting (POST with the loadout) kicks in once a ship is imported.
   const loadout = shipInfo ? ($("loadout").value || "").trim() : "";
-  lastQuery = { from, to, range, supercharge };
+  lastQuery = { from, to, range, supercharge, companionLs };
   lastOurs = null;  // so a post-failure spansh compare doesn't show a stale "ours"
   $("go").disabled = true; setBusy(true); $("out").innerHTML = `<div class="msg">Plotting…</div>`;
   try {
@@ -786,11 +800,13 @@ async function plot() {
         headers: { ...headers(), "Content-Type": "application/json" },
         body: JSON.stringify({
           from, to, range: Number(range), supercharge: Number(supercharge),
+          companion_max_ls: companionLs,
           loadout, cargo: cargoTons(), fuel_safe: $("fuelSafe").checked,
         }),
       });
     } else {
-      const url = `/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}&supercharge=${encodeURIComponent(supercharge)}`;
+      let url = `/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}&supercharge=${encodeURIComponent(supercharge)}`;
+      if (companionLs > 0) url += `&companion_max_ls=${encodeURIComponent(companionLs)}`;
       res = await fetch(url, { headers: headers(), credentials: "include" });
     }
     if (res.status === 403) {
@@ -902,6 +918,8 @@ window.edgisInitRoutePanel = function () {
   if (supercharge) { $("ship").value = supercharge; localStorage.setItem(SHIP_LS, supercharge); }
   const cargo = q.get("cargo");
   if (cargo != null && cargo !== "") { $("cargo").value = cargo; localStorage.setItem(CARGO_LS, String(cargoTons())); }
+  const cml = q.get("companion_max_ls");
+  if (cml != null && cml !== "") { $("companionLs").value = cml; localStorage.setItem(COMPANION_LS, String(companionMaxLs())); }
   if ($("loadout").value.trim()) { importShip(); }
   loadStatus();
   // A shared link (from + to both present) plots straight away, at the shared
