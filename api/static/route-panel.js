@@ -178,11 +178,28 @@ const FUEL = `<svg class="fuel" width="12" height="12" viewBox="0 0 16 16" fill=
 
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function fmt(n, d = 0) { return Number(n).toLocaleString(undefined, { maximumFractionDigits: d }); }
-function scoopable(s) { return /^[KGBFOAM]($| |\()/.test(String(s || "")); }
-function specShort(s) { return String(s || "").split(/[\s(]/)[0] || ""; }
+// Friendly star-type display. The route legs carry whatever is in
+// systems_big.mainstar: raw FDev codes ("A_BlueWhiteSuperGiant"), spansh-style
+// friendly names ("A (Blue-White super giant) Star"), or bare classes ("K").
+// index.html exposes the galaxy/sysmap resolvers; fall back to a split if the
+// panel is ever loaded standalone.
+function starShort(s) {
+  const fn = typeof window !== "undefined" && window.edgisStarShort;
+  if (fn) { const v = fn(s); if (v && v !== "-") return v; }
+  return String(s || "").split(/[\s(]/)[0] || "";
+}
+function starName(s) {
+  const fn = typeof window !== "undefined" && window.edgisStarName;
+  if (fn) { const v = fn(s); if (v && v !== "Unknown Star") return v; }
+  return String(s || "");
+}
+// Scoopable = the resolved short class is exactly one of KGBFOAM (super/giants
+// map to their base letter, e.g. A_BlueWhiteSuperGiant -> "A" -> scoopable;
+// Ae/Be, DQ, N, etc. are not).
+function scoopable(s) { return /^[KGBFOAM]$/.test(starShort(s)); }
 function spectralCell(j) {
   if (!j.spectral) return "";
-  return `<span class="starcell">${scoopable(j.spectral) ? FUEL : ""}<span class="spec" title="${escapeHtml(j.spectral)}">${escapeHtml(specShort(j.spectral))}</span></span>`;
+  return `<span class="starcell">${scoopable(j.spectral) ? FUEL : ""}<span class="spec" title="${escapeHtml(starName(j.spectral))}">${escapeHtml(starShort(j.spectral))}</span></span>`;
 }
 function legLabel(j, last) {
   if (last) return "arrive";
