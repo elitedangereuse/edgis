@@ -189,9 +189,12 @@ function starShort(s) {
   return String(s || "").split(/[\s(]/)[0] || "";
 }
 function starName(s) {
+  // Drop the redundant trailing " Star" (e.g. "A (Blue-White super giant) Star"
+  // -> "A (Blue-White super giant)", "Neutron Star" -> "Neutron").
+  const strip = (v) => v.replace(/\s+Star$/, "");
   const fn = typeof window !== "undefined" && window.edgisStarName;
-  if (fn) { const v = fn(s); if (v && v !== "Unknown Star") return v; }
-  return String(s || "");
+  if (fn) { const v = fn(s); if (v && v !== "Unknown Star") return strip(v); }
+  return strip(String(s || ""));
 }
 // Scoopable = the resolved short class is exactly one of KGBFOAM (super/giants
 // map to their base letter, e.g. A_BlueWhiteSuperGiant -> "A" -> scoopable;
