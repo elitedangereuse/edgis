@@ -148,6 +148,8 @@ async function importShip() {
 const copyIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/></svg>`;
 // Bootstrap "download" icon.
 const downloadIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="currentColor" viewBox="0 0 16 16"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/></svg>`;
+// Bootstrap "link-45deg" -- share: copies a deep link that reproduces the route.
+const shareIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="currentColor" viewBox="0 0 16 16"><path d="M4.715 6.542 3.343 7.914a3 3 0 1 0 4.243 4.243l1.828-1.829A3 3 0 0 0 8.586 5.5L8 6.086a1 1 0 0 0-.154.199 2 2 0 0 1 .861 3.337L6.88 11.45a2 2 0 1 1-2.83-2.83l.793-.792a4 4 0 0 1-.128-1.287z"/><path d="M6.586 4.672A3 3 0 0 0 7.414 9.5l.775-.776a2 2 0 0 1-.896-3.346L9.12 3.55a2 2 0 1 1 2.83 2.83l-.793.792c.112.42.155.855.128 1.287l1.372-1.372a3 3 0 1 0-4.243-4.243z"/></svg>`;
 // Bootstrap "exclamation-triangle-fill" -- marks a leg that puts the CMDR at
 // fuel risk (strand / over-range) directly in the results table.
 const warnIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5m.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2"/></svg>`;
@@ -212,6 +214,21 @@ function compactRows(r) {
     }
   });
   return out;
+}
+// A deep link that reproduces the plotted route (tool + from/to/range/
+// supercharge/cargo). Uses the query that was actually plotted (lastQuery), not
+// the live fields. The SLEF loadout is deliberately NOT shared (stored in the
+// browser only); the range param already captures the ship's plot range.
+function shareUrl() {
+  const q = lastQuery || {};
+  const p = new URLSearchParams({ tool: "route" });
+  if (q.from) p.set("from", q.from);
+  if (q.to) p.set("to", q.to);
+  if (q.range) p.set("range", q.range);
+  if (q.supercharge && q.supercharge !== "4") p.set("supercharge", q.supercharge);
+  const cargo = cargoTons();
+  if (cargo > 0) p.set("cargo", String(cargo));
+  return `${location.origin}${location.pathname}?${p.toString()}`;
 }
 function routeSystems() {
   if (!lastOurs) return [];
@@ -537,6 +554,7 @@ function renderRoute(r) {
         <button id="exportBtn" class="ghost" title="Download this route in the selected format">${downloadIconSvg} Export</button>
       </span>
       <button id="copyRoute" class="ghost" title="Copy the route systems, one per line">${copyIconSvg} Copy route</button>
+      <button id="shareRoute" class="ghost" title="Copy a link that reproduces this route">${shareIconSvg} Share</button>
     </div>
     <div class="tablewrap result-table">
       <table><thead><tr>${header}</tr></thead>
@@ -712,6 +730,8 @@ $("out").addEventListener("click", (e) => {
   }
   const copyAll = e.target.closest("#copyRoute");
   if (copyAll && lastOurs) { copyText(routeSystems().join("\n"), copyAll); return; }
+  const share = e.target.closest("#shareRoute");
+  if (share && lastQuery) { copyText(shareUrl(), share); return; }
   const exportBtn = e.target.closest("#exportBtn");
   if (exportBtn && lastOurs) { downloadRoute(exportFmt); }
 });
@@ -747,9 +767,16 @@ window.edgisInitRoutePanel = function () {
   const q = new URLSearchParams(location.search);
   const from = q.get("from"); if (from) $("from").value = from;
   const to = q.get("to"); if (to) $("to").value = to;
+  const range = q.get("range"); if (range) $("range").value = range;
+  const supercharge = q.get("supercharge");
+  if (supercharge) { $("ship").value = supercharge; localStorage.setItem(SHIP_LS, supercharge); }
   const cargo = q.get("cargo");
   if (cargo != null && cargo !== "") { $("cargo").value = cargo; localStorage.setItem(CARGO_LS, String(cargoTons())); }
   if ($("loadout").value.trim()) { importShip(); }
   loadStatus();
+  // A shared link (from + to both present) plots straight away, at the shared
+  // range. Deferred to the next tick so the synchronous field prefill is fully
+  // applied before plot() reads it.
+  if (from && to) setTimeout(plot, 0);
 };
 })();
