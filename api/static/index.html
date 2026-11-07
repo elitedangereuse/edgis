@@ -2546,11 +2546,37 @@
      // A readable card for a single body: a header (name + type with a Back
      // button to return to the body list), a grid of the scalar stats, and any
      // nested data (rings, materials, atmosphere) as labelled blocks.
+     // Inline styles throughout: the built tailwind.css is purged and lacks
+     // grid-cols-2/3 and several arbitrary values, so class-based layout silently
+     // does nothing here. Inline guarantees the grid + contrast over the galaxy bg.
      function renderBodyDetailCard(record) {
        const rec = record ?? {};
        const name = rec.body_name || rec.name || 'Body';
-       const type = rec.star_type || rec.planet_class || rec.subType || rec.body_type || rec.type || '';
-       const SKIP = new Set(['body_name', 'name', 'star_type', 'planet_class', 'subType', 'body_type', 'type', 'system_id64']);
+       // Friendly star type (A_BlueWhiteSuperGiant -> A (Blue-White super giant)),
+       // else the planet class / subtype as-is.
+       let type = rec.planet_class || rec.subType || rec.body_type || rec.type || '';
+       if (rec.star_type) {
+         const friendly = getHumanReadableStarType(rec.star_type);
+         type = (friendly && friendly !== 'Unknown Star')
+           ? friendly.replace(/\s+Star$/, '')
+           : rec.star_type;
+       }
+       const SKIP = new Set(['body_name', 'name', 'star_type', 'planet_class', 'subType', 'body_type', 'type', 'system_id64', 'updatetime']);
+       const niceLabel = (key) => {
+         const l = getColumnLabel(key);
+         if (l && l !== key) return l;
+         return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+       };
+       const fmtVal = (key, raw) => {
+         const n = (typeof raw === 'number') ? raw
+           : (typeof raw === 'string' && raw.trim() !== '' && !Number.isNaN(Number(raw)) ? Number(raw) : null);
+         if (n !== null && Number.isFinite(n)) {
+           return Number.isInteger(n) ? n.toLocaleString('en-US')
+             : n.toLocaleString('en-US', { maximumFractionDigits: 4 });
+         }
+         const f = formatScalarValue(key, raw);
+         return (f === null || f === undefined) ? String(raw) : String(f);
+       };
        const scalars = [];
        const blocks = [];
        for (const [key, raw] of Object.entries(rec)) {
@@ -2561,38 +2587,35 @@
            blocks.push([key, raw]);
            continue;
          }
-         const formatted = formatScalarValue(key, raw);
-         const display = (formatted === null || formatted === undefined) ? String(raw) : String(formatted);
+         const display = fmtVal(key, raw);
          if (display === '' || display === '-') continue;
          scalars.push([key, display]);
        }
-       const stat = ([key, display]) => `
-         <div class="flex flex-col gap-0.5 px-3 py-2 rounded-lg bg-[rgba(255,255,255,0.03)]">
-           <span class="text-[10px] uppercase tracking-wide text-[var(--accent-blue)]">${escapeHtml(getColumnLabel(key))}</span>
-           <span class="text-sm text-gray-100 break-words">${escapeHtml(display)}</span>
-         </div>`;
-       const block = ([key, raw]) => `
-         <div class="mt-3">
-           <div class="text-[10px] uppercase tracking-wide text-[var(--accent-blue)] mb-1">${escapeHtml(getColumnLabel(key))}</div>
-           <pre class="text-[11px] text-gray-200 bg-[rgba(255,255,255,0.03)] rounded-lg p-2 whitespace-pre-wrap overflow-auto">${escapeHtml(JSON.stringify(raw, null, 2))}</pre>
-         </div>`;
+       const CELL = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:8px 11px;min-width:0';
+       const LBL = 'font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--accent-blue)';
+       const VAL = 'font-size:14px;color:#e6edf3;word-break:break-word;line-height:1.3;margin-top:2px';
+       const stat = ([key, display]) =>
+         `<div style="${CELL}"><div style="${LBL}">${escapeHtml(niceLabel(key))}</div><div style="${VAL}">${escapeHtml(display)}</div></div>`;
+       const block = ([key, raw]) =>
+         `<div style="margin-top:12px"><div style="${LBL};margin-bottom:4px">${escapeHtml(niceLabel(key))}</div>`
+         + `<pre style="font-size:11px;color:#cdd6e0;background:rgba(255,255,255,0.04);border-radius:8px;padding:8px;white-space:pre-wrap;overflow:auto;margin:0">${escapeHtml(JSON.stringify(raw, null, 2))}</pre></div>`;
        const statsHtml = scalars.length
-         ? `<div class="grid grid-cols-2 sm:grid-cols-3 gap-2">${scalars.map(stat).join('')}</div>`
-         : `<p class="text-sm text-gray-400">No further details.</p>`;
+         ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px">${scalars.map(stat).join('')}</div>`
+         : `<p style="color:#9aa6b2;font-size:14px">No further details.</p>`;
        return `
-      <div class="body-card rounded-xl border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.02)] p-4">
-        <div class="flex items-center gap-3 mb-4">
+      <div style="background:rgba(9,13,19,0.82);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,0.12);border-radius:14px;padding:16px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
           <button type="button" onclick="backToBodiesList()" title="Back to the body list"
-            class="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg text-[var(--accent-blue)] bg-[rgba(255,255,255,0.04)] hover:bg-[rgba(255,255,255,0.1)] transition focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)]">
+            style="display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:6px 10px;border-radius:9px;color:var(--accent-blue);background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08);cursor:pointer">
             ${backArrowIconSvg}<span>Back</span>
           </button>
-          <div class="flex-1 min-w-0">
-            <div class="text-lg font-semibold text-gray-100 flex items-center gap-2">
-              <span class="truncate">${escapeHtml(String(name))}</span>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;font-size:18px;font-weight:600;color:#e6edf3">
+              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(String(name))}</span>
               <button type="button" title="Copy name" onclick="copyToClipboard('${escapeQuotes(String(name))}', this)"
-                class="opacity-40 hover:opacity-100 transition p-1 rounded text-[var(--accent-blue)] focus:opacity-100 focus:outline-none">${copyIconSvg}</button>
+                style="opacity:.5;padding:4px;border-radius:6px;color:var(--accent-blue);background:none;border:none;cursor:pointer">${copyIconSvg}</button>
             </div>
-            ${type ? `<div class="text-sm text-[var(--accent-blue)]">${escapeHtml(String(type))}</div>` : ''}
+            ${type ? `<div style="font-size:13px;color:var(--accent-blue);margin-top:2px">${escapeHtml(String(type))}</div>` : ''}
           </div>
         </div>
         ${statsHtml}
