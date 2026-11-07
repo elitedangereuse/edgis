@@ -204,13 +204,17 @@ def _parse_loadout(slef, cargo: float = 0.0) -> Optional[FuelParams]:
 
 def ship_summary(params: "FuelParams") -> dict:
     """A compact, display-ready view of a parsed loadout for the UI's ship
-    import (fills the jump-range field, shows tank/scoop at a glance). The
-    plotting range is the laden max (``max_jump_range`` from the loadout) when
-    present, else the lightest-practical one-jump range."""
-    # With cargo the effective max drops below the loadout's stated (unladen)
-    # range, so use the cargo-aware light range once cargo is aboard.
-    plot_range = (params.max_range_light() if params.cargo > 0
-                  else (params.max_jump_range or params.max_range_light()))
+    import (fills the jump-range field, shows tank/scoop at a glance).
+
+    The plotting range is the FULL-TANK range (``max_range_full``), not the
+    ship's lightest-tank maximum. A route is flown at every fuel level and the
+    tank is heaviest -- hence shortest-ranged -- right after a scoop, so
+    planning at the max (an only-when-near-empty range) yields jumps that are
+    physically unreachable on a full tank. The full-tank range is feasible at
+    any fuel level, so routes are always flyable by construction. (Recovering
+    the jumps the range-growth would allow -- reach growing as fuel burns -- is
+    a separate, optional, fuel-aware optimization.)"""
+    plot_range = params.max_range_full()
     return {
         "ok": True,
         "jump_range": round(plot_range, 2),

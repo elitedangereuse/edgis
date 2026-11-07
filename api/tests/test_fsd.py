@@ -245,6 +245,9 @@ def test_ship_summary_fills_range_and_flags_scoop():
     p = fsd.parse_loadout(COBRA_SLEF)
     s = fsd.ship_summary(p)
     assert s["ok"] is True
-    assert abs(s["jump_range"] - 67.72) < 0.5
+    # Plots at the FULL-TANK range (always feasible), not the lightest max.
+    assert abs(s["jump_range"] - 60.34) < 0.5
+    assert abs(s["max_range_full"] - 60.34) < 0.5
+    assert abs(s["max_range_light"] - 67.57) < 0.5  # lightest still shown
     assert s["tank_jumps"] == 10
     assert s["has_scoop"] is True
