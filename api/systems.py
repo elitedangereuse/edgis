@@ -3564,6 +3564,22 @@ async def plot_route_post(
         result = await _run_db_task(
             _enforce_fuel_sync, result, params, req.fuel_safe, req.supercharge
         )
+    # Record the fuel mode on its own trace line: the shared geometry trace is
+    # ship-agnostic, so without this the trace never shows whether a ship was
+    # imported or whether fuel-safe enforcement ran.
+    _fuel = result.get("fuel") or {}
+    _log_route_trace(
+        "route-fuel",
+        frm=result.get("source"), to=result.get("destination"),
+        range=req.jump_range,
+        has_ship=params is not None,
+        fuel_safe=req.fuel_safe if params is not None else None,
+        cargo=(req.cargo or None),
+        safe=_fuel.get("safe"),
+        scoop_stops=_fuel.get("scoop_stops"),
+        enforced=_fuel.get("enforced"),
+        access=access.get("via"),
+    )
     return result
 
 
