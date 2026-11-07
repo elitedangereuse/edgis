@@ -775,10 +775,19 @@ $("out").addEventListener("click", (e) => {
 $("out").addEventListener("change", (e) => {
   const box = e.target.closest(".done-box");
   if (box) {
-    const sys = box.dataset.sys;
-    if (box.checked) doneSet.add(sys); else doneSet.delete(sys);
+    // Cumulative progress: ticking a row marks everything above it done too (you
+    // flew past them); unticking a row clears it and everything below. Operates
+    // on the displayed rows in order, so it's correct in compact and full modes.
+    const applyDone = (b, state) => {
+      b.checked = state;
+      if (state) doneSet.add(b.dataset.sys); else doneSet.delete(b.dataset.sys);
+      b.closest("tr")?.classList.toggle("done", state);
+    };
+    const boxes = [...$("out").querySelectorAll(".done-box")];
+    const idx = boxes.indexOf(box);
+    if (box.checked) { for (let k = 0; k <= idx; k++) applyDone(boxes[k], true); }
+    else { for (let k = idx; k < boxes.length; k++) applyDone(boxes[k], false); }
     saveDone();
-    box.closest("tr")?.classList.toggle("done", box.checked);
     return;
   }
   const toggle = e.target.closest("#compactToggle");
