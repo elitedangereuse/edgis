@@ -148,6 +148,9 @@ async function importShip() {
 const copyIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/></svg>`;
 // Bootstrap "download" icon.
 const downloadIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="currentColor" viewBox="0 0 16 16"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/></svg>`;
+// Bootstrap "exclamation-triangle-fill" -- marks a leg that puts the CMDR at
+// fuel risk (strand / over-range) directly in the results table.
+const warnIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5m.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2"/></svg>`;
 function copyText(text, btn) {
   navigator.clipboard.writeText(text).then(() => {
     const prev = btn.innerHTML; btn.innerHTML = '<span class="good" style="font-size:11px">Copied</span>';
@@ -197,15 +200,15 @@ let exportFmt = localStorage.getItem("edgis_route_export_fmt") === "csv" ? "csv"
 // + the destination, with the jump count to reach each (the game auto-plots the
 // regular jumps between them).
 function compactRows(r) {
-  const out = []; let jumps = 0, ly = 0;
+  const out = []; let jumps = 0, ly = 0, start = 0;
   r.jumps.forEach((j, i) => {
     jumps++; ly += j.distance_jumped;
     const last = i === r.jumps.length - 1;
     if (j.neutron_star || last) {
       out.push({ system: j.system ?? (last ? r.destination : "?"), spectral: j.spectral,
                  jumps, ly, left: j.distance_left, neutron: j.neutron_star, dest: last,
-                 x: j.x, y: j.y, z: j.z });
-      jumps = 0; ly = 0;
+                 x: j.x, y: j.y, z: j.z, i0: start, i1: i });  // i0..i1 = this leg group
+      jumps = 0; ly = 0; start = i + 1;
     }
   });
   return out;
@@ -327,6 +330,38 @@ function fuelVerdict(f) {
     + `<span class="tiny">longest dry run ${f.max_dry_jumps} jumps (${tank})${added} · min fuel ${fmt(f.min_fuel, 1)} t.</span>`;
 }
 
+// Per-leg fuel risks for the results table. The fuel report's *_at indices
+// point into r.jumps (the realized legs), so each maps to exactly one row.
+// strand (dry tank, no scoopable star in reach) outranks over-range (jump too
+// long at the current -- heavy -- fuel level) when they land on the same leg.
+function fuelRisks(r) {
+  const m = new Map();
+  const f = r && r.fuel;
+  if (!f) return m;
+  const add = (idx, kind, label) => {
+    if (idx == null || idx < 0) return;
+    if (!m.has(idx) || kind === "strand") m.set(idx, { kind, label });
+  };
+  if (f.over_range) add(f.over_range_at, "over",
+    "Jump too long at this fuel level: a full tank is heavy and jumps shorter (range grows as fuel burns). Likely unmakeable here.");
+  if (f.stranded) add(f.stranded_at, "strand",
+    "Out of fuel here: no scoopable star within reach to refuel. Risk of stranding.");
+  return m;
+}
+function riskInRange(riskMap, i0, i1) {
+  let found = null;  // a collapsed segment may hold several; surface the worst
+  if (riskMap.size) for (const [idx, info] of riskMap) {
+    if (idx < i0 || idx > i1) continue;
+    if (!found || info.kind === "strand") found = info;
+  }
+  return found;
+}
+function riskBadge(info) {
+  return info
+    ? ` <span class="risk risk-${info.kind}" title="${escapeHtml(info.label)}" aria-label="fuel warning">${warnIconSvg}</span>`
+    : "";
+}
+
 // Convert our route to spansh's neutron-plotter result JSON so it imports into
 // tools that read spansh routes. system_jumps = source first (jumps 0), then
 // each neutron supercharge stop + the destination, with `jumps` = hops to reach
@@ -398,27 +433,32 @@ function downloadRoute(fmt) {
 function renderRoute(r) {
   lastOurs = r;
   let header, rows, legend;
+  const riskMap = fuelRisks(r);
   if (compactMode) {
     const wps = compactRows(r);
     header = `<th class="num">#</th><th>system</th><th>star</th><th class="num">jumps</th><th class="num">LY</th><th class="num">left</th><th class="acts-head">actions</th>`;
-    rows = wps.map((w, i) => `<tr>
+    rows = wps.map((w, i) => {
+      const risk = riskInRange(riskMap, w.i0, w.i1);
+      return `<tr class="${risk ? "risk-row" : ""}">
       <td class="num">${i + 1}</td>
-      <td class="sys ${w.neutron ? "boost" : ""}">${escapeHtml(w.system)}${copyBtn(w.dest ? r.destination : w.system)}</td>
+      <td class="sys ${w.neutron ? "boost" : ""}">${escapeHtml(w.system)}${riskBadge(risk)}${copyBtn(w.dest ? r.destination : w.system)}</td>
       <td>${spectralCell({ spectral: w.spectral, neutron_star: w.neutron })}</td>
       <td class="num">${fmt(w.jumps)}</td>
       <td class="num">${fmt(w.ly, 0)}</td>
       <td class="num">${fmt(w.left, 0)}</td>
       ${actsCell(w.dest ? r.destination : w.system, w.x, w.y, w.z)}
-    </tr>`).join("");
+    </tr>`;
+    }).join("");
     legend = "";
   } else {
     header = `<th class="num">#</th><th>system</th><th>star</th><th class="num">jumped</th><th class="num">left</th><th class="acts-head">actions</th>`;
     rows = r.jumps.map((j, i) => {
       const last = i === r.jumps.length - 1;
       const name = j.system ?? (last ? r.destination : "?");
-      return `<tr>
+      const risk = riskMap.get(i);
+      return `<tr class="${risk ? "risk-row" : ""}">
       <td class="num">${i + 1}</td>
-      <td class="sys">${escapeHtml(name)}${copyBtn(j.system ?? r.destination)}</td>
+      <td class="sys">${escapeHtml(name)}${riskBadge(risk)}${copyBtn(j.system ?? r.destination)}</td>
       <td>${spectralCell(j)}</td>
       <td class="num">${fmt(j.distance_jumped, 1)}</td>
       <td class="num">${fmt(j.distance_left, 0)}</td>

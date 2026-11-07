@@ -61,6 +61,15 @@
 #panel-route .export-group { display:inline-flex; align-items:center; gap:6px; }
 #panel-route #exportFmt { background:rgba(255,255,255,.04); color:var(--text);
          border:1px solid var(--line); border-radius:.5rem; padding:.34rem .5rem; font-size:.8rem; cursor:pointer; }
+/* Per-leg fuel-risk marker in the results table: a red warning triangle on the
+   system and a faint red tint + left accent on the row, so a strand / over-range
+   leg is obvious at a glance. */
+#panel-route .risk { color:var(--err); display:inline-flex; vertical-align:-2px; margin-left:4px; cursor:help; }
+#panel-route .risk svg { width:14px; height:14px; }
+#panel-route tr.risk-row > td { background:rgba(255,107,107,.09); }
+#panel-route tr.risk-row > td:first-child { box-shadow:inset 3px 0 0 var(--err); }
+#panel-route tr.risk-row .sys { color:var(--err); font-weight:600; }
+
 /* Native <select> popups render on the OS layer and don't inherit the glass
    panel, so the unselected option showed as near-invisible light text on the
    UA's white. Force a dark background + light text on every panel dropdown. */
