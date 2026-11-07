@@ -373,6 +373,15 @@
               </button>
             </h3>
           </div>
+          <div class="system-card__meta">
+            <span class="system-card__mainstar-chip">
+              <span id="systemMainstarIndicator" class="system-card__star-indicator" aria-hidden="true"></span>
+              <span id="systemMainstar">-</span>
+            </span>
+            <span class="system-card__coords" title="Galactic coordinates">
+              <span id="systemCoordX">-</span>, <span id="systemCoordY">-</span>, <span id="systemCoordZ">-</span>
+            </span>
+          </div>
           <div id="systemLookupActions" class="system-card__actions" hidden>
             <button type="button" id="systemMapBtn" class="system-card__action-tile is-disabled" aria-label="Open system map" disabled>
               <span class="system-card__action-icon" data-tooltip-icon="system" aria-hidden="true"></span>
@@ -386,28 +395,6 @@
               <span class="system-card__action-icon" aria-hidden="true"></span>
               <span class="system-card__action-label">Neighbors</span>
             </button>
-          </div>
-          <div class="system-card__stat system-card__stat--coords">
-            <p class="system-card__mainstar">Primary star
-              <span class="system-card__mainstar-chip">
-                <span id="systemMainstarIndicator" class="system-card__star-indicator" aria-hidden="true"></span>
-                <span id="systemMainstar">-</span>
-              </span>
-            </p>
-            <div class="system-card__axes">
-              <div class="system-card__axis" data-axis="x">
-                <span class="system-card__axis-label">X</span>
-                <span id="systemCoordX" class="system-card__axis-value">-</span>
-              </div>
-              <div class="system-card__axis" data-axis="y">
-                <span class="system-card__axis-label">Y</span>
-                <span id="systemCoordY" class="system-card__axis-value">-</span>
-              </div>
-              <div class="system-card__axis" data-axis="z">
-                <span class="system-card__axis-label">Z</span>
-                <span id="systemCoordZ" class="system-card__axis-value">-</span>
-              </div>
-            </div>
           </div>
         </div>
         <div id="bodiesEmbedContainer" class="mt-4 space-y-2" hidden>
@@ -2591,6 +2578,7 @@
        // generic JSON block; collected here, rendered once CELL/LBL/VAL exist.
        let materialsRaw = null;
        let parentsRaw = null;
+       let atmosphereRaw = null;
        for (const [key, raw] of Object.entries(rec)) {
          if (SKIP.has(key)) continue;
          if (raw === null || raw === undefined) continue;
@@ -2598,6 +2586,7 @@
            if (Array.isArray(raw) ? !raw.length : !Object.keys(raw).length) continue;
            if (key === 'materials') { materialsRaw = raw; continue; }
            if (key === 'parents') { parentsRaw = raw; continue; }
+           if (key === 'atmosphere_composition') { atmosphereRaw = raw; continue; }
            blocks.push([key, raw]);
            continue;
          }
@@ -2617,26 +2606,36 @@
          ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px">${scalars.map(stat).join('')}</div>`
          : `<p style="color:#9aa6b2;font-size:14px">No further details.</p>`;
 
-       // Materials with grade icons (same lookup the system map uses).
+       // Percent lists (materials / atmosphere): a grid of name + optional grade
+       // icon + percent. The name never wraps mid-word (the old word-break made
+       // "Sulphur" split into "Sulph/ur"); it ellipsizes if truly too long.
        const titleCase = (s) => String(s).replace(/\b\w/g, (c) => c.toUpperCase());
-       const renderMaterials = (raw) => {
+       const NAME = 'flex:1;min-width:0;font-size:14px;color:#e6edf3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+       const PCT = 'font-size:13px;color:#8fb3d9;font-variant-numeric:tabular-nums;flex:none';
+       const renderPercentList = (raw, title, withIcons) => {
          const SM = globalThis.SysmapMaterials;
          const entries = SM ? SM.normalizePercentageEntries(raw) : [];
          if (!entries.length) return '';
          const rows = entries.map((m) => {
-           const grade = SM.getRawMaterialGrade(m.name);
-           const icon = grade
-             ? `<img src="${grade.icon}" alt="Grade ${grade.grade}: ${escapeHtml(grade.rarity)}" title="Grade ${grade.grade}: ${escapeHtml(grade.rarity)}" style="width:16px;height:16px;flex:none">`
-             : `<span title="Unclassified" style="width:16px;height:16px;flex:none;border-radius:3px;background:rgba(255,255,255,0.08);display:inline-block"></span>`;
+           let icon = '';
+           if (withIcons) {
+             const grade = SM.getRawMaterialGrade(m.name);
+             icon = grade
+               ? `<img src="${grade.icon}" alt="Grade ${grade.grade}: ${escapeHtml(grade.rarity)}" title="Grade ${grade.grade}: ${escapeHtml(grade.rarity)}" style="width:16px;height:16px;flex:none">`
+               : `<span title="Unclassified" style="width:16px;height:16px;flex:none;border-radius:3px;background:rgba(255,255,255,0.08);display:inline-block"></span>`;
+           }
            const pct = Number.isFinite(m.percent)
              ? `${m.percent.toLocaleString('en-US', { maximumFractionDigits: 2 })}%` : '';
+           const label = escapeHtml(titleCase(m.name));
            return `<div style="${CELL};display:flex;align-items:center;gap:8px">`
-             + `${icon}<span style="flex:1;${VAL};margin-top:0">${escapeHtml(titleCase(m.name))}</span>`
-             + `<span style="font-size:13px;color:#8fb3d9;font-variant-numeric:tabular-nums">${escapeHtml(pct)}</span></div>`;
+             + `${icon}<span style="${NAME}" title="${label}">${label}</span>`
+             + `<span style="${PCT}">${escapeHtml(pct)}</span></div>`;
          }).join('');
-         return `<div style="margin-top:12px"><div style="${LBL};margin-bottom:6px">Materials</div>`
-           + `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px">${rows}</div></div>`;
+         return `<div style="margin-top:12px"><div style="${LBL};margin-bottom:6px">${escapeHtml(title)}</div>`
+           + `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px">${rows}</div></div>`;
        };
+       const renderMaterials = (raw) => renderPercentList(raw, 'Materials', true);
+       const renderAtmosphere = (raw) => renderPercentList(raw, 'Atmosphere', false);
 
        // Parents as an indented, clickable ancestry chain (root ancestor on top,
        // this body at the bottom). Barycentres aren't scanned bodies -> not clickable.
@@ -2667,6 +2666,7 @@
        };
 
        const materialsHtml = materialsRaw ? renderMaterials(materialsRaw) : '';
+       const atmosphereHtml = atmosphereRaw ? renderAtmosphere(atmosphereRaw) : '';
        const parentsHtml = parentsRaw ? renderParents(parentsRaw) : '';
        return `
       <div style="background:rgba(9,13,19,0.82);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,0.12);border-radius:14px;padding:16px">
@@ -2686,6 +2686,7 @@
         </div>
         ${statsHtml}
         ${parentsHtml}
+        ${atmosphereHtml}
         ${materialsHtml}
         ${blocks.map(block).join('')}
       </div>`;

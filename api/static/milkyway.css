@@ -306,6 +306,34 @@ a:hover {
     color: #f8fbff;
 }
 
+/* Compact star-type + coordinates line under the system name (replaces the old
+   full-width primary-star card with X/Y/Z boxes). */
+.system-card__meta {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.7rem;
+    margin: -0.4rem 0 1rem;
+    font-size: 0.85rem;
+}
+
+.system-card__meta .system-card__mainstar-chip {
+    font-size: 0.95rem;
+}
+
+.system-card__coords {
+    font-family: var(--mono, ui-monospace, "SFMono-Regular", monospace);
+    color: rgba(255, 255, 255, 0.55);
+    letter-spacing: 0.02em;
+}
+
+.system-card__coords::before {
+    content: "·";
+    margin-right: 0.7rem;
+    color: rgba(255, 255, 255, 0.3);
+}
+
 .system-card__star-indicator {
     width: 0.8rem;
     height: 0.8rem;
