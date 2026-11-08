@@ -236,6 +236,22 @@ def test_enforce_fuel_safety_respects_permit_lock():
     assert info["safe"] is False
 
 
+def test_is_scoopable_excludes_black_holes():
+    # KGBFOAM main-sequence stars are scoopable, in bare, friendly and FDev forms.
+    assert fsd.is_scoopable("K") is True
+    assert fsd.is_scoopable("M (Red dwarf) Star") is True
+    assert fsd.is_scoopable("A_BlueWhiteSuperGiant") is True
+    assert fsd.is_scoopable("g") is True
+    # A black hole starts with 'B' but is NOT a B-class star -> not scoopable.
+    assert fsd.is_scoopable("Black Hole") is False
+    assert fsd.is_scoopable("Supermassive Black Hole") is False
+    # Non-scoopable classes.
+    assert fsd.is_scoopable("N") is False          # neutron
+    assert fsd.is_scoopable("D (White Dwarf)") is False
+    assert fsd.is_scoopable("") is False
+    assert fsd.is_scoopable(None) is False
+
+
 def test_is_refuel_landing_covers_scoopable_and_inflight():
     # Plain scoopable primary.
     assert fsd.is_refuel_landing({"neutron_star": False, "spectral": "K"}) is True
