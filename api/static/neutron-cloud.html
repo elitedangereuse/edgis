@@ -14,8 +14,12 @@
     border-radius:8px; padding:9px 12px; pointer-events:none; backdrop-filter:blur(4px); }
   #hud b { color:var(--accent); font-weight:600; }
   #hud .muted { color:var(--muted); }
+  /* pointer-events:none so the overlay never blocks the canvas controls, and an
+     explicit [hidden] rule: the author display:flex would otherwise OVERRIDE the
+     UA's [hidden]{display:none}, leaving "Loading…" stuck on screen forever. */
   #load { position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
-    font-size:14px; color:var(--muted); }
+    font-size:14px; color:var(--muted); pointer-events:none; }
+  #load[hidden] { display:none; }
   #help { position:fixed; bottom:12px; left:12px; font-size:11px; color:var(--muted); }
 </style>
 </head>
@@ -142,8 +146,17 @@
       const room = Math.min(b.length, pos.length - filled);
       if (room > 0) {
         pos.set(room === b.length ? b : b.subarray(0, room), filled);
-        // Upload only the newly written span, then extend the draw range.
-        posAttr.updateRange = { offset: filled, count: room };
+        // Upload only the newly written span. If a previous span is still
+        // pending (two batches between frames; three.js keeps ONE updateRange
+        // and count resets to -1 after upload), extend it -- batches are
+        // contiguous, so the merge is just a wider span. Overwriting instead
+        // would silently drop the first span = permanent holes in the cloud.
+        const ur = posAttr.updateRange;
+        if (ur.count === -1) {
+          ur.offset = filled; ur.count = room;
+        } else {
+          ur.count = (filled + room) - ur.offset;
+        }
         posAttr.needsUpdate = true;
         filled += room;
         geom.setDrawRange(0, filled / 3);
