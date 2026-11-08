@@ -37,8 +37,19 @@ esac
 TMP_CHANGED_FILE_LIST=$(mktemp)
 {
     echo systems.py
+    echo routing.py
+    echo fsd.py
+    echo entitlements.py
+    echo patreon_auth.py
+    echo permit_zones.py
+    echo requirements.txt
+    echo static/route.html
+    echo static/route-panel.css
+    echo static/route-panel.js
     echo static/index.html
     echo static/galaxymap.html
+    echo static/neutron-cloud.html
+    echo static/neutron-cloud-worker.js
     echo static/sysmap.html
     echo static/sysmap-body-palette.html
     echo static/sysmap.css
@@ -46,9 +57,12 @@ TMP_CHANGED_FILE_LIST=$(mktemp)
     echo static/milkyway.css
     echo static/js/panzoom.js
     echo static/js/galaxymap.js
+    echo static/ed3d/js/components/hud.class.js
     echo static/js/sysmap_roots.js
     echo static/js/sysmap_materials.js
     echo static/js/sysmap.js
+    echo static/assets/spansh.png
+    echo static/edgislogo.svg
     echo static/assets/fleetcarrierstation.svg
     echo static/assets/fleetcarrierstack.svg
     echo static/assets/installationstation.svg
