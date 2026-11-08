@@ -211,6 +211,7 @@ def _leg(
     id64: Optional[int] = None,
     spectral: Optional[str] = None,
     arrival_ls: Optional[float] = None,
+    injected: bool = False,
 ) -> dict:
     leg = {
         "type": leg_type,
@@ -224,6 +225,10 @@ def _leg(
         "distance_jumped": float(dist),
         "distance_left": float(left),
     }
+    # Set when this jump required an FSD synthesis injection (reach > normal J);
+    # the UI marks it so the commander knows to carry the materials.
+    if injected:
+        leg["injected"] = True
     # Only set for a companion neutron (boost source you supercruise to in-system
     # before charging); the UI shows it as "neutron at X Ls". Main-star neutrons
     # and bridge stars leave it unset.
@@ -682,20 +687,25 @@ def _bridge_greedy(
     max_steps: int,
     is_locked: Optional[Callable[[str], bool]] = None,
     boost_mult: float = 4.0,
+    inject_mult: float = 1.0,
 ) -> Optional[tuple[list[dict], np.ndarray, bool]]:
     """Greedy star-walk toward ``target`` (excluded); returns the intermediate
     legs + final position/boost state, or ``None`` on a dead end. Fast and
     almost always sufficient in dense space. Bridge stars inside a permit zone
-    (``is_locked``) are skipped: you can never arrive at a locked system."""
+    (``is_locked``) are skipped: you can never arrive at a locked system.
+
+    ``inject_mult`` > 1 enables FSD synthesis injection "when required": if a
+    normal jump finds no forward star, one jump is retried at ``inject_mult``*J
+    (1.25/1.5/2.0 for basic/standard/premium) and tagged ``injected``. Injection
+    only applies to regular jumps (a boosted jump already reaches ``boost``)."""
 
     boost = boost_mult * jump_range
     legs: list[dict] = []
     cur = np.array(pos, dtype=np.float64)
     on_boost = boosted
-    for _ in range(max_steps):
-        reach = boost if on_boost else jump_range
-        if float(np.linalg.norm(target - cur)) <= reach:
-            return legs, cur, on_boost
+
+    def _pick(reach: float):
+        """Best (closest-to-target) unvisited, unlocked star within ``reach``."""
         if fetch_stars_toward is not None:
             rows = fetch_stars_toward(tuple(cur), reach, tuple(target), 32)
         else:
@@ -713,6 +723,18 @@ def _bridge_greedy(
             )
             if best_d is None or d < best_d:
                 best_d, best = d, row
+        return best
+
+    for _ in range(max_steps):
+        reach = boost if on_boost else jump_range
+        if float(np.linalg.norm(target - cur)) <= reach:
+            return legs, cur, on_boost
+        best = _pick(reach)
+        injected = False
+        if best is None and inject_mult > 1.0 and not on_boost:
+            # No forward star within a normal jump: FSD-inject to reach farther.
+            best = _pick(inject_mult * jump_range)
+            injected = best is not None
         if best is None:
             return None
         nxt = np.asarray(best[:3], dtype=np.float64)
@@ -724,6 +746,7 @@ def _bridge_greedy(
                 _is_neutron_star(ms), float(np.linalg.norm(nxt - dst_v)),
                 spectral=ms,
                 id64=(best[5] if len(best) > 5 else None),
+                injected=injected,
             )
         )
         visited.add(best[3])
@@ -832,9 +855,11 @@ def _realize_graph(
     fetch_stars_toward: Optional[FetchStarsToward],
     is_locked: Optional[Callable[[str], bool]] = None,
     boost_mult: float = 4.0,
+    inject_mult: float = 1.0,
 ):
     """Realize a neutron sequence into legs. Returns ``(legs, None)`` or
-    ``(None, (edge, midpoint, seg_d))`` naming the unbridgeable edge."""
+    ``(None, (edge, midpoint, seg_d))`` naming the unbridgeable edge.
+    ``inject_mult`` > 1 lets the greedy bridger FSD-inject across gaps."""
 
     J = jump_range
     boost = boost_mult * J
@@ -858,7 +883,7 @@ def _realize_graph(
             br = _bridge_greedy(
                 fetch_stars_within, fetch_stars_toward, pos, boosted, tgt,
                 J, dst_v, set(), max_steps, is_locked=is_locked,
-                boost_mult=boost_mult,
+                boost_mult=boost_mult, inject_mult=inject_mult,
             )
             if fetch_stars_near_segment is not None:
                 # Quality guard: greedy can SUCCEED badly, wandering around an
@@ -920,6 +945,7 @@ def graph_route(
     is_locked: Optional[Callable[[str], bool]] = None,
     boost_mult: float = 4.0,
     companion_max_ls: float = 0.0,
+    inject_mult: float = 1.0,
 ) -> Optional[dict]:
     """Min-**jumps** route via corridor-bounded neutron-graph A*, realized into
     legs with greedy + capsule-BFS bridging. Edges the realizer proves
@@ -972,7 +998,7 @@ def graph_route(
         legs, fail = _realize_graph(
             index, src, dst, J, seq, fetch_stars_within,
             fetch_stars_near_segment, fetch_stars_toward, is_locked=is_locked,
-            boost_mult=boost_mult,
+            boost_mult=boost_mult, inject_mult=inject_mult,
         )
         if legs is not None:
             return _finalize(

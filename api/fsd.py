@@ -534,10 +534,13 @@ def annotate_leg_fuel(legs, params: "FuelParams", start_fuel: Optional[float] = 
         leg["must_refuel"] = bool(refueled)
 
 
-def spansh_params(params: "FuelParams", supercharge: float = 4.0) -> dict:
+def spansh_params(params: "FuelParams", supercharge: float = 4.0,
+                  inject_mult: float = 1.0) -> dict:
     """The spansh Galaxy (exact) Plotter ``parameters`` block derived from a
     parsed loadout, for the exact-format export. Mirrors the mapping used by the
-    /spansh/galaxy-route proxy (reserve folded into base_mass, reserve_size 0)."""
+    /spansh/galaxy-route proxy (reserve folded into base_mass, reserve_size 0).
+    ``inject_mult`` > 1 sets use_injections_when_required so the exported route
+    matches ours (spansh only models premium injection, multiplier 2)."""
     return {
         "algorithm": "optimistic",
         "base_mass": round(params.base_mass + params.reserve_size + params.cargo, 4),
@@ -556,6 +559,6 @@ def spansh_params(params: "FuelParams", supercharge: float = 4.0) -> dict:
         "supercharge_multiplier": int(supercharge),
         "tank_size": params.tank_size,
         "use_injections": False,
-        "use_injections_when_required": True,
+        "use_injections_when_required": inject_mult > 1.0,
         "use_supercharge": True,
     }
