@@ -187,7 +187,7 @@ function setShipSummary() {
 
 async function importShip() {
   const loadout = ($("loadout").value || "").trim();
-  if (!loadout) { shipInfo = null; localStorage.removeItem(SLEF_LS); $("shipInfo").textContent = ""; $("cmpGalaxy").hidden = true; setShipSummary(); return; }
+  if (!loadout) { shipInfo = null; localStorage.removeItem(SLEF_LS); $("shipInfo").textContent = ""; $("cmpGalaxy").disabled = true; setShipSummary(); return; }
   $("importShip").disabled = true;
   $("shipInfo").innerHTML = `<span class="tiny">Reading loadout…</span>`;
   $("shipSummary").innerHTML = `Ship &amp; options · <span class="tiny">reading loadout…</span>`;
@@ -233,7 +233,7 @@ async function importShip() {
     shipInfo = null;
     $("shipInfo").innerHTML = `<span class="bad">${escapeHtml(e.message || String(e))}</span>`;
   } finally {
-    $("importShip").disabled = false; $("cmpGalaxy").hidden = !shipInfo; setShipSummary();
+    $("importShip").disabled = false; $("cmpGalaxy").disabled = !shipInfo; setShipSummary();
     // A non-empty loadout that failed to import (bad JSON, access gate): open
     // the section so the reason in #shipInfo is visible, not hidden when collapsed.
     if (!shipInfo) { const dt = $("loadout").closest("details"); if (dt) dt.open = true; }
@@ -248,7 +248,7 @@ function clearShip() {
   $("loadout").value = "";
   localStorage.removeItem(SLEF_LS);
   $("shipInfo").textContent = "";
-  $("cmpGalaxy").hidden = true;
+  $("cmpGalaxy").disabled = true;
   setActiveShip(-1);
   setShipSummary();
   renderShipLibrary();
@@ -846,8 +846,7 @@ function renderRoute(r) {
       <table><thead><tr>${header}</tr></thead>
       <tbody>${rows}</tbody></table>
     </div>`;
-  $("cmp").disabled = false; $("cmp").title = "Run the same query on spansh";
-  if (shipInfo) { $("cmpGalaxy").disabled = false; }
+  $("cmpGalaxy").disabled = !shipInfo;  // exact compare needs a ship
   // Trigger the neighbors-style refresh glow on the freshly rendered table.
   const tbl = $("out").querySelector(".tablewrap.result-table");
   if (tbl) {
@@ -884,30 +883,9 @@ function cmpTime(durationS) {
   return ` · ⏱ ${ft(ourMs)} vs ${ft(spMs)} <span class="${dMs >= 0 ? "good" : "bad"}">(${ft(Math.abs(dMs))} ${dMs >= 0 ? "faster" : "slower"})</span>`;
 }
 
-async function compareSpansh() {
-  if (!lastQuery) return;
-  const { from, to, range, supercharge } = lastQuery;
-  $("cmp").disabled = true; setBusy(true);
-  const out = () => cmpLine("cmpNeutron");
-  out().innerHTML = `<span class="tiny">Querying spansh… (can take ~10–30 s)</span>`;
-  try {
-    const res = await fetch(`/spansh/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}&efficiency=60&supercharge=${encodeURIComponent(supercharge || 4)}`, { headers: headers(), credentials: "include" });
-    if (!res.ok) { if (out()) out().innerHTML = `<span class="bad">spansh compare failed (HTTP ${res.status})</span>`; return; }
-    const s = await res.json();
-    const sDur = s.duration_s != null ? `, ${fmt(s.duration_s, 1)} s` : "";
-    const link = s.results_url ? ` · <a href="${escapeHtml(s.results_url)}" target="_blank" rel="noopener">open in spansh ↗</a>` : "";
-    // Both sides use the selected supercharge; label it so the compare is
-    // unambiguously apples-to-apples (e.g. Caspian 6x vs spansh at 6x).
-    const sc = Number(supercharge || 4);
-    const modeTag = sc !== 4 ? `<span class="tiny">supercharge ${sc}x</span> · ` : "";
-    if (out()) out().innerHTML = modeTag + `<b>spansh Neutron&nbsp;Plotter:</b> ${fmt(s.total_jumps)} jumps (eff 60${sDur})`
-      + cmpVerdict(s.total_jumps) + cmpTime(s.duration_s) + link;
-  } catch (e) { if (out()) out().innerHTML = `<span class="bad">${e.message || e}</span>`; }
-  finally { $("cmp").disabled = false; setBusy(false); }
-}
-
 // Compare against spansh's fuel-aware Galaxy (exact) Plotter. Needs the ship
-// build, so it's only offered once a loadout is imported.
+// build, so it's only offered once a loadout is imported. This is the only
+// spansh comparison -- we measure against the exact plotter, not the neutron one.
 async function compareGalaxy() {
   if (!lastQuery) return;
   const loadout = shipInfo ? ($("loadout").value || "").trim() : "";
@@ -985,10 +963,9 @@ async function plot() {
     // Keep the button disabled if we entered the warming state (503).
     if (!$("go").classList.contains("warming")) $("go").disabled = false;
     setBusy(false);
-    // Allow comparing against spansh after any attempt, including when EDGIS
-    // couldn't find a route (spansh often can).
-    if (lastQuery) { $("cmp").disabled = false; $("cmp").title = "Query spansh for this route";
-      if (shipInfo) $("cmpGalaxy").disabled = false; }
+    // Allow comparing against spansh (exact) after any attempt, including when
+    // EDGIS couldn't find a route (spansh often can). Needs a ship.
+    if (lastQuery && shipInfo) $("cmpGalaxy").disabled = false;
     loadStatus();
   }
 }
@@ -1046,7 +1023,6 @@ $("out").addEventListener("change", (e) => {
 });
 
 $("go").addEventListener("click", plot);
-$("cmp").addEventListener("click", compareSpansh);
 $("cmpGalaxy").addEventListener("click", compareGalaxy);
 $("importShip").addEventListener("click", importShip);
 $("clearShip").addEventListener("click", clearShip);
