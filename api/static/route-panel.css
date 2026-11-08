@@ -107,6 +107,15 @@
 #panel-route .cargo-field { font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted);
                display:inline-flex; align-items:center; gap:6px; }
 #panel-route #shipInfo { font-family:var(--mono); }
+/* Ship library: chips of stored ships; active one highlighted; x removes one. */
+#panel-route .ship-library { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+#panel-route .ship-item { display:inline-flex; align-items:stretch; border:1px solid rgba(255,255,255,0.14); border-radius:8px; overflow:hidden; }
+#panel-route .ship-item.active { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+#panel-route .ship-pick { background:transparent; border:0; color:var(--text); padding:5px 10px; cursor:pointer; font-size:12px; }
+#panel-route .ship-item.active .ship-pick { color:var(--accent); font-weight:600; }
+#panel-route .ship-pick:hover { background:rgba(255,255,255,0.06); }
+#panel-route .ship-del { background:transparent; border:0; border-left:1px solid rgba(255,255,255,0.14); color:var(--muted); padding:0 8px; cursor:pointer; font-size:14px; line-height:1; }
+#panel-route .ship-del:hover { color:var(--bad); background:rgba(255,255,255,0.06); }
 #panel-route .fuelbar { margin:12px 0 2px; font-size:13px; }
 
 #panel-route .summary { display:flex; gap:24px; flex-wrap:wrap; margin:20px 0 8px; align-items:flex-end; }
