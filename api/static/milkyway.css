@@ -62,43 +62,47 @@ a:hover {
     text-shadow: 0 0 5px #3b505966, 0 0 10px #3b505966, 0 0 15px #80c4e6;
 }
 
-#resultPre, #resultTable {
+#resultPre, #resultTable, .result-table {
     max-height: 60vh;
     overflow-y: auto;
     scrollbar-width: thin;
     scrollbar-color: #3b505966 #1a1a1a;
 }
 
-#resultPre::-webkit-scrollbar, #resultTable::-webkit-scrollbar {
+#resultPre::-webkit-scrollbar, #resultTable::-webkit-scrollbar, .result-table::-webkit-scrollbar {
     width: 6px;
 }
 
-#resultPre::-webkit-scrollbar-track, #resultTable::-webkit-scrollbar-track {
+#resultPre::-webkit-scrollbar-track, #resultTable::-webkit-scrollbar-track, .result-table::-webkit-scrollbar-track {
     background: #111;
 }
 
-#resultPre::-webkit-scrollbar-thumb, #resultTable::-webkit-scrollbar-thumb {
+#resultPre::-webkit-scrollbar-thumb, #resultTable::-webkit-scrollbar-thumb, .result-table::-webkit-scrollbar-thumb {
     background-color: #3b505966;
     border-radius: 3px;
 }
 /* Thin grid lines for table columns and rows */
-#resultTable table {
+#resultTable table, .result-table table {
     border-collapse: collapse;
 }
 
 #resultTable th,
-#resultTable td {
+#resultTable td,
+.result-table th,
+.result-table td {
     border-left: 1px solid rgba(255, 255, 255, 0.1); /* Subtle vertical lines */
     padding-left: 5px;
     padding-right: 5px;
 }
 
 #resultTable th:first-child,
-#resultTable td:first-child {
+#resultTable td:first-child,
+.result-table th:first-child,
+.result-table td:first-child {
     border-left: none; /* Avoid border on far-left edge */
 }
 
-#resultTable th {
+#resultTable th, .result-table th {
     border-bottom: 1px solid rgba(18, 148, 214, 0.3); /* Stronger bottom line for header */
 }
 
@@ -300,6 +304,34 @@ a:hover {
     letter-spacing: normal;
     text-transform: none;
     color: #f8fbff;
+}
+
+/* Compact star-type + coordinates line under the system name (replaces the old
+   full-width primary-star card with X/Y/Z boxes). */
+.system-card__meta {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.7rem;
+    margin: -0.4rem 0 1rem;
+    font-size: 0.85rem;
+}
+
+.system-card__meta .system-card__mainstar-chip {
+    font-size: 0.95rem;
+}
+
+.system-card__coords {
+    font-family: var(--mono, ui-monospace, "SFMono-Regular", monospace);
+    color: rgba(255, 255, 255, 0.55);
+    letter-spacing: 0.02em;
+}
+
+.system-card__coords::before {
+    content: "·";
+    margin-right: 0.7rem;
+    color: rgba(255, 255, 255, 0.3);
 }
 
 .system-card__star-indicator {

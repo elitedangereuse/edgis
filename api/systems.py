@@ -8,11 +8,11 @@ import base64
 import json
 from contextlib import contextmanager
 from queue import Empty, LifoQueue
-from threading import Lock
+from threading import Lock, Thread
 import httpx
 from decimal import Decimal
 from fastapi import HTTPException
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Depends
 from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -34,6 +34,20 @@ except ImportError:
     else:
         raise
 from dotenv import load_dotenv
+
+try:
+    from . import routing, entitlements, patreon_auth, permit_zones, fsd
+except ImportError:  # running as a script / tests with api/ on sys.path
+    import routing  # type: ignore[no-redef]
+    import entitlements  # type: ignore[no-redef]
+    import patreon_auth  # type: ignore[no-redef]
+    import permit_zones  # type: ignore[no-redef]
+    import fsd  # type: ignore[no-redef]
+
+# Patreon identity (Layer 2) backs the entitlement gate: patrons who linked on
+# the main site are recognised here via the shared cookie. No-op until
+# EDGIS_IDENTITY_URL is configured.
+entitlements.set_patron_resolver(patreon_auth.resolve_patron)
 
 _SPANSH_IMPORT_ERROR: str | None = None
 try:
@@ -1678,8 +1692,15 @@ def _infer_prediction_mcode_for_radius(
 
 
 def _materialize_predicted_name(proto_name: str) -> str:
+    # pgnames returns the boxel prefix; the per-system sequence number N2 is
+    # appended here (the boxel's representative is the first system, N2 = 0).
+    # With N1 present the proto ends "...d1-"; without N1 it ends in the mass-code
+    # letter "...d". Both need the "0" suffix -- so append it whenever the name
+    # doesn't already end in a digit (a complete name like "...d5-54" is left as
+    # is). Previously only the "ends with -" case was handled, so no-N1 boxels
+    # produced invalid names like "Pru Theia FK-A b" (missing the trailing 0).
     name = str(proto_name or "").strip()
-    if name.endswith("-"):
+    if name and not name[-1].isdigit():
         return f"{name}0"
     return name
 
@@ -2565,7 +2586,9 @@ async def system_map(
     return result
 
 
-@app.post("/bodies/{system_id64}/spansh-refresh", include_in_schema=False)
+# Not an HTTP route any more: the public "refresh system from Spansh" button was
+# removed (it was useful early on, no longer). Kept as a plain helper for the
+# admin-gated ADMIN_ACTIONS["bodies-spansh-refresh"] tool only.
 async def refresh_bodies_from_spansh(system_id64: int):
     if system_id64 <= 0:
         raise HTTPException(
@@ -2969,6 +2992,971 @@ def read_admin():
 @app.get("/", include_in_schema=False)
 def read_index():
     return FileResponse(INDEX_HTML_PATH)
+
+
+# Route plotter test UI (the JSON API is at GET /route).
+@app.get("/plotter", include_in_schema=False)
+def read_route_plotter():
+    return FileResponse(os.path.join(STATIC_DIR, "route.html"))
+
+
+# ---------------------------------------------------------------------------
+# Route plotter (neutron-boosted). The KD-tree of ~5M neutrons lives resident
+# in this worker; the solver and entitlement gate live in routing.py /
+# entitlements.py. See docs/route-endpoint-plan.md.
+# ---------------------------------------------------------------------------
+
+_neutron_index: "routing.NeutronIndex | None" = None
+_neutron_index_error: str | None = None
+_neutron_index_building = False
+_neutron_index_lock = Lock()
+_route_solve_semaphore: asyncio.Semaphore | None = None
+# In-flight route solves, keyed by cache_key: a second identical request awaits
+# the first instead of launching a duplicate (a 90 s rim route must not run
+# twice concurrently). Holds the cacheable result dict (no caller "access").
+_route_inflight: dict[str, "asyncio.Future"] = {}
+# Best-effort Redis cache for whole routes. Keyed by (from, to, range, width,
+# index version) so an index rebuild (changed neutron count) invalidates
+# naturally. Caller-specific fields (access) are set fresh on every hit.
+ROUTE_CACHE_TTL = int(os.getenv("ROUTE_CACHE_TTL") or str(24 * 60 * 60))
+_route_cache = RedisCache(
+    endpoint=REDIS_HOST, port=REDIS_PORT, namespace="route",
+    serializer=PickleSerializer(),
+)
+
+
+# Companion (secondary) neutrons are folded into the index up to this arrival
+# distance; each request then opts in via companion_max_ls (0 = main-star only,
+# the default, filtered back out in graph_route/solve_route). A build cap keeps
+# the index lean and bars absurd supercruise distances. star_type_id 28 = 'N'.
+COMPANION_NEUTRON_BUILD_MAX_LS = 2000.0
+
+
+def _fetch_neutron_rows_sync():
+    with _db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), id64, name "
+                "FROM systems_big WHERE mainstar IN ('N', 'Neutron Star')"
+            )
+            rows = cursor.fetchall()  # main-star neutrons; arrival_ls defaults 0
+            # One point per system with a companion neutron (the closest one),
+            # arrival distance as the 6th column. Uses idx_bodies_companion_neutron.
+            cursor.execute(
+                "SELECT ST_X(s.coords), ST_Y(s.coords), ST_Z(s.coords), "
+                "b.system_id64, s.name, min(b.distance_from_arrival_ls) "
+                "FROM bodies b JOIN systems_big s ON s.id64 = b.system_id64 "
+                "WHERE b.star_type_id = 28 AND b.distance_from_arrival_ls > 0 "
+                "AND b.distance_from_arrival_ls <= %s "
+                "GROUP BY b.system_id64, s.coords, s.name",
+                (COMPANION_NEUTRON_BUILD_MAX_LS,),
+            )
+            rows.extend(cursor.fetchall())
+            return rows
+        finally:
+            cursor.close()
+
+
+def _build_neutron_index() -> None:
+    global _neutron_index, _neutron_index_error, _neutron_index_building
+    try:
+        index = routing.NeutronIndex.build(_fetch_neutron_rows_sync)
+        _neutron_index = index
+        _neutron_index_error = None
+        logger.info("Neutron route index built: %d stars", index.count)
+    except Exception as exc:  # pragma: no cover - logged, non-fatal
+        _neutron_index_error = str(exc)
+        logger.exception("Neutron route index build failed")
+    finally:
+        with _neutron_index_lock:
+            _neutron_index_building = False
+
+
+def _kick_neutron_index_build() -> bool:
+    """Start a background index build if one isn't already running/done."""
+
+    global _neutron_index_building
+    with _neutron_index_lock:
+        if _neutron_index is not None or _neutron_index_building:
+            return False
+        _neutron_index_building = True
+    Thread(
+        target=_build_neutron_index, name="neutron-index-build", daemon=True
+    ).start()
+    return True
+
+
+def _solve_route_sync(
+    src: tuple[float, float, float],
+    dst: tuple[float, float, float],
+    jump_range: float,
+    beam_width: int | None,
+    boost_mult: float = 4.0,
+    companion_max_ls: float = 0.0,
+):
+    index = _neutron_index
+    if index is None:  # pragma: no cover - guarded by caller
+        raise routing.RouteError("not-ready", "route index not built")
+    with _db_connection() as conn:
+
+        def fetch_stars_within(pos, radius):
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name, "
+                    "mainstar, id64 FROM systems_big "
+                    "WHERE ST_3DDWithin(coords, ST_MakePoint(%s, %s, %s), %s)",
+                    (pos[0], pos[1], pos[2], radius),
+                )
+                return cursor.fetchall()
+            finally:
+                cursor.close()
+
+        def fetch_stars_near_segment(p0, p1, width):
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name, "
+                    "mainstar, id64 FROM systems_big "
+                    "WHERE ST_3DDWithin(coords, ST_MakeLine("
+                    "ST_MakePoint(%s, %s, %s), ST_MakePoint(%s, %s, %s)), %s) "
+                    "LIMIT 250000",
+                    (p0[0], p0[1], p0[2], p1[0], p1[1], p1[2], width),
+                )
+                return cursor.fetchall()
+            finally:
+                cursor.close()
+
+        def fetch_stars_toward(pos, radius, target, limit):
+            # Sorting the full reach-ball is ~6 s/step in the bubble; a small
+            # ball around the "ahead point" (toward the target, still fully
+            # inside reach) is ~40 ms and contains the stars greedy wants.
+            # Fall back to the full sorted ball only when it comes up empty
+            # (sparse space, where that ball is small anyway).
+            d = math.dist(pos, target)
+            r = radius / 4.0
+            f = (radius - r) / d if d > 0 else 0.0
+            ahead = tuple(p + (t - p) * f for p, t in zip(pos, target))
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name, "
+                    "mainstar, id64 FROM systems_big "
+                    "WHERE ST_3DDWithin(coords, ST_MakePoint(%s, %s, %s), %s) "
+                    "ORDER BY ST_3DDistance(coords, ST_MakePoint(%s, %s, %s)) "
+                    "LIMIT %s",
+                    (ahead[0], ahead[1], ahead[2], r,
+                     target[0], target[1], target[2], limit),
+                )
+                rows = cursor.fetchall()
+                if rows:
+                    return rows
+                cursor.execute(
+                    "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name, "
+                    "mainstar, id64 FROM systems_big "
+                    "WHERE ST_3DDWithin(coords, ST_MakePoint(%s, %s, %s), %s) "
+                    "ORDER BY ST_3DDistance(coords, ST_MakePoint(%s, %s, %s)) "
+                    "LIMIT %s",
+                    (pos[0], pos[1], pos[2], radius,
+                     target[0], target[1], target[2], limit),
+                )
+                return cursor.fetchall()
+            finally:
+                cursor.close()
+
+        # Corridor graph A* is the primary engine: min-jumps by construction,
+        # measured to match or beat the beam on every benchmarked route. The
+        # beam stays as the fallback when the graph can't realize a route
+        # within its time cap (scaled with route length: a 65 kly rim route
+        # legitimately needs several blacklist rounds).
+        result = routing.graph_route(
+            index, src, dst, jump_range, fetch_stars_within,
+            fetch_stars_near_segment=fetch_stars_near_segment,
+            fetch_stars_toward=fetch_stars_toward,
+            time_cap=60.0 + math.dist(src, dst) / 500.0,
+            is_locked=permit_zones.is_locked,
+            boost_mult=boost_mult,
+            companion_max_ls=companion_max_ls,
+        )
+        if result is not None:
+            return result
+        return routing.solve_route(
+            index, src, dst, jump_range, fetch_stars_within, width=beam_width,
+            boost_mult=boost_mult, companion_max_ls=companion_max_ls,
+        )
+
+
+# In-system refuel distance: a neutron waypoint whose system carries a scoopable
+# KGBFOAM companion within this many light-seconds lets the commander refuel
+# WITHOUT a divert jump (supercruise to the companion, scoop, jump out, chain
+# unbroken). ~100 Ls matches spansh's "secondary scoopable near arrival" rule.
+INFLIGHT_SCOOP_MAX_LS = 100.0
+
+
+def _annotate_inflight_scoops(legs: list, conn, max_ls: float = INFLIGHT_SCOOP_MAX_LS) -> int:
+    """Flag neutron-landing legs whose system has a scoopable companion within
+    ``max_ls`` (read from the bodies table), so the fuel layer treats them as
+    in-highway refuels instead of forcing a +2-jump divert. Mutates ``legs`` in
+    place -- pass COPIES, never the cached geometry. Returns the count flagged."""
+    names = sorted({
+        leg.get("system") for leg in legs
+        if leg.get("neutron_star") and leg.get("system")
+    })
+    if not names:
+        return 0
+    cursor = conn.cursor()
+    try:
+        # lower(name) = ANY hits idx_systems_big_name_lower_prefix (a plain
+        # name= ANY seq-scans the 40M-row table, ~34s). substr(name,1,1) IN
+        # KGBFOAM mirrors fsd.is_scoopable (first-letter rule). Result keeps the
+        # DB's original-case name, which matches the leg's `system`.
+        cursor.execute(
+            "SELECT s.name, min(b.distance_from_arrival_ls) "
+            "FROM systems_big s "
+            "JOIN bodies b ON b.system_id64 = s.id64 "
+            "JOIN star_types st ON b.star_type_id = st.id "
+            "WHERE lower(s.name) = ANY(%s) "
+            "AND b.distance_from_arrival_ls > 0 "
+            "AND b.distance_from_arrival_ls <= %s "
+            "AND substr(st.name, 1, 1) IN ('K','G','B','F','O','A','M') "
+            "GROUP BY s.name",
+            ([n.lower() for n in names], float(max_ls)),
+        )
+        scoop_ls = {row[0]: float(row[1]) for row in cursor.fetchall()}
+    finally:
+        cursor.close()
+    count = 0
+    for leg in legs:
+        if leg.get("neutron_star") and leg.get("system") in scoop_ls:
+            leg["inflight_scoop"] = True
+            leg["scoop_ls"] = scoop_ls[leg["system"]]
+            count += 1
+    return count
+
+
+def _enforce_fuel_sync(base_result: dict, params, fuel_safe: bool,
+                       boost_mult: float = 4.0) -> dict:
+    """Run the fuel layer on an already-solved (ship-agnostic) route: annotate
+    neutron waypoints that allow an in-system refuel, then (when ``fuel_safe``)
+    insert scoop-stop detours so it never strands, and attach a fuel report. Runs
+    in a DB task because scoop detours and the companion lookup need queries. The
+    base geometry stays cached and untouched; this works on copies."""
+    result = dict(base_result)
+    legs = [dict(leg) for leg in (base_result.get("jumps") or [])]
+    src = base_result.get("source_coords")
+    do_enforce = bool(fuel_safe and src and legs)
+    has_neutron = any(leg.get("neutron_star") for leg in legs)
+    new_legs = None
+    info = None
+    if do_enforce or has_neutron:
+        with _db_connection() as conn:
+            if has_neutron:
+                _annotate_inflight_scoops(legs, conn)
+            if do_enforce:
+                dst = (legs[-1]["x"], legs[-1]["y"], legs[-1]["z"])
+                src_t = (src["x"], src["y"], src["z"])
+
+                def fetch_scoopable_near(pos, radius):
+                    cursor = conn.cursor()
+                    try:
+                        cursor.execute(
+                            "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name, "
+                            "mainstar, id64 FROM systems_big "
+                            "WHERE mainstar ~ %s AND ST_3DDWithin("
+                            "coords, ST_MakePoint(%s, %s, %s), %s) "
+                            "ORDER BY ST_3DDistance(coords, ST_MakePoint(%s, %s, %s)) "
+                            "LIMIT 48",
+                            ("^[KGBFOAM]", pos[0], pos[1], pos[2], radius,
+                             pos[0], pos[1], pos[2]),
+                        )
+                        return cursor.fetchall()
+                    finally:
+                        cursor.close()
+
+                new_legs, info = fsd.enforce_fuel_safety(
+                    legs, src_t, dst, params, fetch_scoopable_near,
+                    src_name=base_result.get("source"),
+                    is_locked=permit_zones.is_locked,
+                    boost_mult=boost_mult,
+                )
+    if do_enforce:
+        flown = sum(leg["distance_jumped"] for leg in new_legs)
+        straight = base_result.get("straight_line_ly") or 0.0
+        result["jumps"] = new_legs
+        result["total_jumps"] = len(new_legs)
+        result["neutron_jumps"] = sum(1 for leg in new_legs if leg["type"] == "boost")
+        result["bridge_jumps"] = sum(1 for leg in new_legs if leg["type"] == "regular")
+        result["total_distance_ly"] = flown
+        result["efficiency"] = (straight / flown) if flown else 0.0
+        fuel = fsd.fuel_report(new_legs, params, boost_mult=boost_mult)
+        fuel["scoop_stops"] = info["scoop_stops"]
+        fuel["enforced"] = True
+        # Post-enforcement the route keeps an exact one-jump reserve, so the
+        # authoritative verdict is "didn't actually strand, no jump is
+        # over-range, AND every needed scoop was insertable" -- not
+        # fuel_report's conservative max_dry<cap proxy (which a fully-used tank
+        # can trip even when safe).
+        fuel["safe"] = ((not fuel["stranded"]) and (not fuel["over_range"])
+                        and info["safe"])
+        result["fuel"] = fuel
+        fsd.annotate_leg_fuel(new_legs, params, boost_mult=boost_mult)
+    else:
+        # Report-only (fuel-safe off, or no source coords to anchor detours).
+        # Use the annotated copies so in-system refuels show in the report + UI.
+        result["jumps"] = legs
+        result["fuel"] = fsd.fuel_report(legs, params, boost_mult=boost_mult)
+        result["fuel"]["enforced"] = False
+        fsd.annotate_leg_fuel(legs, params, boost_mult=boost_mult)
+    return result
+
+
+async def _resolve_route_endpoint(
+    value: str,
+) -> tuple[tuple[float, float, float], str, Optional[str], Optional[int]]:
+    """Resolve a system name/id64 to coordinates, predicting via EDTS for
+    procedural systems that aren't scanned into the DB yet. Returns
+    ``(coords, name, mainstar, id64)`` (id64 may be None for a prediction)."""
+
+    record = await fetch_system_from_db(value)
+    if record and record.get("coords"):
+        coords = record["coords"]
+        return (
+            (coords["x"], coords["y"], coords["z"]),
+            record["name"],
+            record.get("mainstar"),
+            record.get("id64"),
+        )
+    loop = asyncio.get_event_loop()
+    try:
+        sys_obj = await loop.run_in_executor(
+            None, system.from_name, value, False, False
+        )
+    except Exception:
+        sys_obj = None
+    # Use `is not None`, not truthiness: EDTS predicts a Vector3 whose __bool__
+    # is buggy (returns a float, raising TypeError), so `and <position>` would
+    # 500 on any procedural system resolved via EDTS rather than the DB.
+    position = getattr(sys_obj, "position", None) if sys_obj is not None else None
+    if position is not None:
+        return (
+            (float(position[0]), float(position[1]), float(position[2])),
+            getattr(sys_obj, "name", value),
+            getattr(sys_obj, "mainstar", None),
+            getattr(sys_obj, "id64", None),
+        )
+    raise HTTPException(status_code=404, detail=f"System not found: {value}")
+
+
+class RouteJump(BaseModel):
+    system: Optional[str] = None
+    id64: Optional[int] = None
+    spectral: Optional[str] = None
+    x: float
+    y: float
+    z: float
+    type: str
+    neutron_star: bool
+    distance_jumped: float
+    distance_left: float
+    # In-system refuel: set on a neutron waypoint that has a scoopable companion
+    # within supercruise range (scoop_ls), so you refuel without a divert jump.
+    inflight_scoop: Optional[bool] = None
+    scoop_ls: Optional[float] = None
+    # Set on a companion (secondary) neutron waypoint: its distance from arrival
+    # (Ls). The UI shows "neutron at X Ls" (you supercruise to it to supercharge).
+    arrival_ls: Optional[float] = None
+    # Per-leg fuel (POST /route with a loadout): for the spansh-exact export.
+    fuel_in_tank: Optional[float] = None
+    fuel_used: Optional[float] = None
+    must_refuel: Optional[bool] = None
+
+
+class RouteResponse(BaseModel):
+    source: str
+    destination: str
+    jump_range: float
+    boost_range: float
+    straight_line_ly: float
+    total_jumps: int
+    neutron_jumps: int
+    bridge_jumps: int
+    total_distance_ly: float
+    efficiency: float
+    beam_width: int
+    solve_ms: float
+    access: Optional[str] = None
+    # Source coordinates (the jumps carry their own; the start otherwise has
+    # none). Lets the UI emit a faithful spansh-format export (source first).
+    source_coords: Optional[dict] = None
+    # id64 of the source system (the source leg otherwise carries none); for the
+    # spansh-exact export's leading entry + parameters.source_system.
+    source_id64: Optional[int] = None
+    # Present only on POST /route when a ship loadout was supplied: the fuel
+    # simulation verdict (safe/stranded, refuels, tank capacity in jumps).
+    fuel: Optional[dict] = None
+    # The spansh Galaxy-Plotter parameters block (POST /route with a loadout),
+    # so the client can emit the exact-format export.
+    spansh_params: Optional[dict] = None
+    jumps: list[RouteJump]
+
+
+@app.get("/route/status", include_in_schema=True)
+def route_status():
+    status = entitlements.entitlement_status("route")
+    status["index_ready"] = _neutron_index is not None
+    status["index_stars"] = (
+        _neutron_index.count if _neutron_index is not None else 0
+    )
+    if _neutron_index_error:
+        status["index_error"] = _neutron_index_error
+    return status
+
+
+@app.get("/auth/me", include_in_schema=True)
+async def auth_me(request: Request):
+    """Who is the caller — used by the UI to show patron/login state."""
+
+    patron = await patreon_auth.resolve_patron(request)
+    if not patron or not patron.get("name"):
+        return {
+            "authenticated": False,
+            "patron": False,
+            "login_url": entitlements.PATREON_URL,
+            "identity_configured": patreon_auth.is_configured(),
+        }
+    return {
+        "authenticated": True,
+        "patron": bool(patron.get("entitled")),
+        "name": patron.get("name"),
+        "tier": patron.get("tier"),
+    }
+
+
+_route_trace_logger = logging.getLogger("edgis.route_trace")
+if not _route_trace_logger.handlers:
+    _route_trace_logger.propagate = False
+    _route_trace_logger.setLevel(logging.INFO)
+    _rt_path = os.getenv("ROUTE_TRACE_FILE") or os.path.join(
+        os.path.dirname(__file__), "route_trace.jsonl"
+    )
+    try:
+        from logging.handlers import RotatingFileHandler
+
+        _rt_handler = RotatingFileHandler(
+            _rt_path, maxBytes=5_000_000, backupCount=3
+        )
+        _rt_handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+        _route_trace_logger.addHandler(_rt_handler)
+    except Exception:  # pragma: no cover - tracing must never break startup
+        pass
+
+
+def _log_route_trace(kind: str, **fields: Any) -> None:
+    """One structured JSON line per plot/compare, for side-by-side comparison
+    and failure triage. Written to ROUTE_TRACE_FILE (default
+    api/route_trace.jsonl, rotated at 5 MB x3)."""
+
+    try:
+        _route_trace_logger.info(json.dumps({"kind": kind, **fields}))
+    except Exception:  # pragma: no cover - logging must never break a request
+        pass
+
+
+async def _solve_route_cached(
+    from_: str,
+    to: str,
+    jump_range: float,
+    beam_width: Optional[int],
+    supercharge: float,
+    access_via: Optional[str],
+    companion_max_ls: float = 0.0,
+) -> dict:
+    """Resolve + solve a route with the Redis cache and in-flight coalescing.
+    Shared by GET and POST /route; the fuel layer (POST only) runs on top of
+    the dict this returns, so the geometry cache stays ship-agnostic (a route
+    is the same for every ship at a given range/supercharge)."""
+
+    global _route_solve_semaphore
+    if _neutron_index is None:
+        _kick_neutron_index_build()
+        _log_route_trace(
+            "route", frm=from_, to=to, range=jump_range, status="warming"
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Route index is warming up, please retry shortly.",
+            headers={"Retry-After": "15"},
+        )
+
+    cache_key = (
+        f"{from_.strip().lower()}|{to.strip().lower()}"
+        f"|{jump_range:g}|{beam_width}|sc{supercharge:g}|v{_neutron_index.count}"
+        # Only append when opted in, so the default path keeps its existing key
+        # (no cache fragmentation / one-time miss on the common route).
+        + (f"|cml{companion_max_ls:g}" if companion_max_ls > 0 else "")
+    )
+    try:
+        cached = await _route_cache.get(cache_key)
+    except Exception:
+        logger.warning("route cache read failed; solving", exc_info=True)
+        cached = None
+    if cached is not None:
+        cached["access"] = access_via
+        _log_route_trace(
+            "route", frm=cached.get("source"), to=cached.get("destination"),
+            range=jump_range, status="ok", total_jumps=cached.get("total_jumps"),
+            cached=True, access=access_via,
+        )
+        return cached
+
+    # In-flight coalescing: if an identical solve is already running, await its
+    # result instead of launching a duplicate. No `await` between the lookup
+    # and the registration below, so only one coroutine becomes the "leader".
+    existing = _route_inflight.get(cache_key)
+    if existing is not None:
+        # Mirror whatever the leader produced (result or the same failure).
+        shared = await existing
+        out = dict(shared)
+        out["access"] = access_via
+        _log_route_trace(
+            "route", frm=out.get("source"), to=out.get("destination"),
+            range=jump_range, status="ok", total_jumps=out.get("total_jumps"),
+            coalesced=True, access=access_via,
+        )
+        return out
+
+    loop = asyncio.get_event_loop()
+    inflight: asyncio.Future = loop.create_future()
+    # If no follower awaits a failed solve, retrieve the exception ourselves so
+    # asyncio doesn't log "exception was never retrieved".
+    inflight.add_done_callback(
+        lambda f: f.cancelled() or f.exception()
+    )
+    _route_inflight[cache_key] = inflight
+    try:
+        try:
+            (src, src_name, _src_star, src_id64), (dst, dst_name, dst_star, dst_id64) = (
+                await asyncio.gather(
+                    _resolve_route_endpoint(from_),
+                    _resolve_route_endpoint(to),
+                )
+            )
+        except HTTPException as exc:
+            _log_route_trace(
+                "route", frm=from_, to=to, range=jump_range,
+                status="not-found", detail=str(exc.detail),
+            )
+            raise
+
+        if _route_solve_semaphore is None:
+            _route_solve_semaphore = asyncio.Semaphore(
+                max(1, int(os.getenv("ROUTE_CONCURRENCY") or "2"))
+            )
+        async with _route_solve_semaphore:
+            try:
+                result = await _run_db_task(
+                    _solve_route_sync, src, dst, jump_range, beam_width,
+                    supercharge, companion_max_ls,
+                )
+            except routing.RouteError as exc:
+                _log_route_trace(
+                    "route", frm=src_name, to=dst_name, range=jump_range,
+                    status=exc.status, detail=exc.detail,
+                    access=access_via,
+                )
+                raise HTTPException(
+                    status_code=422,
+                    detail={"error": exc.status, "message": exc.detail},
+                )
+
+        # The final leg is the arrival at the destination: label it with the
+        # destination's name, spectral type and id64 (for the spansh export).
+        if result["jumps"]:
+            last = result["jumps"][-1]
+            if last.get("system") is None:
+                last["system"] = dst_name
+            if not last.get("spectral"):
+                last["spectral"] = dst_star
+            if last.get("id64") is None:
+                last["id64"] = dst_id64
+
+        result["source"] = src_name
+        result["destination"] = dst_name
+        result["source_coords"] = {"x": src[0], "y": src[1], "z": src[2]}
+        result["source_id64"] = src_id64
+        result["access"] = access_via
+        _log_route_trace(
+            "route", frm=src_name, to=dst_name, range=jump_range, status="ok",
+            total_jumps=result["total_jumps"], neutron=result["neutron_jumps"],
+            bridge=result["bridge_jumps"], eff=round(result["efficiency"], 4),
+            solve_ms=round(result["solve_ms"], 1), access=access_via,
+        )
+        to_cache = dict(result)
+        to_cache.pop("access", None)
+        if not inflight.done():
+            inflight.set_result(to_cache)  # hand coalesced followers the result
+        try:
+            await _route_cache.set(cache_key, to_cache, ttl=ROUTE_CACHE_TTL)
+        except Exception:
+            logger.warning("route cache write failed", exc_info=True)
+        return result
+    except BaseException as exc:
+        if not inflight.done():
+            inflight.set_exception(exc)
+        raise
+    finally:
+        _route_inflight.pop(cache_key, None)
+
+
+@app.get("/route", response_model=RouteResponse)
+async def plot_route(
+    from_: str = Query(..., alias="from", min_length=1),
+    to: str = Query(..., min_length=1),
+    jump_range: float = Query(50.0, alias="range", gt=0, le=200),
+    beam_width: Optional[int] = Query(None, ge=1, le=100),
+    supercharge: float = Query(
+        4.0, ge=1.0, le=6.0,
+        description="Neutron supercharge multiplier: 4 normal, 6 for a "
+        "Caspian Explorer's Mk II SCO drive.",
+    ),
+    companion_max_ls: float = Query(
+        0.0, ge=0.0, le=COMPANION_NEUTRON_BUILD_MAX_LS,
+        description="Also boost from companion (secondary) neutron stars within "
+        "this many light-seconds of arrival. 0 = main-star neutrons only.",
+    ),
+    access: dict = Depends(entitlements.require_entitlement("route")),
+):
+    """Plot a neutron-boosted route (ship-agnostic). For fuel-aware plotting,
+    POST the same parameters plus an EDSY/SLEF ``loadout``."""
+    return await _solve_route_cached(
+        from_, to, jump_range, beam_width, supercharge, access.get("via"),
+        companion_max_ls=companion_max_ls,
+    )
+
+
+class ShipImportRequest(BaseModel):
+    loadout: str
+    cargo: float = Field(0.0, ge=0, le=2048)
+
+
+class RouteRequest(BaseModel):
+    from_: str = Field(..., alias="from", min_length=1)
+    to: str = Field(..., min_length=1)
+    jump_range: float = Field(50.0, alias="range", gt=0, le=200)
+    beam_width: Optional[int] = Field(None, ge=1, le=100)
+    supercharge: float = Field(4.0, ge=1.0, le=6.0)
+    companion_max_ls: float = Field(0.0, ge=0.0, le=COMPANION_NEUTRON_BUILD_MAX_LS)
+    loadout: Optional[str] = None
+    cargo: float = Field(0.0, ge=0, le=2048)
+    fuel_safe: bool = True
+    model_config = {"populate_by_name": True}
+
+
+@app.post("/route/ship", include_in_schema=False)
+def import_ship(
+    req: ShipImportRequest,
+    access: dict = Depends(entitlements.require_entitlement("route")),
+):
+    """Parse an EDSY/SLEF loadout into a display summary (no solve): the UI
+    uses it to auto-fill the jump range and show tank/scoop on paste."""
+    params = fsd.parse_loadout(req.loadout, req.cargo)
+    if params is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Could not read a Frame Shift Drive from that loadout.",
+        )
+    return fsd.ship_summary(params)
+
+
+@app.post("/route", response_model=RouteResponse)
+async def plot_route_post(
+    req: RouteRequest,
+    access: dict = Depends(entitlements.require_entitlement("route")),
+):
+    """Fuel-aware route plot. Same geometry as GET /route (shared,
+    ship-agnostic cache) plus a fuel report whenever a ``loadout`` is supplied.
+    ``fuel_safe`` will drive scoop-stop enforcement; for now it reports."""
+    result = await _solve_route_cached(
+        req.from_, req.to, req.jump_range, req.beam_width, req.supercharge,
+        access.get("via"), companion_max_ls=req.companion_max_ls,
+    )
+    params = fsd.parse_loadout(req.loadout, req.cargo) if req.loadout else None
+    if params is not None:
+        # Fuel layer (enforcement + report) runs in a DB task: scoop-stop
+        # insertion needs a scoopable-star query. Copies the cached geometry.
+        result = await _run_db_task(
+            _enforce_fuel_sync, result, params, req.fuel_safe, req.supercharge
+        )
+        # Parameters block for the spansh-exact export (ship build + fuel model).
+        result["spansh_params"] = fsd.spansh_params(params, req.supercharge)
+    # Record the fuel mode on its own trace line: the shared geometry trace is
+    # ship-agnostic, so without this the trace never shows whether a ship was
+    # imported or whether fuel-safe enforcement ran.
+    _fuel = result.get("fuel") or {}
+    _log_route_trace(
+        "route-fuel",
+        frm=result.get("source"), to=result.get("destination"),
+        range=req.jump_range,
+        has_ship=params is not None,
+        fuel_safe=req.fuel_safe if params is not None else None,
+        cargo=(req.cargo or None),
+        safe=_fuel.get("safe"),
+        scoop_stops=_fuel.get("scoop_stops"),
+        enforced=_fuel.get("enforced"),
+        access=access.get("via"),
+    )
+    return result
+
+
+@app.get("/spansh/route", include_in_schema=False)
+async def spansh_route(
+    from_: str = Query(..., alias="from", min_length=1),
+    to: str = Query(..., min_length=1),
+    jump_range: float = Query(50.0, alias="range", gt=0, le=200),
+    efficiency: int = Query(60, ge=1, le=100),
+    supercharge: float = Query(4.0, ge=1.0, le=6.0),
+    access: dict = Depends(entitlements.require_entitlement("route")),
+):
+    """Proxy spansh's neutron plotter (POST job + poll) for side-by-side
+    comparison. Returns the real physical jump count (sum of per-leg `jumps`),
+    since spansh's `total_jumps` is a waypoint count."""
+
+    payload = {
+        "efficiency": str(efficiency),
+        "range": f"{jump_range:g}",
+        "from": from_,
+        "to": to,
+        "supercharge_multiplier": f"{supercharge:g}",
+    }
+    headers = {"User-Agent": EXTERNAL_USER_AGENT, "Accept": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=15, headers=headers) as client:
+            submit = await client.post(
+                "https://spansh.co.uk/api/route", data=payload
+            )
+            submit.raise_for_status()
+            job = submit.json().get("job")
+            if not job:
+                raise HTTPException(502, "spansh did not return a job")
+            for _ in range(40):
+                await asyncio.sleep(1.0)
+                poll = await client.get(
+                    f"https://spansh.co.uk/api/results/{job}"
+                )
+                poll.raise_for_status()
+                data = poll.json()
+                if data.get("result"):
+                    res = data["result"]
+                    legs = res.get("system_jumps", [])
+                    total = sum(int(x.get("jumps", 0)) for x in legs)
+                    flown = sum(
+                        float(x.get("distance_jumped", 0)) for x in legs
+                    )
+                    duration_s = None
+                    try:
+                        from datetime import datetime as _dt
+
+                        ca, ua = data.get("created_at"), data.get("updated_at")
+                        if ca and ua:
+                            duration_s = (
+                                _dt.fromisoformat(ua) - _dt.fromisoformat(ca)
+                            ).total_seconds()
+                    except Exception:
+                        duration_s = None
+                    _log_route_trace(
+                        "spansh", tool="neutron-plotter", frm=from_, to=to,
+                        range=jump_range, efficiency=efficiency, status="ok",
+                        total_jumps=total, waypoints=res.get("total_jumps"),
+                        duration_s=duration_s,
+                    )
+                    results_url = (
+                        "https://spansh.co.uk/plotter/results/"
+                        f"{job}?efficiency={efficiency}&range={jump_range:g}"
+                        f"&from={quote(from_)}&to={quote(to)}"
+                        f"&supercharge_multiplier={supercharge:g}"
+                    )
+                    return {
+                        "source": res.get("source_system", from_),
+                        "destination": res.get("destination_system", to),
+                        "total_jumps": total,
+                        "waypoints": res.get("total_jumps"),
+                        "distance_ly": res.get("distance"),
+                        "total_distance_ly": flown,
+                        "efficiency": efficiency,
+                        "jump_range": jump_range,
+                        "duration_s": duration_s,
+                        "job": job,
+                        "results_url": results_url,
+                    }
+                if str(data.get("status")) in ("error", "failed"):
+                    _log_route_trace(
+                        "spansh", frm=from_, to=to, range=jump_range,
+                        efficiency=efficiency, status="failed",
+                    )
+                    raise HTTPException(502, "spansh job failed")
+            _log_route_trace(
+                "spansh", frm=from_, to=to, range=jump_range,
+                efficiency=efficiency, status="timeout",
+            )
+            raise HTTPException(504, "spansh plot timed out")
+    except HTTPException:
+        raise
+    except httpx.HTTPError as exc:
+        _log_route_trace(
+            "spansh", frm=from_, to=to, range=jump_range,
+            efficiency=efficiency, status="error", detail=str(exc),
+        )
+        raise HTTPException(502, f"spansh request failed: {exc}")
+
+
+class GalaxyRouteRequest(BaseModel):
+    from_: str = Field(..., alias="from", min_length=1)
+    to: str = Field(..., min_length=1)
+    loadout: str
+    cargo: float = Field(0.0, ge=0, le=2048)
+    model_config = {"populate_by_name": True}
+
+
+@app.post("/spansh/galaxy-route", include_in_schema=False)
+async def spansh_galaxy_route(
+    req: GalaxyRouteRequest,
+    access: dict = Depends(entitlements.require_entitlement("route")),
+):
+    """Proxy spansh's Galaxy (exact) Plotter for a fuel-aware comparison. It
+    needs a ship build: id64 endpoints + the fuel params parsed from the SLEF
+    loadout. In the result each entry of ``jumps`` is one physical jump (the
+    first is the source), so total jumps = len(jumps) - 1. The Galaxy Plotter is
+    slow (~1 min), hence the long poll."""
+
+    params = fsd.parse_loadout(req.loadout, req.cargo)
+    if params is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Could not read a ship build from that loadout.",
+        )
+    src = await fetch_system_from_db(req.from_)
+    dst = await fetch_system_from_db(req.to)
+    if not src or not dst or src.get("id64") is None or dst.get("id64") is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Galaxy Plotter needs both systems in the catalogue (id64).",
+        )
+
+    body = {
+        "source": str(src["id64"]),
+        "destination": str(dst["id64"]),
+        "is_supercharged": "0",
+        "use_supercharge": "1",
+        "use_injections": "0",
+        "use_injections_when_required": "0",
+        "exclude_secondary": "0",
+        # 0 = refuel only when needed (range grows as the tanks empty) -- the
+        # optimal mode serious explorers actually use, so the comparison matches
+        # what they'd get on spansh. 1 (refuel at every scoopable) is safer but
+        # less efficient; expose as a toggle later.
+        "refuel_every_scoopable": "0",
+        "fuel_power": f"{params.fuel_power:g}",
+        "fuel_multiplier": f"{params.fuel_multiplier:g}",
+        "optimal_mass": f"{params.optimal_mass:g}",
+        # spansh's own frontend folds the reserve tank into base_mass (its
+        # convention differs from the game's jump-mass, which excludes it), so
+        # add reserve_size back here to keep the comparison apples-to-apples.
+        # + cargo so spansh plans laden, like the tester's real ship.
+        "base_mass": f"{params.base_mass + params.reserve_size + params.cargo:g}",
+        "tank_size": f"{params.tank_size:g}",
+        "internal_tank_size": f"{params.reserve_size:g}",
+        "reserve_size": "0",
+        "max_fuel_per_jump": f"{params.max_fuel_per_jump:g}",
+        "range_boost": f"{params.range_boost:g}",
+        "ship_build": req.loadout,
+    }
+    headers = {"User-Agent": EXTERNAL_USER_AGENT, "Accept": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=20, headers=headers) as client:
+            submit = await client.post(
+                "https://spansh.co.uk/api/generic/route", data=body
+            )
+            submit.raise_for_status()
+            job = submit.json().get("job")
+            if not job:
+                raise HTTPException(502, "spansh did not return a job")
+            for _ in range(80):  # Galaxy Plotter is slow (~1 min)
+                await asyncio.sleep(1.5)
+                poll = await client.get(
+                    f"https://spansh.co.uk/api/results/{job}"
+                )
+                poll.raise_for_status()
+                data = poll.json()
+                if data.get("result"):
+                    res = data["result"]
+                    legs = res.get("jumps", [])
+                    total = max(0, len(legs) - 1)  # first entry is the source
+                    flown = sum(float(x.get("distance", 0) or 0) for x in legs)
+                    duration_s = None
+                    try:
+                        from datetime import datetime as _dt
+
+                        ca, ua = data.get("created_at"), data.get("updated_at")
+                        if ca and ua:
+                            duration_s = (
+                                _dt.fromisoformat(ua) - _dt.fromisoformat(ca)
+                            ).total_seconds()
+                    except Exception:
+                        duration_s = None
+                    _log_route_trace(
+                        "spansh", tool="galaxy-plotter", frm=src["name"],
+                        to=dst["name"], status="ok", total_jumps=total,
+                        waypoints=len(legs), duration_s=duration_s,
+                    )
+                    return {
+                        "source": src["name"],
+                        "destination": dst["name"],
+                        "total_jumps": total,
+                        "waypoints": len(legs),
+                        "total_distance_ly": flown,
+                        "duration_s": duration_s,
+                        "job": job,
+                        "results_url": (
+                            f"https://spansh.co.uk/exact-plotter/results/{job}"
+                        ),
+                    }
+                if str(data.get("status")) in ("error", "failed"):
+                    _log_route_trace(
+                        "spansh", tool="galaxy-plotter", frm=src["name"],
+                        to=dst["name"], status="failed",
+                    )
+                    raise HTTPException(502, "spansh job failed")
+            _log_route_trace(
+                "spansh", tool="galaxy-plotter", frm=src["name"],
+                to=dst["name"], status="timeout",
+            )
+            raise HTTPException(504, "spansh galaxy plot timed out")
+    except HTTPException:
+        raise
+    except httpx.HTTPError as exc:
+        _log_route_trace(
+            "spansh", tool="galaxy-plotter", frm=req.from_, to=req.to,
+            status="error", detail=str(exc),
+        )
+        raise HTTPException(502, f"spansh request failed: {exc}")
+
+
+@app.post("/admin/route/rebuild-index", include_in_schema=False)
+def rebuild_route_index(request: Request):
+    _require_admin_token(request)
+    global _neutron_index
+    with _neutron_index_lock:
+        _neutron_index = None
+    started = _kick_neutron_index_build()
+    return {"rebuilding": started}
+
+
+@app.on_event("startup")
+def _prebuild_neutron_index() -> None:
+    if (os.getenv("ROUTE_PREBUILD") or "1").strip() not in ("1", "true", "yes"):
+        return
+    _kick_neutron_index_build()
 
 
 @app.on_event("shutdown")

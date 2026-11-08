@@ -227,6 +227,12 @@ def initialize_lookup_cache(connection: PGConnection) -> None:
             cur.execute(f"SELECT id, name FROM {table};")
             for lookup_id, name in cur.fetchall() or []:
                 cache[name] = lookup_id
+    # The preload is read-only, but psycopg runs with autocommit off, so those
+    # SELECTs open a transaction. Close it: this runs at module import, and the
+    # module is imported by the API (just for ingest_system), so without this
+    # every API/feeder process sits "idle in transaction" for its whole life,
+    # holding a snapshot that blocks VACUUM and CREATE INDEX CONCURRENTLY.
+    connection.rollback()
 
 
 initialize_lookup_cache(conn)

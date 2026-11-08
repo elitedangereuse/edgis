@@ -46,6 +46,9 @@ class _FakeConnection:
     def commit(self) -> None:  # pragma: no cover - no-op stub
         return None
 
+    def rollback(self) -> None:  # pragma: no cover - no-op stub
+        return None
+
 
 class _DummyTqdm:
     def __enter__(self) -> "_DummyTqdm":
