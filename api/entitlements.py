@@ -83,18 +83,18 @@ HUNTER_MIN_SUBMISSIONS = int(os.getenv("ROUTE_HUNTER_MIN_SUBMISSIONS") or "5")
 FEATURES: dict[str, Feature] = {
     "route": Feature(
         key="route",
-        public_after=_parse_cutover(os.getenv("ROUTE_PUBLIC_AFTER", "2026-11-30")),
+        public_after=_parse_cutover(os.getenv("ROUTE_PUBLIC_AFTER", "2026-12-04")),
         min_tier=os.getenv("ROUTE_MIN_TIER", "supporter"),
         waves=(
-            # Paid patrons (tier 1 and up).
+            # Paid patrons (tier 1 and up). Key-only access runs until this date.
             ("supporter", _parse_cutover(
-                os.getenv("ROUTE_WAVE_SUPPORTER", "2026-11-07"))),
+                os.getenv("ROUTE_WAVE_SUPPORTER", "2026-11-11"))),
             # Free Patreon followers.
             ("follower", _parse_cutover(
-                os.getenv("ROUTE_WAVE_FOLLOWER", "2026-11-13"))),
+                os.getenv("ROUTE_WAVE_FOLLOWER", "2026-11-17"))),
             # Galactic Hunters with >= HUNTER_MIN_SUBMISSIONS confirmed targets.
             ("hunter", _parse_cutover(
-                os.getenv("ROUTE_WAVE_HUNTER", "2026-11-13"))),
+                os.getenv("ROUTE_WAVE_HUNTER", "2026-11-17"))),
         ),
     ),
 }
