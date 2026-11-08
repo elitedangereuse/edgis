@@ -188,7 +188,10 @@ def cmd_route_sample(a):
     print("  " + "-" * 104)
     results = []
     for i, (frm, to, tag, dist, fc, tc) in enumerate(specs):
-        r = plot_route(a.base_url, a.key, frm, to, a.timeout, 2000 + i)
+        # beam_width is capped at 100 and only affects the beam fallback (graph
+        # ignores it); a per-route value in 1..100 busts the cache since each
+        # (from,to) is distinct.
+        r = plot_route(a.base_url, a.key, frm, to, a.timeout, 1 + (i % 100))
         results.append({"from": frm, "to": to, "tag": tag, "dist": dist,
                         "from_cls": fc, "to_cls": tc, **r})
         ms = f"{r.get('solve_ms') or r['wall']*1000:.0f}ms" if r["status"] == "ok" else "-"

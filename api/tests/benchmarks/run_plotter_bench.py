@@ -98,7 +98,9 @@ def main():
 
     regress = improve = fail = 0
     for i, c in enumerate(cases):
-        nonce = (1000 + i) if args.fresh else None
+        # beam_width is capped at 100; 1..100 is enough to bust the cache since
+        # each case is a distinct route.
+        nonce = (1 + (i % 100)) if args.fresh else None
         r = plot(args.base_url, args.key, c, args.timeout, nonce)
         expected = c.get("status", "ok")
         our = c.get("our")
