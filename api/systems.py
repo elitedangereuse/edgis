@@ -3676,7 +3676,9 @@ async def plot_route_post(
 ):
     """Fuel-aware route plot. Same geometry as GET /route (shared,
     ship-agnostic cache) plus a fuel report whenever a ``loadout`` is supplied.
-    ``fuel_safe`` will drive scoop-stop enforcement; for now it reports."""
+    When ``fuel_safe`` is set, ``_enforce_fuel_sync`` inserts scoop-stop detours
+    (or an in-system companion scoop at a neutron waypoint) so the route never
+    strands; otherwise fuel risk is only reported."""
     result = await _solve_route_cached(
         req.from_, req.to, req.jump_range, req.beam_width, req.supercharge,
         access.get("via"), companion_max_ls=req.companion_max_ls,
