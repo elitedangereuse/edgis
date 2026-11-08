@@ -146,13 +146,14 @@
 #panel-route .sys { font-family:var(--mono); }
 #panel-route .boost { color:var(--neutron); }
 #panel-route .spec { color:var(--muted); font-family:var(--mono); }
-/* Fuel icon + spectral letter on one baseline-centred line. */
+/* Neutron class letter in neutron-amber (neutron steps are amber by convention). */
+#panel-route .spec.neutron { color:var(--neutron); }
+/* Spectral letter + fuel icon on one baseline-centred line (icon to the right). */
 #panel-route .starcell { display:inline-flex; align-items:center; gap:5px; }
 #panel-route .fuel { color:var(--ok); flex:none; }
-/* In-system scoop (neutron with a scoopable companion): tint neutron-amber, and
-   let its help cursor show the companion distance tooltip. */
+/* In-system scoop (neutron with a scoopable companion): green fuel-pump (the
+   scooping colour), help cursor shows the companion distance tooltip. */
 #panel-route .inflight-scoop { display:inline-flex; cursor:help; }
-#panel-route .fuel.inflight { color:var(--neutron); }
 /* Companion-neutron arrival distance ("@120 Ls"): muted neutron-amber, help cursor. */
 #panel-route .arrls { color:var(--neutron); opacity:.8; font-size:11px; cursor:help; white-space:nowrap; }
 /* In-system scoop distance reuses .arrls but in the fuel (green) colour. */
