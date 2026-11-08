@@ -471,50 +471,54 @@ function riskBadge(info) {
 // between consecutive WAYPOINTS (not summed flown LY), distance_left the
 // straight-line to the destination, matching a real spansh result field-for-
 // field. (id64 is null: our realized legs don't carry it yet -- backend gap.)
-function toSpanshRoute(r) {
-  const dist3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+// spansh Exact (Galaxy) Plotter JSON: per-leg `result.jumps` (every jump, source
+// first) with fuel detail + string id64s, matching what spansh's exact plotter
+// exports so routes import into tools keyed on that shape. Per-leg fuel + the
+// `parameters` block come from the backend when a ship loadout is used; without
+// one the fuel fields are null and parameters is minimal.
+function toSpanshExactRoute(r) {
   const sc = r.source_coords || { x: 0, y: 0, z: 0 };
-  const rangeStr = String(r.jump_range);
-  // boost_range / jump_range = the neutron supercharge multiplier (4 or 6).
-  const scMul = String(r.boost_range && r.jump_range
-    ? Math.round(r.boost_range / r.jump_range) : 4);
-  const wps = [{
-    system: r.source, id64: null,
+  const sp = r.spansh_params || null;
+  const tank = (sp && sp.tank_size != null) ? sp.tank_size
+    : (r.fuel && r.fuel.tank_size != null ? r.fuel.tank_size : null);
+  const idStr = (v) => (v === null || v === undefined) ? null : String(v);
+  const legs = r.jumps || [];
+  const destId = legs.length ? legs[legs.length - 1].id64 : null;
+  const jumps = [{
+    name: r.source, id64: idStr(r.source_id64),
     x: sc.x ?? null, y: sc.y ?? null, z: sc.z ?? null,
-    distance_jumped: 0, distance_left: r.straight_line_ly, jumps: 0, neutron_star: false,
+    distance: 0, distance_to_destination: r.straight_line_ly,
+    has_neutron: false, is_scoopable: false,
+    fuel_in_tank: tank, fuel_used: 0, must_inject: 0, must_refuel: false,
   }];
-  let jumps = 0, prev = { x: sc.x ?? 0, y: sc.y ?? 0, z: sc.z ?? 0 };
-  r.jumps.forEach((j, i) => {
-    jumps++;
-    const last = i === r.jumps.length - 1;
-    if (j.neutron_star || last) {
-      const here = { x: j.x, y: j.y, z: j.z };
-      wps.push({
-        system: j.system ?? (last ? r.destination : ""),
-        id64: j.id64 ?? null, x: j.x, y: j.y, z: j.z,
-        distance_jumped: dist3(here, prev), distance_left: j.distance_left,
-        jumps, neutron_star: !!j.neutron_star,
-      });
-      jumps = 0; prev = here;
-    }
+  legs.forEach((j, i) => {
+    const last = i === legs.length - 1;
+    jumps.push({
+      name: j.system ?? (last ? r.destination : ""), id64: idStr(j.id64),
+      x: j.x, y: j.y, z: j.z,
+      distance: j.distance_jumped, distance_to_destination: j.distance_left,
+      has_neutron: !!j.neutron_star,
+      // A neutron with an in-system scoopable companion is scoopable here too.
+      is_scoopable: scoopable(j.spectral) || !!j.inflight_scoop,
+      fuel_in_tank: (j.fuel_in_tank ?? null), fuel_used: (j.fuel_used ?? null),
+      must_inject: 0, must_refuel: !!j.must_refuel,
+    });
   });
   const now = new Date().toISOString().slice(0, 19);  // "YYYY-MM-DDTHH:MM:SS"
   const job = (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : "").toUpperCase();
-  // efficiency is spansh's plot parameter (0-100), not our achieved ratio; emit
-  // its default so the shape matches (we don't use an efficiency search knob).
-  const efficiency = "60";
+  const scMul = r.boost_range && r.jump_range ? Math.round(r.boost_range / r.jump_range) : 4;
+  const loadout = ($("loadout").value || "").trim();
   const parameters = {
-    efficiency, from: r.source, range: rangeStr,
-    supercharge_multiplier: scMul, to: r.destination, via: [],
+    algorithm: "optimistic", max_time: "60",
+    source_system: idStr(r.source_id64) ?? r.source,
+    destination_system: idStr(destId) ?? r.destination,
+    supercharge_multiplier: scMul,
+    ...(sp || {}),
+    ...(loadout ? { ship_build: loadout } : {}),
   };
   return {
-    created_at: now, job,
-    parameters,
-    result: {
-      destination_system: r.destination, distance: r.straight_line_ly,
-      efficiency, job, range: rangeStr, source_system: r.source,
-      system_jumps: wps, total_jumps: wps.length - 1, via: [],
-    },
+    created_at: now, job, parameters,
+    result: { jumps, refuel_every_scoopable: false },
     state: "completed", status: "ok", updated_at: now,
   };
 }
@@ -545,7 +549,7 @@ function downloadRoute(fmt) {
   const slug = (s) => String(s || "route").trim().replace(/[^\w.-]+/g, "_");
   const name = `route_${slug(lastOurs.source)}_to_${slug(lastOurs.destination)}`;
   const csv = fmt === "csv";
-  const data = csv ? toCsvRoute(lastOurs) : JSON.stringify(toSpanshRoute(lastOurs), null, 2);
+  const data = csv ? toCsvRoute(lastOurs) : JSON.stringify(toSpanshExactRoute(lastOurs), null, 2);
   const blob = new Blob([data], { type: csv ? "text/csv;charset=utf-8" : "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -666,7 +670,7 @@ function renderRoute(r) {
       </label>
       <span class="export-group">
         <select id="exportFmt" title="Export format" aria-label="Export format">
-          <option value="json"${exportFmt === "json" ? " selected" : ""}>spansh JSON</option>
+          <option value="json"${exportFmt === "json" ? " selected" : ""}>spansh (Galaxy) JSON</option>
           <option value="csv"${exportFmt === "csv" ? " selected" : ""}>CSV</option>
         </select>
         <button id="exportBtn" class="ghost" title="Download this route in the selected format">${downloadIconSvg} Export</button>

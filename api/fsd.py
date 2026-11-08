@@ -496,3 +496,55 @@ def fuel_report(jumps, params: "FuelParams", start_fuel: Optional[float] = None,
         "tank_size": params.tank_size,
         "has_scoop": params.has_scoop,
     }
+
+
+def annotate_leg_fuel(legs, params: "FuelParams", start_fuel: Optional[float] = None,
+                      boost_mult: float = 4.0) -> None:
+    """Attach per-leg fuel detail for the spansh-exact export: ``fuel_used`` (burn
+    on that jump), ``fuel_in_tank`` (after the burn, and after a refuel when one
+    happens), and ``must_refuel`` (True where the tank was topped up). Mirrors
+    simulate_fuel's burn + refuel-at-scoopable logic. Mutates ``legs`` in place."""
+    fuel = params.tank_size if start_fuel is None else float(start_fuel)
+    maxf = params.max_fuel_per_jump
+    for leg in legs:
+        d = float(leg.get("distance_jumped", 0.0) or 0.0)
+        used = 0.0
+        if d > 1e-9:
+            used = min(params.fuel_cost(d, fuel), maxf)
+            fuel = max(0.0, fuel - used)
+        refueled = False
+        # A refuel landing (scoopable, or a neutron with an in-system companion
+        # scoop) tops the tank; the source (d == 0) is already full.
+        if d > 1e-9 and is_refuel_landing(leg):
+            fuel = params.tank_size
+            refueled = True
+        leg["fuel_used"] = round(used, 6)
+        leg["fuel_in_tank"] = round(fuel, 6)
+        leg["must_refuel"] = bool(refueled)
+
+
+def spansh_params(params: "FuelParams", supercharge: float = 4.0) -> dict:
+    """The spansh Galaxy (exact) Plotter ``parameters`` block derived from a
+    parsed loadout, for the exact-format export. Mirrors the mapping used by the
+    /spansh/galaxy-route proxy (reserve folded into base_mass, reserve_size 0)."""
+    return {
+        "algorithm": "optimistic",
+        "base_mass": round(params.base_mass + params.reserve_size + params.cargo, 4),
+        "cargo": int(params.cargo),
+        "exclude_secondary": False,
+        "fuel_multiplier": params.fuel_multiplier,
+        "fuel_power": params.fuel_power,
+        "injection_multiplier": 2,
+        "internal_tank_size": params.reserve_size,
+        "is_supercharged": False,
+        "max_fuel_per_jump": params.max_fuel_per_jump,
+        "optimal_mass": params.optimal_mass,
+        "range_boost": params.range_boost,
+        "refuel_every_scoopable": 0,
+        "reserve_size": 0,
+        "supercharge_multiplier": int(supercharge),
+        "tank_size": params.tank_size,
+        "use_injections": False,
+        "use_injections_when_required": True,
+        "use_supercharge": True,
+    }

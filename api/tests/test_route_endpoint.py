@@ -67,7 +67,7 @@ def test_route_success_path(monkeypatch):
 
     async def fake_resolve(value):
         coords = {"Sol": (0.0, 0.0, 0.0), "Colonia": (0.0, 0.0, 1000.0)}
-        return coords[value], value, None
+        return coords[value], value, None, None
 
     monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
 
@@ -134,7 +134,7 @@ def test_route_companion_max_ls_threaded_and_arrival_ls_passthrough(monkeypatch)
     monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
 
     async def fake_resolve(value):
-        return {"A": (0.0, 0.0, 0.0), "B": (0.0, 0.0, 360.0)}[value], value, None
+        return {"A": (0.0, 0.0, 0.0), "B": (0.0, 0.0, 360.0)}[value], value, None, None
 
     monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
 
@@ -175,7 +175,7 @@ def test_route_coalesces_concurrent_duplicates(monkeypatch):
     monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
 
     async def fake_resolve(value):
-        return {"CoalA": (0.0, 0.0, 0.0), "CoalB": (0.0, 0.0, 999.0)}[value], value, None
+        return {"CoalA": (0.0, 0.0, 0.0), "CoalB": (0.0, 0.0, 999.0)}[value], value, None, None
 
     monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
 
@@ -266,7 +266,7 @@ def test_route_post_attaches_fuel_report(monkeypatch):
 
     async def fake_resolve(value):
         coords = {"Sol": (0.0, 0.0, 0.0), "Near": (0.0, 0.0, 80.0)}
-        return coords[value], value, None
+        return coords[value], value, None, None
 
     monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
 
@@ -317,7 +317,7 @@ def test_route_post_inflight_scoop_avoids_divert_stops(monkeypatch):
 
     async def fake_resolve(value):
         coords = {"A": (0.0, 0.0, 0.0), "B": (1200.0, 0.0, 0.0)}
-        return coords[value], value, None
+        return coords[value], value, None, None
 
     monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
 
@@ -390,7 +390,7 @@ def test_route_post_fuel_safe_inserts_scoop_stops(monkeypatch):
 
     async def fake_resolve(value):
         coords = {"A": (0.0, 0.0, 0.0), "B": (1200.0, 0.0, 0.0)}
-        return coords[value], value, None
+        return coords[value], value, None, None
 
     monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
 
@@ -459,7 +459,7 @@ def test_route_post_without_loadout_has_no_fuel(monkeypatch):
     monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
 
     async def fake_resolve(value):
-        return {"A": (0.0, 0.0, 0.0), "B": (0.0, 0.0, 30.0)}[value], value, None
+        return {"A": (0.0, 0.0, 0.0), "B": (0.0, 0.0, 30.0)}[value], value, None, None
 
     monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
     monkeypatch.setattr(
@@ -501,6 +501,7 @@ def test_resolve_endpoint_handles_edts_vector_with_buggy_bool(monkeypatch):
         position = _BuggyVec([1975.0, -305.0, -225.0])
         name = "Col 173 Sector CK-Q d5-54"
         mainstar = "K"
+        id64 = 7654321
 
     async def _no_db(_value):
         return None
@@ -508,12 +509,13 @@ def test_resolve_endpoint_handles_edts_vector_with_buggy_bool(monkeypatch):
     monkeypatch.setattr(systems, "fetch_system_from_db", _no_db)
     monkeypatch.setattr(systems.system, "from_name", lambda *a, **k: _FakeSys())
 
-    coords, name, star = asyncio.run(
+    coords, name, star, id64 = asyncio.run(
         systems._resolve_route_endpoint("Col 173 Sector CK-Q d5-54")
     )
     assert coords == (1975.0, -305.0, -225.0)
     assert name == "Col 173 Sector CK-Q d5-54"
     assert star == "K"
+    assert id64 == 7654321
 
 
 def test_route_patron_access(monkeypatch):
@@ -524,7 +526,7 @@ def test_route_patron_access(monkeypatch):
     monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
 
     async def fake_resolve(value):
-        return {"Sol": (0.0, 0.0, 0.0), "X": (0.0, 0.0, 10.0)}[value], value, None
+        return {"Sol": (0.0, 0.0, 0.0), "X": (0.0, 0.0, 10.0)}[value], value, None, None
 
     monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
     monkeypatch.setattr(
