@@ -384,6 +384,38 @@ function pollIndexReady() {
   indexPollTimer = setTimeout(check, 3000);
 }
 
+// Format an ISO wave date ("2026-11-11") as "11 Nov" for the schedule copy,
+// falling back to the raw value. Wave dates ALWAYS come from the API payload
+// (/route/status + the 403 body both carry `waves` and `public_after`), so the
+// UI never hardcodes a date -- moving the backend waves updates this copy too.
+function fmtWaveDate(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
+  if (!m) return iso || "";
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${+m[3]} ${months[+m[2] - 1]}`;
+}
+// Build the "rolling out in waves" schedule from a status/403 payload's `waves`
+// (array of {level, after}) + `public_after`. Follower and hunter usually share
+// a date; show them together when equal.
+function accessSchedule(obj) {
+  const by = {};
+  (Array.isArray(obj.waves) ? obj.waves : []).forEach(w => {
+    if (w && w.level) by[w.level] = w.after;
+  });
+  const bits = ["key holders now"];
+  if (by.supporter) bits.push(`Patreon tier 1 from <b>${fmtWaveDate(by.supporter)}</b>`);
+  const f = by.follower, h = by.hunter;
+  if (f && h && f === h) {
+    bits.push(`free followers and Galactic Hunters (5+ confirmed submissions) from <b>${fmtWaveDate(f)}</b>`);
+  } else {
+    if (f) bits.push(`free followers from <b>${fmtWaveDate(f)}</b>`);
+    if (h) bits.push(`Galactic Hunters (5+ confirmed submissions) from <b>${fmtWaveDate(h)}</b>`);
+  }
+  bits.push(`everyone from <b>${fmtWaveDate(obj.public_after)}</b>`);
+  return bits.join(" · ");
+}
+
 async function loadStatus() {
   try {
     const [st, me] = await Promise.all([
@@ -401,7 +433,7 @@ async function loadStatus() {
     }
     const parts = [];
     if (!st.public) {
-      parts.push(`<b>Early access, rolling out in waves:</b> key holders now · Patreon tier 1 from <b>7 Nov</b> · free followers and Galactic Hunters (5+ confirmed submissions) from <b>13 Nov</b> · everyone from <b>${st.public_after || "30 Nov"}</b>.`);
+      parts.push(`<b>Early access, rolling out in waves:</b> ${accessSchedule(st)}.`);
       if (!(me && me.patron)) parts.push(`Become a patron on <a href="${st.patreon}" target="_blank" rel="noopener">Patreon</a>, or use the access key below.`);
       else parts.push(`Signed in as <b>${escapeHtml(me.name || "patron")}</b>.`);
     }
@@ -835,8 +867,8 @@ async function plot() {
       // If the backend recognises the caller and their wave just hasn't opened
       // yet, it returns a personalized date; otherwise show the full schedule.
       const schedule = d.your_access_after
-        ? `Your access opens on <b>${d.your_access_after}</b>.`
-        : `Rolling out in waves (Patreon tier 1 from 7 Nov, free followers and Galactic Hunters from 13 Nov, everyone from <b>${d.public_after || "30 Nov"}</b>).`;
+        ? `Your access opens on <b>${fmtWaveDate(d.your_access_after)}</b>.`
+        : `Rolling out in waves: ${accessSchedule(d)}.`;
       $("out").innerHTML = `<div class="msg warn"><b>Early access.</b> ${escapeHtml(d.message || "")} ${schedule} ${d.patreon ? `Join on <a href="${d.patreon}" target="_blank" rel="noopener">Patreon</a>` : ""} or add an access key above.</div>`;
       return;
     }
