@@ -1748,3 +1748,14 @@ def test_favicon_and_index_routes(tmp_path, monkeypatch):
     local_client = TestClient(local_app)
     assert local_client.get("/favicon.ico").status_code == 200
     assert local_client.get("/").status_code == 200
+
+
+def test_materialize_predicted_name_appends_sequence():
+    # A no-N1 boxel proto ends in the mass-code letter and must get the N2=0
+    # suffix ("...b" -> "...b0"), not stay truncated (the old bug). An N1 proto
+    # ends in "-"; a complete name (ends in a digit) is left untouched.
+    m = systems._materialize_predicted_name
+    assert m("Pru Theia FK-A b") == "Pru Theia FK-A b0"
+    assert m("Pru Theia IW-W b1-") == "Pru Theia IW-W b1-0"
+    assert m("Flyua Dryoae ZQ-K d9-54") == "Flyua Dryoae ZQ-K d9-54"
+    assert m("") == ""
