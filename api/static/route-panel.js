@@ -110,13 +110,25 @@ $("companionLs").addEventListener("change", () =>
 // Opt-in FSD synthesis injection, used "when required" to cross gaps a normal
 // jump can't reach: 1 = off, 1.25/1.5/2 = basic/standard/premium.
 const INJECT_MULT = "edgis_route_inject";
-$("injectMult").value = localStorage.getItem(INJECT_MULT) || "1";
+const injectRadios = () => document.querySelectorAll('input[name="injectMult"]');
 const injectMult = () => {
-  const v = Number($("injectMult").value) || 1;
+  const el = document.querySelector('input[name="injectMult"]:checked');
+  const v = el ? Number(el.value) || 1 : 1;
   return v >= 1 && v <= 2 ? v : 1;
 };
-$("injectMult").addEventListener("change", () =>
-  localStorage.setItem(INJECT_MULT, String(injectMult())));
+// Check the radio matching ``v`` (falls back to Off); used on init + deep-link.
+const setInjectMult = (v) => {
+  const s = String(v);
+  let matched = false;
+  injectRadios().forEach((r) => { r.checked = r.value === s; matched ||= r.checked; });
+  if (!matched) {
+    const off = document.querySelector('input[name="injectMult"][value="1"]');
+    if (off) off.checked = true;
+  }
+};
+setInjectMult(localStorage.getItem(INJECT_MULT) || "1");
+injectRadios().forEach((r) => r.addEventListener("change", () =>
+  localStorage.setItem(INJECT_MULT, String(injectMult()))));
 
 // Friendly ship label from a SLEF loadout, shown on the Ship & fuel summary so
 // it's visible even when collapsed. Prefers the commander's ship name. The SLEF
@@ -1111,7 +1123,7 @@ window.edgisInitRoutePanel = function () {
   const cml = q.get("companion_max_ls");
   if (cml != null && cml !== "") { $("companionLs").value = cml; localStorage.setItem(COMPANION_LS, String(companionMaxLs())); }
   const inj = q.get("inject_mult");
-  if (inj != null && inj !== "") { $("injectMult").value = inj; localStorage.setItem(INJECT_MULT, String(injectMult())); }
+  if (inj != null && inj !== "") { setInjectMult(inj); localStorage.setItem(INJECT_MULT, String(injectMult())); }
   if ($("loadout").value.trim()) { importShip(); }
   loadStatus();
   // A shared link (from + to both present) plots straight away, at the shared

@@ -166,11 +166,19 @@
 #panel-route .injectbar { margin:8px 0 2px; font-size:13px; color:var(--text); display:flex; flex-direction:column; gap:4px; align-items:flex-start; }
 #panel-route .injectbar svg.inject { color:#c495f6; vertical-align:-2px; margin-right:2px; }
 #panel-route .injectbar .injectmats { color:var(--muted); font-size:12px; }
-/* Grade key under the FSD-injection dropdown: the three in-game synthesis icons
-   (1/2/3 bars) in the button-icon blue, since native <option>s can't show them. */
-#panel-route .inject-legend { display:flex; flex-direction:column; gap:3px; margin-top:6px; font-size:11px; color:var(--muted); }
-#panel-route .inject-legend span { display:inline-flex; align-items:center; gap:5px; }
-#panel-route .inject-legend img { height:15px; width:auto; }
+/* FSD-injection grade picker: a radio group so each in-game synthesis icon
+   (1/2/3 bars, button-icon blue) sits inline with its label instead of looking
+   bolted onto a native <select> (which can't show icons). */
+#panel-route .inject-radios { display:flex; flex-direction:column; gap:4px; }
+#panel-route .inj-opt { display:flex; align-items:center; gap:7px; cursor:pointer;
+  padding:5px 9px; border:1px solid rgba(255,255,255,.1); border-radius:8px;
+  font-size:13px; color:var(--text); }
+#panel-route .inj-opt:hover { background:rgba(255,255,255,.04); }
+#panel-route .inj-opt input { accent-color:#1294d6; margin:0; width:14px; height:14px; flex:none; }
+#panel-route .inj-opt img { height:15px; width:auto; }
+#panel-route .inj-opt .inj-txt { white-space:nowrap; }
+#panel-route .inj-opt .inj-txt small { color:var(--muted); font-size:11px; }
+#panel-route .inj-opt:has(input:checked) { border-color:#1294d6; background:rgba(18,148,214,.12); }
 /* Fuel-safe explainer note under the ship row. */
 #panel-route .fuelsafe-note { margin-top:8px; line-height:1.5; color:var(--muted); max-width:70ch; }
 #panel-route .fuelsafe-note b { color:var(--text); font-weight:600; }
