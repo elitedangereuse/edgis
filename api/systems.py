@@ -3845,6 +3845,7 @@ class GalaxyRouteRequest(BaseModel):
     to: str = Field(..., min_length=1)
     loadout: str
     cargo: float = Field(0.0, ge=0, le=2048)
+    inject_mult: float = Field(1.0, ge=1.0, le=2.0)
     model_config = {"populate_by_name": True}
 
 
