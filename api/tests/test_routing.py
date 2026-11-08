@@ -199,6 +199,76 @@ def test_graph_route_reaches_dest():
     assert_legal(result, 50.0)
 
 
+def test_flip_edge_cases():
+    assert routing._flip_edge((5, 9)) == (9, 5)         # interior: just reversed
+    assert routing._flip_edge((7, -2)) == (-1, 7)       # ->DST  becomes SRC->
+    assert routing._flip_edge((-1, 7)) == (7, -2)       # SRC->  becomes ->DST
+    assert routing._flip_edge((-1, -2)) == (-1, -2)     # SRC->DST is its own flip
+
+
+def test_graph_route_direction_symmetric_under_density_asymmetry(monkeypatch):
+    # A straight neutron chain with a dense cluster at the z=2000 end and a
+    # sparse z=0 end. Routing toward the sparse end must FLIP the search (goal =
+    # the dense end) and still realize a valid route in the requested direction,
+    # with a jump count close to the un-flipped direction.
+    chain = [(0.0, 0.0, float(40 + 180 * k)) for k in range(11)]  # 40..1840
+    cluster = [(float(a), float(b), 1980.0)
+               for a in range(-40, 41, 20) for b in range(-40, 41, 20)]  # 25 pts
+    index = make_index(chain + cluster)
+    A, B = (0.0, 0.0, 0.0), (0.0, 0.0, 2000.0)
+
+    # This tiny field's sparse end is well under the real density floor; disable
+    # the floor so the flip mechanics (not the floor gate) are exercised.
+    monkeypatch.setattr(routing, "_ORIENT_DENSITY_FLOOR", 0)
+    goals = []
+    orig = routing._graph_search
+
+    def spy(index_, cand, ssv, sdv, *a, **k):
+        goals.append(tuple(np.asarray(sdv, dtype=float)))
+        return orig(index_, cand, ssv, sdv, *a, **k)
+
+    monkeypatch.setattr(routing, "_graph_search", spy)
+
+    fwd = routing.graph_route(index, A, B, 50.0, grid_stars())  # dst dense: no flip
+    rev = routing.graph_route(index, B, A, 50.0, grid_stars())  # dst sparse: flip
+    assert fwd is not None and rev is not None
+    assert_legal(fwd, 50.0)
+    assert_legal(rev, 50.0)
+    # Forward searches toward B (dense); reverse FLIPS and also searches toward B.
+    assert goals[0][2] == pytest.approx(2000.0)
+    assert goals[-1][2] == pytest.approx(2000.0), "reverse did not flip toward the dense end"
+    # Jump counts stay close (the neutron graph is direction-symmetric); the
+    # small gap is realization-heuristic noise through the off-axis cluster, not
+    # a worse route (on the real Sol<->Colonia it is +2).
+    assert abs(fwd["total_jumps"] - rev["total_jumps"]) <= 4
+
+
+def test_graph_route_density_floor_blocks_flip_into_extreme_rim(monkeypatch):
+    # Same asymmetric field, but with the real density floor the sparse end is
+    # far too sparse to flip toward: the search must run in the requested
+    # (native) direction even though the source is denser. Guards the rim
+    # regression (Sol->Beagle flipped and failed before the floor was added).
+    chain = [(0.0, 0.0, float(40 + 180 * k)) for k in range(11)]
+    cluster = [(float(a), float(b), 1980.0)
+               for a in range(-40, 41, 20) for b in range(-40, 41, 20)]
+    index = make_index(chain + cluster)
+    A, B = (0.0, 0.0, 0.0), (0.0, 0.0, 2000.0)
+
+    goals = []
+    orig = routing._graph_search
+
+    def spy(index_, cand, ssv, sdv, *a, **k):
+        goals.append(tuple(np.asarray(sdv, dtype=float)))
+        return orig(index_, cand, ssv, sdv, *a, **k)
+
+    monkeypatch.setattr(routing, "_graph_search", spy)
+    rev = routing.graph_route(index, B, A, 50.0, grid_stars())  # dst A is rim-sparse
+    assert rev is not None
+    assert_legal(rev, 50.0)
+    # No flip: the search targets the requested sparse destination A (z=0).
+    assert goals[-1][2] == pytest.approx(0.0), "flipped toward a sub-floor destination"
+
+
 def test_graph_route_excludes_permit_locked_neutrons():
     # A straight neutron chain where one neutron (by name) is permit-locked.
     # With exclusion on, that neutron must not be boarded.
