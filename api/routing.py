@@ -191,12 +191,13 @@ def _nearest_star_toward(
     for row in fetch_stars_within(pos, jump_range):
         x, y, z, name = row[0], row[1], row[2], row[3]
         mainstar = row[4] if len(row) > 4 else None
+        id64 = row[5] if len(row) > 5 else None
         if name in visited:
             continue
         d = (x - tx) ** 2 + (y - ty) ** 2 + (z - tz) ** 2
         if best_d is None or d < best_d:
             best_d = d
-            best = (x, y, z, name, mainstar)
+            best = (x, y, z, name, mainstar, id64)
     return best
 
 
@@ -352,6 +353,7 @@ def solve_route(
                     False,
                     _dist(np.asarray(nxt[:3]), dst_v),
                     spectral=(nxt[4] if len(nxt) > 4 else None),
+                    id64=(nxt[5] if len(nxt) > 5 else None),
                 )
             )
             pos = [nxt[0], nxt[1], nxt[2]]
@@ -468,6 +470,7 @@ def solve_route(
                     False,
                     _dist(np.asarray(nxt[:3]), dst_v),
                     spectral=(nxt[4] if len(nxt) > 4 else None),
+                    id64=(nxt[5] if len(nxt) > 5 else None),
                 )
             )
             pos = [nxt[0], nxt[1], nxt[2]]
@@ -720,6 +723,7 @@ def _bridge_greedy(
                 best[3], tuple(nxt), float(np.linalg.norm(nxt - cur)),
                 _is_neutron_star(ms), float(np.linalg.norm(nxt - dst_v)),
                 spectral=ms,
+                id64=(best[5] if len(best) > 5 else None),
             )
         )
         visited.add(best[3])
@@ -808,6 +812,7 @@ def _bridge_capsule(
                     float(np.linalg.norm(nxt_p - cur)),
                     bool(neut[m]), float(np.linalg.norm(nxt_p - dst_v)),
                     spectral=rows[m][4] if len(rows[m]) > 4 else None,
+                    id64=rows[m][5] if len(rows[m]) > 5 else None,
                 )
             )
             cur = nxt_p

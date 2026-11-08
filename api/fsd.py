@@ -423,6 +423,7 @@ def enforce_fuel_safety(
                         "regular", s[3], s_pos, d1, False,
                         math.dist(s_pos, dstp),
                         spectral=(s[4] if len(s) > 4 else None),
+                        id64=(s[5] if len(s) > 5 else None),
                     ))
                     fuel = tank
                     scoop_stops += 1
