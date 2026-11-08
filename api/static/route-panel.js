@@ -272,6 +272,14 @@ const FUEL = `<svg class="fuel" width="12" height="12" viewBox="0 0 16 16" fill=
 const _injSvg = (pips) => `<svg class="inject" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M8 2.2 13.4 9.4H2.6Z"/><path d="M4.5 11.2h7" stroke-linecap="round"/>${pips.map(cx => `<circle cx="${cx}" cy="13.8" r="1" fill="currentColor" stroke="none"/>`).join("")}</svg>`;
 const INJECT_ICONS = { "1.25": _injSvg([8]), "1.5": _injSvg([6.2, 9.8]), "2": _injSvg([5, 8, 11]) };
 const INJECT_NAMES = { "1.25": "Basic", "1.5": "Standard", "2": "Premium" };
+// FSD Injection synthesis recipes (materials per craft; each craft = one jump).
+// Confirmed against the ED synthesis tables (Inara / Fandom wiki). All current
+// quantities are 1 each.
+const INJECT_RECIPES = {
+  "1.25": { Carbon: 1, Vanadium: 1, Germanium: 1 },
+  "1.5": { Carbon: 1, Vanadium: 1, Germanium: 1, Cadmium: 1, Niobium: 1 },
+  "2": { Carbon: 1, Germanium: 1, Arsenic: 1, Niobium: 1, Yttrium: 1, Polonium: 1 },
+};
 // A leg's grade is a float; snap to the nearest known key.
 function injectKey(g) { return g >= 2 ? "2" : g >= 1.5 ? "1.5" : "1.25"; }
 function injectBadge(g) {
@@ -299,8 +307,18 @@ function injectSummary(r) {
     .map(k => `${INJECT_ICONS[k]} <b>${counts[k]}x</b> ${INJECT_NAMES[k]}`);
   if (!parts.length) return "";
   const n = Object.values(counts).reduce((a, b) => a + b, 0);
+  // Total raw materials consumed = sum of each grade's recipe x its count.
+  const mats = {};
+  for (const k of Object.keys(counts)) {
+    for (const [m, q] of Object.entries(INJECT_RECIPES[k])) mats[m] = (mats[m] || 0) + q * counts[k];
+  }
+  const matParts = Object.entries(mats)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([m, q]) => `<b>${q}x</b> ${m}`);
   return `<div class="injectbar" title="Synthesise these FSD injections before the route; each is used on one jump where a normal jump cannot reach. The least sufficient grade is chosen per gap.">`
-    + `<b>Synthesis:</b> ${n} FSD injection${n > 1 ? "s" : ""} needed: ${parts.join(" · ")}</div>`;
+    + `<div><b>Synthesis:</b> ${n} FSD injection${n > 1 ? "s" : ""} needed: ${parts.join(" · ")}</div>`
+    + `<div class="injectmats" title="Total materials consumed across the whole route (each injection is one craft / one jump).">Materials: ${matParts.join(", ")}</div>`
+    + `</div>`;
 }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function fmt(n, d = 0) { return Number(n).toLocaleString(undefined, { maximumFractionDigits: d }); }
