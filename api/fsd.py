@@ -353,7 +353,6 @@ def enforce_fuel_safety(
     src_name: Optional[str] = None,
     is_locked: Optional[Callable[[str], bool]] = None,
     boost_mult: float = 4.0,
-    reserve_jumps: float = 1.0,
 ):
     """Insert scoop-stop detours so a realized route never strands (the default-on
     'fuel-safe' guarantee). Walks the legs tracking the exact tank; before any
@@ -373,11 +372,7 @@ def enforce_fuel_safety(
     """
     tank = params.tank_size
     maxf = params.max_fuel_per_jump
-    # Keep this many jumps of spare fuel before diverting to a scoopable star.
-    # 1 (default) = the minimum divert guarantee; higher refuels sooner (safer in
-    # sparse regions). Clamped so a small tank still leaves one usable jump.
-    cap = tank_capacity_jumps(params)
-    reserve = max(1.0, min(float(reserve_jumps), max(1.0, cap - 1))) * maxf
+    reserve = maxf  # always keep one full jump to divert to a scoopable star
     dstp = (float(dst[0]), float(dst[1]), float(dst[2]))
     out: list[dict] = []
     # The system we are currently sitting at (start = source).
@@ -389,7 +384,7 @@ def enforce_fuel_safety(
     scoop_stops = 0
     unsafe_at = None
 
-    if cap < 2:
+    if tank_capacity_jumps(params) < 2:
         # A one-jump tank can't carry a divert margin; nothing we can guarantee.
         return [dict(l) for l in legs], {
             "scoop_stops": 0, "safe": False, "unsafe_at": 0,

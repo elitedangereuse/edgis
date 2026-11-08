@@ -275,22 +275,6 @@ def test_enforce_fuel_safety_no_divert_when_neutrons_scoop_inflight():
     assert not any(j["system"] == "ScoopK" for j in new_legs)
 
 
-def test_enforce_reserve_margin_refuels_sooner():
-    p = fsd.parse_loadout(COBRA_SLEF)  # ~10-jump tank
-    legs, dst = _neutron_chain(20)  # a chain that needs refuels
-    _, info1 = fsd.enforce_fuel_safety(
-        legs, (0.0, 0.0, 0.0), dst, p, _scoop_fetch(), src_name="Start",
-        reserve_jumps=1.0,
-    )
-    _, info3 = fsd.enforce_fuel_safety(
-        legs, (0.0, 0.0, 0.0), dst, p, _scoop_fetch(), src_name="Start",
-        reserve_jumps=3.0,
-    )
-    # Both stay safe; a bigger reserve refuels sooner -> at least as many stops.
-    assert info1["safe"] and info3["safe"]
-    assert info3["scoop_stops"] >= info1["scoop_stops"] >= 1
-
-
 def test_cargo_reduces_range_and_is_reported():
     p0 = fsd.parse_loadout(COBRA_SLEF)
     p6 = fsd.parse_loadout(COBRA_SLEF, cargo=6)
