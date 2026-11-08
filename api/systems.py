@@ -1692,8 +1692,15 @@ def _infer_prediction_mcode_for_radius(
 
 
 def _materialize_predicted_name(proto_name: str) -> str:
+    # pgnames returns the boxel prefix; the per-system sequence number N2 is
+    # appended here (the boxel's representative is the first system, N2 = 0).
+    # With N1 present the proto ends "...d1-"; without N1 it ends in the mass-code
+    # letter "...d". Both need the "0" suffix -- so append it whenever the name
+    # doesn't already end in a digit (a complete name like "...d5-54" is left as
+    # is). Previously only the "ends with -" case was handled, so no-N1 boxels
+    # produced invalid names like "Pru Theia FK-A b" (missing the trailing 0).
     name = str(proto_name or "").strip()
-    if name.endswith("-"):
+    if name and not name[-1].isdigit():
         return f"{name}0"
     return name
 
