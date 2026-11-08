@@ -272,11 +272,15 @@ function copyText(text, btn) {
 // Bootstrap "fuel-pump" icon (https://icons.getbootstrap.com/icons/fuel-pump/).
 const FUEL = `<svg class="fuel" width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><title>Fuel-scoopable (KGBFOAM)</title><path d="M3 2.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5v5a.5.5 0 0 1-.5.5h-5a.5.5 0 0 1-.5-.5z"/><path d="M1 2a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v8a2 2 0 0 1 2 2v.5a.5.5 0 0 0 1 0V8h-.5a.5.5 0 0 1-.5-.5V4.375a.5.5 0 0 1 .5-.5h1.495c-.011-.476-.053-.894-.201-1.222a.97.97 0 0 0-.394-.458c-.184-.11-.464-.195-.9-.195a.5.5 0 0 1 0-1q.846-.002 1.412.336c.383.228.634.551.794.907.295.655.294 1.465.294 2.081v3.175a.5.5 0 0 1-.5.501H15v4.5a1.5 1.5 0 0 1-3 0V12a1 1 0 0 0-1-1v4h.5a.5.5 0 0 1 0 1H.5a.5.5 0 0 1 0-1H1zm9 0a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v13h8z"/></svg>`;
 
-// FSD synthesis injection grade icons: an upward delta with a baseline and
-// 1/2/3 pips = basic/standard/premium (matches the in-game synthesis motif).
-// currentColor so CSS tints them.
-const _injSvg = (pips) => `<svg class="inject" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M8 2.2 13.4 9.4H2.6Z"/><path d="M4.5 11.2h7" stroke-linecap="round"/>${pips.map(cx => `<circle cx="${cx}" cy="13.8" r="1" fill="currentColor" stroke="none"/>`).join("")}</svg>`;
-const INJECT_ICONS = { "1.25": _injSvg([8]), "1.5": _injSvg([6.2, 9.8]), "2": _injSvg([5, 8, 11]) };
+// FSD synthesis injection grade icons: an upward delta with a dot inside and
+// 1/2/3 horizontal lines below = basic/standard/premium (the in-game synthesis
+// motif). currentColor so CSS tints them.
+const _injSvg = (nLines) => {
+  const ys = { 1: [12.2], 2: [11.4, 13.4], 3: [10.6, 12.4, 14.2] }[nLines];
+  const lines = ys.map(y => `<path d="M4.5 ${y}h7" stroke-linecap="round"/>`).join("");
+  return `<svg class="inject" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M8 1.6 13.8 9H2.2Z"/><circle cx="8" cy="6.2" r="1" fill="currentColor" stroke="none"/>${lines}</svg>`;
+};
+const INJECT_ICONS = { "1.25": _injSvg(1), "1.5": _injSvg(2), "2": _injSvg(3) };
 const INJECT_NAMES = { "1.25": "Basic", "1.5": "Standard", "2": "Premium" };
 // FSD Injection synthesis recipes (materials per craft; each craft = one jump).
 // Confirmed against the ED synthesis tables (Inara / Fandom wiki). All current
