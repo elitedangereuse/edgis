@@ -146,6 +146,9 @@
 #panel-route .fuel.inflight { color:var(--neutron); }
 /* Companion-neutron arrival distance ("@120 Ls"): muted neutron-amber, help cursor. */
 #panel-route .arrls { color:var(--neutron); opacity:.8; font-size:11px; cursor:help; white-space:nowrap; }
+/* Fuel-safe explainer note under the ship row. */
+#panel-route .fuelsafe-note { margin-top:8px; line-height:1.5; color:var(--muted); max-width:70ch; }
+#panel-route .fuelsafe-note b { color:var(--text); font-weight:600; }
 
 /* Icons inherit gray-100 (#f3f4f6); .55 at rest, full on row/icon hover. */
 #panel-route .copy-btn { all:unset; cursor:pointer; color:#f3f4f6; opacity:.55; margin-left:8px;

@@ -3229,7 +3229,7 @@ def _annotate_inflight_scoops(legs: list, conn, max_ls: float = INFLIGHT_SCOOP_M
 
 
 def _enforce_fuel_sync(base_result: dict, params, fuel_safe: bool,
-                       boost_mult: float = 4.0) -> dict:
+                       boost_mult: float = 4.0, reserve_jumps: float = 1.0) -> dict:
     """Run the fuel layer on an already-solved (ship-agnostic) route: annotate
     neutron waypoints that allow an in-system refuel, then (when ``fuel_safe``)
     insert scoop-stop detours so it never strands, and attach a fuel report. Runs
@@ -3272,6 +3272,7 @@ def _enforce_fuel_sync(base_result: dict, params, fuel_safe: bool,
                     src_name=base_result.get("source"),
                     is_locked=permit_zones.is_locked,
                     boost_mult=boost_mult,
+                    reserve_jumps=reserve_jumps,
                 )
     if do_enforce:
         flown = sum(leg["distance_jumped"] for leg in new_legs)
@@ -3625,6 +3626,8 @@ class RouteRequest(BaseModel):
     loadout: Optional[str] = None
     cargo: float = Field(0.0, ge=0, le=2048)
     fuel_safe: bool = True
+    # Spare fuel (in jumps) kept before a fuel-safe refuel is inserted.
+    reserve_jumps: float = Field(1.0, ge=1.0, le=5.0)
     model_config = {"populate_by_name": True}
 
 
@@ -3661,7 +3664,8 @@ async def plot_route_post(
         # Fuel layer (enforcement + report) runs in a DB task: scoop-stop
         # insertion needs a scoopable-star query. Copies the cached geometry.
         result = await _run_db_task(
-            _enforce_fuel_sync, result, params, req.fuel_safe, req.supercharge
+            _enforce_fuel_sync, result, params, req.fuel_safe, req.supercharge,
+            req.reserve_jumps,
         )
     # Record the fuel mode on its own trace line: the shared geometry trace is
     # ship-agnostic, so without this the trace never shows whether a ship was
