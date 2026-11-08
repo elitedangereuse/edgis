@@ -179,9 +179,27 @@
 #panel-route .inj-opt .inj-txt { white-space:nowrap; }
 #panel-route .inj-opt .inj-txt small { color:var(--muted); font-size:11px; }
 #panel-route .inj-opt:has(input:checked) { border-color:#1294d6; background:rgba(18,148,214,.12); }
-/* Fuel-safe explainer note under the ship row. */
-#panel-route .fuelsafe-note { margin-top:8px; line-height:1.5; color:var(--muted); max-width:70ch; }
-#panel-route .fuelsafe-note b { color:var(--text); font-weight:600; }
+/* Options layout: the three short controls stack in one column, the taller FSD
+   radio group sits beside them, so the row stays balanced and wraps on narrow. */
+#panel-route .route-opts { display:flex; flex-wrap:wrap; gap:16px 24px; align-items:flex-start; }
+#panel-route .opts-short { display:flex; flex-direction:column; gap:12px; flex:1 1 220px; min-width:200px; }
+#panel-route .opt-field { display:flex; flex-direction:column; gap:6px; }
+#panel-route .opts-inject { flex:1 1 220px; min-width:200px; }
+/* Fuel-safe toggle + an (i) info bubble; the long explainer lives in its hover/
+   focus tooltip instead of a wall of text under the row. */
+#panel-route .fuelsafe-row { display:flex; align-items:center; gap:8px; }
+#panel-route .help-tip { position:relative; display:inline-flex; align-items:center; justify-content:center;
+  width:16px; height:16px; border-radius:50%; border:1px solid var(--accent); color:var(--accent);
+  font:italic 700 11px/1 Georgia, serif; cursor:help; user-select:none; }
+#panel-route .help-tip .tip { position:absolute; top:calc(100% + 8px); left:0; z-index:30; width:340px; max-width:72vw;
+  padding:10px 12px; border-radius:8px; background:#0c1218; border:1px solid rgba(255,255,255,.12);
+  color:var(--muted); font-style:normal; font-weight:400; font-size:12px; line-height:1.5;
+  font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  box-shadow:0 8px 24px rgba(0,0,0,.5);
+  opacity:0; visibility:hidden; transition:opacity .12s; pointer-events:none; }
+#panel-route .help-tip:hover .tip, #panel-route .help-tip:focus .tip, #panel-route .help-tip:focus-within .tip {
+  opacity:1; visibility:visible; }
+#panel-route .help-tip .tip b { color:var(--text); font-weight:600; }
 
 /* Icons inherit gray-100 (#f3f4f6); .55 at rest, full on row/icon hover. */
 #panel-route .copy-btn { all:unset; cursor:pointer; color:#f3f4f6; opacity:.55; margin-left:8px;
