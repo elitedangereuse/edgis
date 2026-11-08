@@ -148,6 +148,12 @@
 #panel-route .arrls { color:var(--neutron); opacity:.8; font-size:11px; cursor:help; white-space:nowrap; }
 /* In-system scoop distance reuses .arrls but in the fuel (green) colour. */
 #panel-route .arrls.scoop-ls { color:var(--ok); }
+/* FSD synthesis injection: amber/gold delta icon on a jump that needs it, and
+   the summary bar listing how many of each grade the route requires. */
+#panel-route .inject-badge { display:inline-flex; vertical-align:-2px; margin-left:4px; cursor:help; color:#f2c14e; }
+#panel-route svg.inject { display:inline-block; }
+#panel-route .injectbar { margin:8px 0 2px; font-size:13px; color:var(--text); display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+#panel-route .injectbar svg.inject { color:#f2c14e; vertical-align:-2px; margin-right:2px; }
 /* Fuel-safe explainer note under the ship row. */
 #panel-route .fuelsafe-note { margin-top:8px; line-height:1.5; color:var(--muted); max-width:70ch; }
 #panel-route .fuelsafe-note b { color:var(--text); font-weight:600; }

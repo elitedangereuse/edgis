@@ -77,8 +77,32 @@ def test_bridge_greedy_injects_only_when_required():
     assert on is not None
     legs = on[0]
     assert legs, "injection should have produced bridge legs"
-    assert all(leg.get("injected") for leg in legs)  # every hop needed injection
+    # Every hop needed injection, and 16 ly gaps (1.6*J) fit a BASIC (1.25*J=12.5)?
+    # No: 16 > 12.5, so the least sufficient grade is standard (1.5*J=15)? 16 > 15
+    # too, so premium (2*J=20). Confirms "least grade that works" picks premium.
+    assert all(leg.get("inject_grade") == 2.0 for leg in legs)
     assert all(leg["distance_jumped"] <= 2.0 * J + 1e-6 for leg in legs)
+
+
+def test_bridge_greedy_picks_least_sufficient_grade():
+    # A single 11 ly gap (J=10): basic (12.5 ly) already bridges it, so the
+    # least-grade logic must pick 1.25, not a higher grade, even when premium
+    # is allowed.
+    J = 10.0
+
+    def fetch_within(pos, radius):
+        px, py, pz = pos
+        s = (0.0, 0.0, 11.0)
+        return [(s[0], s[1], s[2], "S11")] if (s[2] - pz) ** 2 <= radius ** 2 else []
+
+    # pos 0 -> star at 11 (needs basic injection) -> target at 20 (within J).
+    tgt = np.array([0.0, 0.0, 20.0])
+    r = routing._bridge_greedy(
+        fetch_within, None, np.zeros(3), False, tgt, J, tgt, set(), 5,
+        inject_mult=2.0,
+    )
+    assert r is not None and r[0]
+    assert r[0][0].get("inject_grade") == 1.25  # least grade that reaches 11 ly
 
 
 def test_graph_route_injection_crosses_otherwise_impassable_gap():
@@ -102,7 +126,7 @@ def test_graph_route_injection_crosses_otherwise_impassable_gap():
                              inject_mult=2.0, time_cap=10.0)
     assert off is None
     assert on is not None
-    assert any(leg.get("injected") for leg in on["jumps"])
+    assert any(leg.get("inject_grade") for leg in on["jumps"])
     # Injected legs legitimately exceed J (up to inject_mult*J); the final leg
     # still lands on the destination.
     assert on["jumps"][-1]["distance_left"] == pytest.approx(0.0)
