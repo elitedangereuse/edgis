@@ -1,0 +1,33 @@
+{
+  "_comment": "Route-plotter quality benchmark, curated from production route_trace.jsonl. 'our' = our last-known total_jumps (baseline to detect regression/improvement); 'spansh' = spansh's jumps from the same trace comparison (static, so the benchmark never hammers spansh). 'status' expected result. Categories group the route classes we care about. Refresh 'our'/'spansh' by re-running /route and /spansh/route manually when intentionally changing the engine. See run_plotter_bench.py.",
+  "cases": [
+    {"name": "sol-colonia", "from": "Sol", "to": "Colonia", "range": 50, "cat": "flagship-win", "our": 143, "spansh": 166, "note": "core neutron highway, our headline win"},
+    {"name": "celaeno-sgra", "from": "Celaeno", "to": "Sagittarius A*", "range": 50, "cat": "win", "our": 191, "spansh": 211},
+    {"name": "bishan-praae", "from": "Bishan", "to": "Praae Aick AS-B d13-0", "range": 70, "cat": "win-big", "our": 367, "spansh": 433, "note": "largest observed win (-66)"},
+    {"name": "calennero-sgra", "from": "Calennero", "to": "Sagittarius A*", "range": 30, "cat": "win-lowrange", "our": 432, "spansh": 458},
+    {"name": "sol-beagle-50", "from": "Sol", "to": "Beagle Point", "range": 50, "cat": "win-rim-slow", "our": 606, "spansh": 631, "note": "rim; correct but slow (~50-90s)"},
+    {"name": "su-cas-synuefae", "from": "SU Cassiopeiae", "to": "Synuefae CC-A b6-0", "range": 50, "cat": "win", "our": 88, "spansh": 104},
+    {"name": "celaeno-colonia-80", "from": "Celaeno", "to": "Colonia", "range": 80, "cat": "win", "our": 85, "spansh": 96},
+    {"name": "cubeo-col173", "from": "Cubeo", "to": "Col 173 Sector LJ-F c12-0", "range": 50, "cat": "win-close", "our": 22, "spansh": 23},
+    {"name": "sol-maia-80", "from": "Sol", "to": "Maia", "range": 80, "cat": "win-close", "our": 5, "spansh": 6},
+    {"name": "graea-pair-20", "from": "Graea Hypue HX-S d4-268", "to": "Graea Hypue YB-M b11-6", "range": 20, "cat": "obstacle-tie", "our": 12, "spansh": 12, "note": "permit-sphere obstacle routing"},
+    {"name": "graea-pair-80", "from": "Graea Hypue HX-S d4-268", "to": "Graea Hypue YB-M b11-6", "range": 80, "cat": "obstacle-win", "our": 2, "spansh": 4},
+    {"name": "sol-maia-50", "from": "Sol", "to": "Maia", "range": 50, "cat": "tie", "our": 9, "spansh": 9},
+    {"name": "maia-lubenzai", "from": "Maia", "to": "Lu Benzai", "range": 50, "cat": "tie", "our": 10, "spansh": 10},
+    {"name": "starindia-stafkarl", "from": "Star of India", "to": "Stafkarl", "range": 60.45, "cat": "bidir-win", "our": 18, "spansh": 28, "note": "pair with stafkarl-starindia (asymmetry check)"},
+    {"name": "stafkarl-starindia", "from": "Stafkarl", "to": "Star of India", "range": 60.45, "cat": "bidir-win", "our": 19, "spansh": 23, "note": "reverse of above; our 18 vs 19 shows directional asymmetry"},
+    {"name": "colonia-sgra", "from": "Colonia", "to": "Sagittarius A*", "range": 50, "cat": "loss-close", "our": 68, "spansh": 67},
+    {"name": "col173-hip26176", "from": "Col 173 Sector LJ-F c12-0", "to": "HIP 26176", "range": 50, "cat": "loss-short", "our": 28, "spansh": 25},
+    {"name": "cubeo-sgra", "from": "Cubeo", "to": "Sagittarius A*", "range": 50, "cat": "loss", "our": 189, "spansh": 184},
+    {"name": "sol-maia-20", "from": "Sol", "to": "Maia", "range": 20, "cat": "loss-lowrange", "our": 24, "spansh": 22},
+    {"name": "riedquat-asterope-20", "from": "Riedquat", "to": "Asterope", "range": 20, "cat": "loss-lowrange", "our": 30, "spansh": 27},
+    {"name": "lave-maia-20", "from": "Lave", "to": "Maia", "range": 20, "cat": "loss-lowrange", "our": 35, "spansh": 27, "note": "worst low-range loss (+8)"},
+    {"name": "beagle-colonia-80", "from": "Beagle Point", "to": "Colonia", "range": 80, "cat": "loss-drift", "our": 285, "spansh": 236, "note": "worst long-route loss (+49); beam lateral drift / reverse-rim"},
+    {"name": "pruaeb-synuefae-80", "from": "Pru Aeb DA-H b11-0", "to": "Synuefae AA-A h31", "range": 80, "cat": "loss-drift", "our": 222, "spansh": 176, "note": "+46; sparse-region drift"},
+    {"name": "dhathaarib-synairaae-50", "from": "Dhathaarib", "to": "Synairaae FG-Y f0", "range": 50, "cat": "void-stuck", "our": null, "spansh": null, "status": "void-stuck", "note": "out-of-scope sparse pocket; spansh ~300 via detours"},
+    {"name": "pruaeb-synuedaae-60", "from": "Pru Aeb AA-A b14-1", "to": "Synuedaae AA-D a67-0", "range": 60, "cat": "void-stuck", "our": null, "spansh": null, "status": "void-stuck"},
+    {"name": "col107-poe-50", "from": "Col 107 Sector AA-B a75-0", "to": "Poe", "range": 50, "cat": "void-stuck", "our": null, "spansh": null, "status": "void-stuck"},
+    {"name": "sol-beagle-80", "from": "Sol", "to": "Beagle Point", "range": 80, "cat": "void-stuck-highrange", "our": null, "spansh": null, "status": "void-stuck", "note": "@50 solves (606) but @80 void-stucks: range-sensitive corridor gap"},
+    {"name": "sol-nosystem", "from": "Sol", "to": "ZzzNoSystem999", "range": 50, "cat": "validation", "our": null, "spansh": null, "status": "not-found", "note": "bad destination name"}
+  ]
+}
