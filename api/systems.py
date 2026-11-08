@@ -3098,7 +3098,7 @@ def _solve_route_sync(
             try:
                 cursor.execute(
                     "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name, "
-                    "mainstar FROM systems_big "
+                    "mainstar, id64 FROM systems_big "
                     "WHERE ST_3DDWithin(coords, ST_MakePoint(%s, %s, %s), %s)",
                     (pos[0], pos[1], pos[2], radius),
                 )
@@ -3111,7 +3111,7 @@ def _solve_route_sync(
             try:
                 cursor.execute(
                     "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name, "
-                    "mainstar FROM systems_big "
+                    "mainstar, id64 FROM systems_big "
                     "WHERE ST_3DDWithin(coords, ST_MakeLine("
                     "ST_MakePoint(%s, %s, %s), ST_MakePoint(%s, %s, %s)), %s) "
                     "LIMIT 250000",
@@ -3135,7 +3135,7 @@ def _solve_route_sync(
             try:
                 cursor.execute(
                     "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name, "
-                    "mainstar FROM systems_big "
+                    "mainstar, id64 FROM systems_big "
                     "WHERE ST_3DDWithin(coords, ST_MakePoint(%s, %s, %s), %s) "
                     "ORDER BY ST_3DDistance(coords, ST_MakePoint(%s, %s, %s)) "
                     "LIMIT %s",
@@ -3147,7 +3147,7 @@ def _solve_route_sync(
                     return rows
                 cursor.execute(
                     "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name, "
-                    "mainstar FROM systems_big "
+                    "mainstar, id64 FROM systems_big "
                     "WHERE ST_3DDWithin(coords, ST_MakePoint(%s, %s, %s), %s) "
                     "ORDER BY ST_3DDistance(coords, ST_MakePoint(%s, %s, %s)) "
                     "LIMIT %s",
@@ -3255,7 +3255,7 @@ def _enforce_fuel_sync(base_result: dict, params, fuel_safe: bool,
                     try:
                         cursor.execute(
                             "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name, "
-                            "mainstar FROM systems_big "
+                            "mainstar, id64 FROM systems_big "
                             "WHERE mainstar ~ %s AND ST_3DDWithin("
                             "coords, ST_MakePoint(%s, %s, %s), %s) "
                             "ORDER BY ST_3DDistance(coords, ST_MakePoint(%s, %s, %s)) "
