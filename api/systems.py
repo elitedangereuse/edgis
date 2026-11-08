@@ -3381,8 +3381,9 @@ class RouteJump(BaseModel):
     # Set on a companion (secondary) neutron waypoint: its distance from arrival
     # (Ls). The UI shows "neutron at X Ls" (you supercruise to it to supercharge).
     arrival_ls: Optional[float] = None
-    # Set when this jump required an FSD synthesis injection (reach > normal J).
-    injected: Optional[bool] = None
+    # Set when this jump required an FSD synthesis injection: the grade used
+    # (1.25 basic / 1.5 standard / 2.0 premium), the least that bridged the gap.
+    inject_grade: Optional[float] = None
     # Per-leg fuel (POST /route with a loadout): for the spansh-exact export.
     fuel_in_tank: Optional[float] = None
     fuel_used: Optional[float] = None

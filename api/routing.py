@@ -211,7 +211,7 @@ def _leg(
     id64: Optional[int] = None,
     spectral: Optional[str] = None,
     arrival_ls: Optional[float] = None,
-    injected: bool = False,
+    inject_grade: Optional[float] = None,
 ) -> dict:
     leg = {
         "type": leg_type,
@@ -225,10 +225,11 @@ def _leg(
         "distance_jumped": float(dist),
         "distance_left": float(left),
     }
-    # Set when this jump required an FSD synthesis injection (reach > normal J);
-    # the UI marks it so the commander knows to carry the materials.
-    if injected:
-        leg["injected"] = True
+    # Set when this jump required an FSD synthesis injection: the grade used
+    # (1.25 basic / 1.5 standard / 2.0 premium), the LEAST that bridged the gap.
+    # The UI shows the matching icon so the commander knows what to synthesise.
+    if inject_grade:
+        leg["inject_grade"] = float(inject_grade)
     # Only set for a companion neutron (boost source you supercruise to in-system
     # before charging); the UI shows it as "neutron at X Ls". Main-star neutrons
     # and bridge stars leave it unset.
@@ -500,6 +501,9 @@ FetchStarsToward = Callable[
 
 _GAP_RADII_J = (8.0, 16.0, 32.0)  # gap-edge search radii, in jump-range units
 _ZONE_RADIUS_CAP = 1200.0  # never ban more than this around a failed bridge
+# FSD synthesis injection grades (range multiplier), ascending so the bridger
+# picks the LEAST that crosses a gap: basic +25%, standard +50%, premium +100%.
+_INJECT_GRADES = (1.25, 1.5, 2.0)
 
 
 def _is_neutron_star(mainstar) -> bool:
@@ -730,11 +734,18 @@ def _bridge_greedy(
         if float(np.linalg.norm(target - cur)) <= reach:
             return legs, cur, on_boost
         best = _pick(reach)
-        injected = False
+        inject_grade = None
         if best is None and inject_mult > 1.0 and not on_boost:
-            # No forward star within a normal jump: FSD-inject to reach farther.
-            best = _pick(inject_mult * jump_range)
-            injected = best is not None
+            # No forward star within a normal jump: FSD-inject, using the LEAST
+            # grade that bridges the gap (basic 1.25 / standard 1.5 / premium 2),
+            # capped at the allowed inject_mult, to minimise material cost.
+            for g in _INJECT_GRADES:
+                if g > inject_mult + 1e-9:
+                    break
+                best = _pick(g * jump_range)
+                if best is not None:
+                    inject_grade = g
+                    break
         if best is None:
             return None
         nxt = np.asarray(best[:3], dtype=np.float64)
@@ -746,7 +757,7 @@ def _bridge_greedy(
                 _is_neutron_star(ms), float(np.linalg.norm(nxt - dst_v)),
                 spectral=ms,
                 id64=(best[5] if len(best) > 5 else None),
-                injected=injected,
+                inject_grade=inject_grade,
             )
         )
         visited.add(best[3])
