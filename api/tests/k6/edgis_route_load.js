@@ -66,7 +66,9 @@ export function setup() {
 
 export default function () {
   const r = ROUTES[Math.floor(Math.random() * ROUTES.length)];
-  const nonce = FRESH ? (__VU * 100000 + __ITER) : null;
+  // beam_width is capped at 100; cycle 1..100 to bust the cache (collides only
+  // after ~100 iters per route, fine for a short stress run).
+  const nonce = FRESH ? ((__VU * 7 + __ITER) % 100) + 1 : null;
   const res = http.get(routeUrl(r, nonce), Object.assign({ timeout: '120s' }, params));
   check(res, {
     // 200 = solved/cached; 503 = index still warming; 403 = missing/invalid key.
