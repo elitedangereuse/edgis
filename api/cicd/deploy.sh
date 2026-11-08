@@ -49,6 +49,7 @@ TMP_CHANGED_FILE_LIST=$(mktemp)
     echo static/index.html
     echo static/galaxymap.html
     echo static/neutron-cloud.html
+    echo static/neutron-cloud-worker.js
     echo static/sysmap.html
     echo static/sysmap-body-palette.html
     echo static/sysmap.css

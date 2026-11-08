@@ -35,26 +35,16 @@
   const $ = (id) => document.getElementById(id);
   const DATA = "/static/data/";
 
-  // ---- fetch meta + packed int16 buffer -----------------------------------
+  // ---- fetch meta (small) to size buffers + frame the camera up front ------
   const tLoad0 = performance.now();
-  let meta, buf;
+  let meta;
   try {
     meta = await (await fetch(DATA + "neutrons.meta.json", { cache: "force-cache" })).json();
-    buf = await (await fetch(DATA + "neutrons.i16.bin", { cache: "force-cache" })).arrayBuffer();
   } catch (e) {
     $("load").textContent = "Could not load the neutron cloud (run build_neutron_cloud.py first).";
     return;
   }
-  const loadMs = performance.now() - tLoad0;
-
-  // ---- decode int16 -> float32 ly (one pass on the main thread) ------------
-  const tDec0 = performance.now();
-  const i16 = new Int16Array(buf);
-  const n = (i16.length / 3) | 0;
-  const inv = 1 / meta.scale;
-  const pos = new Float32Array(i16.length);
-  for (let k = 0; k < i16.length; k++) pos[k] = i16[k] * inv;
-  const decodeMs = performance.now() - tDec0;
+  const n = meta.count | 0;
 
   // ---- THREE scene ---------------------------------------------------------
   const canvas = $("gl");
@@ -64,9 +54,14 @@
   scene.background = new THREE.Color(0x05080d);
   const camera = new THREE.PerspectiveCamera(55, 1, 1, 400000);
 
+  // Preallocate the full position buffer once; the worker streams decoded
+  // batches into it and we grow the draw range so points appear as they load.
+  const pos = new Float32Array(n * 3);
   const geom = new THREE.BufferGeometry();
-  geom.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  geom.computeBoundingSphere();
+  const posAttr = new THREE.BufferAttribute(pos, 3);
+  posAttr.setUsage(THREE.DynamicDrawUsage);
+  geom.setAttribute("position", posAttr);
+  geom.setDrawRange(0, 0);
   // Constant screen-space point size (sizeAttenuation off) so the field stays
   // crisp and visible at galaxy-overview distance; additive blending makes the
   // dense disk glow where points overlap.
@@ -84,10 +79,12 @@
     new THREE.PointsMaterial({ color: 0xffd36b, size: 7, sizeAttenuation: false }));
   scene.add(sol);
 
-  // ---- frame the camera on the galaxy bounding sphere ----------------------
-  const bs = geom.boundingSphere;
-  const target = bs.center.clone();
-  let radius = bs.radius * 1.15;   // orbit distance
+  // ---- frame the camera from meta.bbox (known before any point arrives) ----
+  const bmin = meta.bbox.min, bmax = meta.bbox.max;
+  const target = new THREE.Vector3(
+    (bmin[0] + bmax[0]) / 2, (bmin[1] + bmax[1]) / 2, (bmin[2] + bmax[2]) / 2);
+  const diag = Math.hypot(bmax[0] - bmin[0], bmax[1] - bmin[1], bmax[2] - bmin[2]);
+  let radius = diag * 0.6;         // orbit distance
   let theta = 0.6, phi = 1.15;     // spherical angles
   const panOff = new THREE.Vector3();
   function applyCamera() {
@@ -130,13 +127,55 @@
   }
   window.addEventListener("resize", resize); resize();
 
-  // ---- HUD + render loop ---------------------------------------------------
+  // ---- stream + decode in a Web Worker; append batches as they arrive ------
   $("load").hidden = true; $("hud").hidden = false;
-  $("hCount").textContent = n.toLocaleString();
-  $("hBytes").textContent = (buf.byteLength / 1e6).toFixed(1) + " MB";
-  $("hLoad").textContent = (loadMs / 1000).toFixed(2) + " s";
-  $("hDecode").textContent = decodeMs.toFixed(0) + " ms";
+  $("hCount").textContent = "0 / " + n.toLocaleString();
 
+  let filled = 0;          // floats written into `pos`
+  let bytesDown = 0;
+  const totalBytes = meta.bytes || 0;
+  const worker = new Worker("/static/neutron-cloud-worker.js");
+  worker.onmessage = (e) => {
+    const m = e.data;
+    if (m.type === "batch") {
+      const b = m.positions;
+      const room = Math.min(b.length, pos.length - filled);
+      if (room > 0) {
+        pos.set(room === b.length ? b : b.subarray(0, room), filled);
+        // Upload only the newly written span, then extend the draw range.
+        posAttr.updateRange = { offset: filled, count: room };
+        posAttr.needsUpdate = true;
+        filled += room;
+        geom.setDrawRange(0, filled / 3);
+      }
+    } else if (m.type === "progress") {
+      bytesDown = m.bytes;
+      $("hCount").textContent = (filled / 3 | 0).toLocaleString() + " / " + n.toLocaleString();
+      $("hBytes").textContent = (bytesDown / 1e6).toFixed(1)
+        + (totalBytes ? " / " + (totalBytes / 1e6).toFixed(1) : "") + " MB";
+    } else if (m.type === "done") {
+      geom.computeBoundingSphere();
+      $("hCount").textContent = (filled / 3).toLocaleString() + " neutron stars";
+      $("hLoad").textContent = ((performance.now() - tLoad0) / 1000).toFixed(2) + " s";
+      $("hDecode").textContent = "streamed";
+      worker.terminate();
+    } else if (m.type === "error") {
+      $("load").hidden = false;
+      $("load").textContent = "Neutron stream failed: " + m.message;
+    }
+  };
+  // Prefer the gzipped dump (streamed-gunzipped in the worker) when it exists;
+  // fall back to the raw .bin (e.g. right after a rebuild that didn't gzip).
+  (async () => {
+    let url = DATA + "neutrons.i16.bin";
+    try {
+      const h = await fetch(DATA + "neutrons.i16.bin.gz", { method: "HEAD", cache: "no-store" });
+      if (h.ok) url = DATA + "neutrons.i16.bin.gz";
+    } catch (e) { /* no .gz -> use .bin */ }
+    worker.postMessage({ url, scale: meta.scale, batchPoints: 150000 });
+  })();
+
+  // ---- render loop (runs from frame 1 so the field builds up on screen) ----
   let frames = 0, fpsT = performance.now();
   (function loop() {
     applyCamera();
