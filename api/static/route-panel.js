@@ -260,7 +260,12 @@ function spectralCell(j) {
   const companion = (j.neutron_star && j.arrival_ls > 0)
     ? ` <span class="arrls" title="Companion neutron ${escapeHtml(fmt(j.arrival_ls, 0))} Ls from arrival (supercruise to it, then supercharge)">@${escapeHtml(fmt(j.arrival_ls, 0))} Ls</span>`
     : "";
-  return `<span class="starcell">${scoop}<span class="spec" title="${escapeHtml(starName(j.spectral))}">${escapeHtml(starShort(j.spectral))}</span>${companion}</span>`;
+  // In-system refuel companion: show the supercruise distance inline too, like
+  // the neutron companion, so the scoop distance is visible without hovering.
+  const scoopLs = (!scoopable(j.spectral) && j.inflight_scoop && j.scoop_ls != null)
+    ? ` <span class="arrls scoop-ls" title="In-system scoop: scoopable companion ${escapeHtml(fmt(j.scoop_ls, 0))} Ls from arrival (refuel without leaving the route)">@${escapeHtml(fmt(j.scoop_ls, 0))} Ls</span>`
+    : "";
+  return `<span class="starcell">${scoop}<span class="spec" title="${escapeHtml(starName(j.spectral))}">${escapeHtml(starShort(j.spectral))}</span>${companion}${scoopLs}</span>`;
 }
 function legLabel(j, last) {
   if (last) return "arrive";
