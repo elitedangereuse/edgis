@@ -187,6 +187,18 @@ async function importShip() {
   }
 }
 
+// Drop the imported ship: empties the loadout, forgets the stored copy, and
+// returns the plotter to fuel-agnostic mode. The textarea is cleared too so a
+// stale "saved, not imported" summary can't linger after a reload.
+function clearShip() {
+  shipInfo = null;
+  $("loadout").value = "";
+  localStorage.removeItem(SLEF_LS);
+  $("shipInfo").textContent = "";
+  $("cmpGalaxy").hidden = true;
+  setShipSummary();
+}
+
 // Bootstrap "bi-copy" icon + clipboard helper (matches the main EDGIS app).
 const copyIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/></svg>`;
 // Bootstrap "download" icon.
@@ -897,6 +909,7 @@ $("go").addEventListener("click", plot);
 $("cmp").addEventListener("click", compareSpansh);
 $("cmpGalaxy").addEventListener("click", compareGalaxy);
 $("importShip").addEventListener("click", importShip);
+$("clearShip").addEventListener("click", clearShip);
 // Swap departure and arrival, then re-plot if both are set (tester: "to go back
 // I have to retype the systems").
 $("swapFromTo").addEventListener("click", () => {
