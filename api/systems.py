@@ -3171,18 +3171,26 @@ def _solve_route_sync(
         # beam stays as the fallback when the graph can't realize a route
         # within its time cap (scaled with route length: a 65 kly rim route
         # legitimately needs several blacklist rounds).
-        result = routing.graph_route(
-            index, src, dst, jump_range, fetch_stars_within,
-            fetch_stars_near_segment=fetch_stars_near_segment,
-            fetch_stars_toward=fetch_stars_toward,
-            time_cap=60.0 + math.dist(src, dst) / 500.0,
-            is_locked=permit_zones.is_locked,
-            boost_mult=boost_mult,
-            companion_max_ls=companion_max_ls,
-            inject_mult=inject_mult,
-        )
-        if result is not None:
-            return result
+        # FSD injection is "when required": first solve WITHOUT it (the best
+        # all-regular route), and only if no such route exists retry with
+        # injection. A per-edge last resort inside the realizer isn't enough --
+        # injection can rescue a worse neutron sequence that graph_route's
+        # blacklist retry would otherwise reject for a better all-regular one
+        # (Sol->Beagle@50 went 585 -> 603 that way). A global two-pass avoids it.
+        passes = (1.0, inject_mult) if inject_mult > 1.0 else (1.0,)
+        for im in passes:
+            result = routing.graph_route(
+                index, src, dst, jump_range, fetch_stars_within,
+                fetch_stars_near_segment=fetch_stars_near_segment,
+                fetch_stars_toward=fetch_stars_toward,
+                time_cap=60.0 + math.dist(src, dst) / 500.0,
+                is_locked=permit_zones.is_locked,
+                boost_mult=boost_mult,
+                companion_max_ls=companion_max_ls,
+                inject_mult=im,
+            )
+            if result is not None:
+                return result
         return routing.solve_route(
             index, src, dst, jump_range, fetch_stars_within, width=beam_width,
             boost_mult=boost_mult, companion_max_ls=companion_max_ls,
