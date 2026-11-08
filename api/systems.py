@@ -3019,6 +3019,9 @@ _route_inflight: dict[str, "asyncio.Future"] = {}
 # index version) so an index rebuild (changed neutron count) invalidates
 # naturally. Caller-specific fields (access) are set fresh on every hit.
 ROUTE_CACHE_TTL = int(os.getenv("ROUTE_CACHE_TTL") or str(24 * 60 * 60))
+# Max seconds for the FSD-injection (pass 2) solve, which only runs after a
+# non-injected solve already failed. Bounds the worst-case double-pass.
+_ROUTE_INJECT_TIME_CAP = float(os.getenv("ROUTE_INJECT_TIME_CAP") or "45")
 _route_cache = RedisCache(
     endpoint=REDIS_HOST, port=REDIS_PORT, namespace="route",
     serializer=PickleSerializer(),
@@ -3177,13 +3180,19 @@ def _solve_route_sync(
         # injection can rescue a worse neutron sequence that graph_route's
         # blacklist retry would otherwise reject for a better all-regular one
         # (Sol->Beagle@50 went 585 -> 603 that way). A global two-pass avoids it.
+        base_cap = 60.0 + math.dist(src, dst) / 500.0
         passes = (1.0, inject_mult) if inject_mult > 1.0 else (1.0,)
         for im in passes:
+            # The injection pass (pass 2) only runs when pass 1 already failed, so
+            # bound its time cap -- otherwise a void-stuck route with injection on
+            # could burn two full caps (minutes) and tie up a solve slot. An
+            # injection rescue is quick when it exists.
+            time_cap = base_cap if im == 1.0 else min(base_cap, _ROUTE_INJECT_TIME_CAP)
             result = routing.graph_route(
                 index, src, dst, jump_range, fetch_stars_within,
                 fetch_stars_near_segment=fetch_stars_near_segment,
                 fetch_stars_toward=fetch_stars_toward,
-                time_cap=60.0 + math.dist(src, dst) / 500.0,
+                time_cap=time_cap,
                 is_locked=permit_zones.is_locked,
                 boost_mult=boost_mult,
                 companion_max_ls=companion_max_ls,
