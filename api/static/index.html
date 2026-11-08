@@ -309,15 +309,8 @@
                     <input type="checkbox" id="fuelSafe" checked />
                     <span class="track"></span><span>fuel-safe</span>
                   </label>
-                  <label class="cargo-field" title="Safety margin: how much spare fuel to keep before EDGIS inserts a refuel. 1 jump is the minimum that still guarantees you can divert to a scoopable star; higher refuels sooner (safer in sparse regions, may add scoop stops).">Reserve
-                    <select id="reserveJumps" class="bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-2 py-2">
-                      <option value="1">1 jump</option>
-                      <option value="2">2 jumps</option>
-                      <option value="3">3 jumps</option>
-                    </select>
-                  </label>
                 </div>
-                <p class="tiny fuelsafe-note"><b>Fuel-safe</b> (on): EDGIS simulates your tank jump by jump and, before any jump that would leave you too low to reach a scoopable star, refuels &mdash; at an in-system companion scoop when a neutron waypoint has a scoopable star within supercruise range (no extra jumps), otherwise via a short detour to the nearest scoopable star (+2 jumps). You're never stranded. <b>Off</b>: the route is left as-is and fuel risk is only flagged. Range, ship and these settings are stored in this browser only.</p>
+                <p class="tiny fuelsafe-note"><b>Fuel-safe</b> (on): EDGIS keeps at least one jump of fuel in reserve so you can always reach a scoopable star &mdash; never stranded. When a refuel is needed it uses an in-system companion scoop at a neutron waypoint (no extra jumps) where possible, otherwise a short detour to the nearest scoopable star (+2 jumps). <b>Off</b>: the route is left as-is and fuel risk is only flagged. Range and ship are stored in this browser only.</p>
               </div>
             </details>
             <div class="actions">
