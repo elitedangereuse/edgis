@@ -671,22 +671,16 @@
     }
 
     function removeUtilityFiltersFromHud() {
-      const hiddenFilterIds = ['Target', 'Neighbors'];
+      // EDGIS meta-categories are not facet values (materials, allegiances, ...);
+      // they clutter the filter list. 'Predicted Systems' has its own toolbar
+      // button, so drop its facet row too (it was wrongly listed under Materials).
+      const hiddenFilterIds = ['Target', 'Neighbors', 'Predicted Systems'];
       hiddenFilterIds.forEach((filterId) => {
         const filterEl = document.querySelector(`#hud #filters .map_filter[data-filter="${filterId}"]`);
         if (filterEl) {
           filterEl.remove();
         }
       });
-
-      const predictedFilterEl = document.querySelector('#hud #filters .map_filter[data-filter="Predicted Systems"]');
-      if (predictedFilterEl) {
-        if (activeFilterDimension === 'allegiance' || activeFilterDimension === 'power') {
-          predictedFilterEl.remove();
-        } else {
-          predictedFilterEl.style.display = experimentalFeaturesEnabled ? '' : 'none';
-        }
-      }
     }
 
     function getHudSelectableFilters() {
@@ -707,6 +701,38 @@
       return Array.isArray(Ed3d?.catObjs?.[filterId]) ? Ed3d.catObjs[filterId].length : 0;
     }
 
+    // In the Materials dimension, tag each facet with its raw-material grade
+    // (data-grade, for the Grade sort) and prepend the grade icon the system map
+    // uses. No-op (and strips any icon) in every other dimension.
+    function decorateMaterialGrades(filters) {
+      const SM = window.SysmapMaterials;
+      const isMaterial = normalizeFilterDimension(activeFilterDimension) === 'material';
+      filters.forEach((el) => {
+        const existing = el.querySelector('.facet-grade-ico');
+        if (!isMaterial || !SM) {
+          if (existing) existing.remove();
+          delete el.dataset.grade;
+          return;
+        }
+        const label = String(el.getAttribute('data-label') || '').trim();
+        const grade = SM.getRawMaterialGrade(label);
+        el.dataset.grade = grade ? String(grade.grade) : '0';
+        if (existing || !grade) return;  // already decorated, or no grade (Unknown)
+        const img = document.createElement('img');
+        img.className = 'facet-grade-ico';
+        img.src = grade.icon;
+        img.alt = `Grade ${grade.grade}`;
+        img.title = `Grade ${grade.grade}: ${grade.rarity}`;
+        img.style.cssText = 'width:13px;height:13px;margin:0 5px 0 1px;vertical-align:-2px;flex:none';
+        const check = el.querySelector('.check');
+        if (check && check.nextSibling) {
+          el.insertBefore(img, check.nextSibling);
+        } else {
+          el.insertBefore(img, el.firstChild);
+        }
+      });
+    }
+
     function applyHudFilterSearchAndSort() {
       const filtersRoot = document.getElementById('filters');
       if (!filtersRoot) {
@@ -718,6 +744,7 @@
       }
 
       const filters = Array.from(filterGroup.querySelectorAll('.map_filter'));
+      decorateMaterialGrades(filters);  // sets data-grade + the grade icon
       filters.sort((a, b) => {
         const aId = String(a.getAttribute('data-filter') || '').trim();
         const bId = String(b.getAttribute('data-filter') || '').trim();
@@ -729,6 +756,14 @@
         }
         if (hudFacetSortMode === 'alpha_desc') {
           return bLabel.localeCompare(aLabel);
+        }
+        // Materials by raw-material grade, 4 (rare) -> 1 (very common); unknown
+        // last. Ties fall back to count, then name.
+        if (hudFacetSortMode === 'grade_desc') {
+          const gradeDiff = Number(b.dataset.grade || 0) - Number(a.dataset.grade || 0);
+          if (gradeDiff !== 0) {
+            return gradeDiff;
+          }
         }
 
         const countDiff = getHudFacetFilterCount(bId) - getHudFacetFilterCount(aId);
@@ -780,6 +815,7 @@
         <input type="search" id="hudFacetSearchInput" placeholder="Search..." aria-label="Search facets">
         <select id="hudFacetSortSelect" aria-label="Sort facets">
           <option value="count_desc">Sort: Count</option>
+          <option value="grade_desc">Sort: Grade</option>
           <option value="alpha_asc">Sort: A-Z</option>
           <option value="alpha_desc">Sort: Z-A</option>
         </select>
@@ -795,6 +831,12 @@
         });
       }
       if (sortSelect) {
+        // Materials default to Grade (desc); other dimensions keep Count. Only
+        // overrides the untouched default, so an explicit choice still sticks.
+        if (normalizeFilterDimension(activeFilterDimension) === 'material'
+            && hudFacetSortMode === 'count_desc') {
+          hudFacetSortMode = 'grade_desc';
+        }
         sortSelect.value = hudFacetSortMode;
         sortSelect.addEventListener('change', () => {
           hudFacetSortMode = String(sortSelect.value || 'count_desc');
@@ -1408,16 +1450,27 @@
       const shouldShow = Boolean(experimentalFeaturesEnabled);
       const predictedSystemsButton = document.getElementById('predictedSystemsButton');
       const boxelOverlayButton = document.getElementById('boxelOverlayButton');
-      const allegianceVoronoiButton = document.getElementById('allegianceVoronoiButton');
       if (predictedSystemsButton) {
         predictedSystemsButton.style.display = shouldShow ? '' : 'none';
       }
       if (boxelOverlayButton) {
         boxelOverlayButton.style.display = shouldShow ? '' : 'none';
       }
-      if (allegianceVoronoiButton) {
-        allegianceVoronoiButton.style.display = shouldShow ? '' : 'none';
+      // Voronoi View is a standard feature now (no longer experimental); it is
+      // only relevant in the allegiance / power dimensions.
+      applyAllegianceVoronoiButtonVisibility();
+    }
+
+    // Voronoi colours territories by allegiance / controlling power, so the
+    // button is shown only in those dimensions (standard, not experimental).
+    function applyAllegianceVoronoiButtonVisibility() {
+      const button = document.getElementById('allegianceVoronoiButton');
+      if (!button) {
+        return;
       }
+      const relevant = activeFilterDimension === 'allegiance'
+        || activeFilterDimension === 'power';
+      button.style.display = relevant ? '' : 'none';
     }
 
     function applyRegionNamesVisibility() {
@@ -2049,9 +2102,6 @@
     }
 
     function toggleAllegianceVoronoiOverlay() {
-      if (!experimentalFeaturesEnabled) {
-        return;
-      }
       allegianceVoronoiEnabled = !allegianceVoronoiEnabled;
       updateAllegianceVoronoiButtonState();
       renderAllegianceVoronoiOverlay();
@@ -2562,6 +2612,7 @@
       applyHudFilterPanelTitle();
       updateFilterDimensionButtonState();
       updateAllegianceVoronoiButtonState();
+      applyAllegianceVoronoiButtonVisibility();
 
       if (externalSolutionJson) {
         return;
@@ -4191,8 +4242,8 @@
        experimentalFeaturesEnabled = raw.experimental_features === '1';
        pendingSharedFilterIds = parseSharedFilterIdsParam(raw.filter_ids);
        if (!experimentalFeaturesEnabled) {
+         // Voronoi is a standard feature now, so it survives without experimental.
          boxelOverlayEnabled = false;
-         allegianceVoronoiEnabled = false;
          predictedSystemsEnabled = false;
        }
        // Parse numbers safely
@@ -4728,15 +4779,14 @@
 
           experimentalFeaturesEnabled = nextValue;
           if (!experimentalFeaturesEnabled) {
+            // Voronoi stays available (standard feature); only the still-
+            // experimental overlays are turned off here.
             boxelOverlayEnabled = false;
-            allegianceVoronoiEnabled = false;
             predictedSystemsEnabled = false;
             updateBoxelOverlayButtonState();
-            updateAllegianceVoronoiButtonState();
             updatePredictedSystemsButtonState();
             applyActivePointColorMode();
             clearBoxelOverlay();
-            clearAllegianceVoronoiOverlay();
           }
           updateModeButtonState();
 
