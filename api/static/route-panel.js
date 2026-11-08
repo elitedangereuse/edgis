@@ -71,8 +71,14 @@ function renderShipLibrary() {
     + `<button type="button" class="ship-del" data-i="${i}" title="Remove this ship">&times;</button>`
     + `</span>`).join("");
 }
-// Remove every stored ship and return to fuel-agnostic plotting.
-function clearAllShips() { saveShips([]); setActiveShip(-1); clearShip(); }
+// Remove every stored ship and return to fuel-agnostic plotting. Confirms first
+// since it wipes the whole library and can't be undone.
+function clearAllShips() {
+  const n = loadShips().length;
+  if (!n) return;  // nothing to clear
+  if (!confirm(`Remove all ${n} stored ship${n > 1 ? "s" : ""}? This cannot be undone.`)) return;
+  saveShips([]); setActiveShip(-1); clearShip();
+}
 
 setShipSummary();  // reflect a restored (saved, not-yet-imported) loadout at once
 renderShipLibrary();
