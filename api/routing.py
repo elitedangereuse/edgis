@@ -501,6 +501,19 @@ FetchStarsToward = Callable[
 
 _GAP_RADII_J = (8.0, 16.0, 32.0)  # gap-edge search radii, in jump-range units
 _ZONE_RADIUS_CAP = 1200.0  # never ban more than this around a failed bridge
+# Search toward the DENSER endpoint when it is at least this many times denser
+# (local neutron count): the A* heuristic ceil(d/boost) is wildly optimistic when
+# the GOAL sits in a neutron-sparse void (the Sol bubble inside the x~=0/z~=0
+# "black cross"), so it explodes the frontier. The min-jumps neutron graph is
+# direction-symmetric, so we search the fast way and reverse the sequence --
+# Colonia->Sol drops from ~68 s to ~5 s for ~identical jumps.
+_ORIENT_FLIP_RATIO = 1.5
+# Never flip toward a destination this sparse (local neutron count within the
+# entry radius): realization is only approximately direction-symmetric, and into
+# an extreme-sparse rim the reversed sequence can fail to realize where the
+# native direction succeeds. The Sol bubble (~394 within 30J) reverses fine; the
+# Beagle Point rim (~35) does not. A flip that fails anyway falls back to native.
+_ORIENT_DENSITY_FLOOR = 150
 # FSD synthesis injection grades (range multiplier), ascending so the bridger
 # picks the LEAST that crosses a gap: basic +25%, standard +50%, premium +100%.
 _INJECT_GRADES = (1.25, 1.5, 2.0)
@@ -517,6 +530,17 @@ def _boosted_jumps(d: float, jump_range: float, boost_mult: float = 4.0) -> int:
     if d <= boost:
         return 1
     return 1 + int(math.ceil((d - boost) / jump_range))
+
+
+def _flip_edge(edge: tuple[int, int]) -> tuple[int, int]:
+    """Map a realization-failure edge ``(prev, cur)`` (global neutron ids, with
+    -1 = SRC and -2 = DST sentinels) from the requested direction into the
+    flipped search orientation: reverse the order and swap the src/dst sentinels
+    (true-SRC -1 <-> search-DST -2). So the re-search blacklists the same edge."""
+    def swap(x: int) -> int:
+        return -2 if x == -1 else (-1 if x == -2 else x)
+    p, q = edge
+    return (swap(q), swap(p))
 
 
 def _corridor_candidates(
@@ -1010,32 +1034,61 @@ def graph_route(
         cand = cand[np.array(
             [not is_locked(names[int(c)]) for c in cand], dtype=bool
         )]
-    blacklist: set[tuple[int, int]] = set()
-    badzones: list[tuple[np.ndarray, float]] = []
-    for _ in range(rounds):
-        seq = _graph_search(
-            index, cand, sv, dv, J, entry_r, gap_k, blacklist, badzones,
-            deadline, boost_mult=boost_mult,
-        )
-        if seq is None:
-            return None
-        legs, fail = _realize_graph(
-            index, src, dst, J, seq, fetch_stars_within,
-            fetch_stars_near_segment, fetch_stars_toward, is_locked=is_locked,
-            boost_mult=boost_mult, inject_mult=inject_mult,
-        )
-        if legs is not None:
-            return _finalize(
-                legs, src, dst, J, boost, straight, 0, start_time
+    def _solve(flip: bool) -> Optional[dict]:
+        """Run the A* + realization rounds in one orientation. When ``flip`` is
+        set, the search runs dst->src (toward the denser endpoint, so the A*
+        heuristic is well-informed) and the returned neutron sequence is
+        reversed to realize in the requested src->dst direction; a realization
+        failure edge is mapped back into search space with ``_flip_edge``."""
+        ssv, sdv = (dv, sv) if flip else (sv, dv)
+        blacklist: set[tuple[int, int]] = set()
+        badzones: list[tuple[np.ndarray, float]] = []
+        for _ in range(rounds):
+            seq = _graph_search(
+                index, cand, ssv, sdv, J, entry_r, gap_k, blacklist, badzones,
+                deadline, boost_mult=boost_mult,
             )
-        edge, mid, seg_d = fail
-        blacklist.add(edge)
-        badzones.append(
-            (mid, min(max(2.0 * J, 0.75 * seg_d), _ZONE_RADIUS_CAP))
-        )
-        if time.perf_counter() > deadline:
-            return None
-    return None
+            if seq is None:
+                return None
+            rseq = list(reversed(seq)) if flip else seq
+            legs, fail = _realize_graph(
+                index, src, dst, J, rseq, fetch_stars_within,
+                fetch_stars_near_segment, fetch_stars_toward, is_locked=is_locked,
+                boost_mult=boost_mult, inject_mult=inject_mult,
+            )
+            if legs is not None:
+                return _finalize(
+                    legs, src, dst, J, boost, straight, 0, start_time
+                )
+            edge, mid, seg_d = fail
+            blacklist.add(_flip_edge(edge) if flip else edge)
+            badzones.append(
+                (mid, min(max(2.0 * J, 0.75 * seg_d), _ZONE_RADIUS_CAP))
+            )
+            if time.perf_counter() > deadline:
+                return None
+        return None
+
+    # Orient the A* toward the denser endpoint when the destination is clearly
+    # sparser (see _ORIENT_FLIP_RATIO): a sparse GOAL makes the ceil(d/boost)
+    # heuristic wildly optimistic and explodes the frontier (Colonia->Sol was
+    # ~14x slower than Sol->Colonia for the same route). The flip is gated by an
+    # absolute floor on the destination's local density -- realization is only
+    # APPROXIMATELY direction-symmetric, and into an EXTREME-sparse rim (e.g.
+    # Beagle Point, ~35 neutrons within 30J) the reversed sequence can fail to
+    # realize where the native direction succeeds. If a flipped solve fails
+    # anyway, fall back to the native (proven) orientation so we are never worse
+    # than before.
+    dens_s = len(index.tree.query_ball_point(sv, entry_r))
+    dens_d = len(index.tree.query_ball_point(dv, entry_r))
+    flip = (
+        dens_d >= _ORIENT_DENSITY_FLOOR
+        and dens_s > dens_d * _ORIENT_FLIP_RATIO
+    )
+    result = _solve(flip)
+    if result is None and flip:
+        result = _solve(False)
+    return result
 
 
 def _finalize(
