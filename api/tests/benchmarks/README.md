@@ -42,6 +42,15 @@ k6 run -e ROUTE_KEY=<key> ../k6/edgis_route_load.js
 k6 run -e ROUTE_KEY=<key> -e ROUTE_FRESH=1 -e VUS=2 ../k6/edgis_route_load.js
 ```
 
+## Comparing vs spansh: the EXACT (Galaxy) plotter, not neutron
+We measure against spansh's **exact (Galaxy) Plotter** (the real, fuel-aware
+competitor), not the neutron plotter. `spansh_bidir.py` does this: our fuel-aware
+`POST /route` vs `/spansh/galaxy-route`, same ship loadout, both directions, with
+flip detection. It needs `--loadout <ship.json>` (the exact plotter is
+ship-specific). NOTE: `route_cases.json`'s `spansh` column is legacy neutron-plotter
+numbers and should be re-baselined vs the exact plotter once a reference ship is
+chosen; the `our` baseline column stays valid for regression detection.
+
 ## Refreshing the dataset
 `route_cases.json` is a snapshot. To add routes or refresh the spansh column from
 new traces, pull `route_trace*.jsonl` and re-mine it (the join is `kind=route` vs

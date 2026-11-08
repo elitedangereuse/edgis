@@ -1,36 +1,42 @@
 #!/usr/bin/env python3
-"""Bidirectional quality-vs-spansh check: plot a small set of pairs BOTH ways via
-our /route and spansh's /spansh/route, and report the margin per direction +
-whether the win/loss FLIPS by direction.
+"""Bidirectional quality check vs spansh's EXACT (Galaxy) Plotter.
 
-DELIBERATELY SMALL (go-easy-on-spansh): a handful of marginal pairs, both ways,
-cached by the server. Do not expand into a bulk loop without sign-off.
+We measure against the exact plotter, NOT the neutron one -- it is the real,
+fuel-aware competitor. Both sides therefore need a ship: our fuel-aware
+POST /route vs POST /spansh/galaxy-route, same loadout. Reports the per-direction
+margin and flags any win/loss FLIP by direction.
 
-  python spansh_bidir.py --base-url https://edgis.elitedangereuse.fr --key <KEY>
+DELIBERATELY SMALL (go-easy-on-spansh): a handful of pairs, both ways. The exact
+plotter is slow (~1 min/call); do not expand into a bulk loop without sign-off.
+
+  python spansh_bidir.py --key <KEY> --loadout /path/to/ship.slef.json
 """
 import argparse
 import json
+import pathlib
 import sys
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
-# Marginal / known-weak pairs where a directional flip is most plausible.
+HERE = pathlib.Path(__file__).parent
+# Mid-range pairs where a directional flip is plausible; kept short-ish since the
+# exact plotter uses the SHIP's range (a low-range ship on a 20 kly route is huge).
 PAIRS = [
-    ("Lave", "Maia", 20),
-    ("Cubeo", "Sagittarius A*", 50),
-    ("Col 173 Sector LJ-F c12-0", "HIP 26176", 50),
-    ("Beagle Point", "Colonia", 80),
-    ("Sol", "Colonia", 50),
+    ("Lave", "Maia"),
+    ("Sol", "Maia"),
+    ("Cubeo", "Col 173 Sector LJ-F c12-0"),
+    ("Sol", "Colonia"),
+    ("Maia", "Merope"),
 ]
 
 
-def _jumps(base, path, frm, to, rng, key, timeout):
-    q = urllib.parse.urlencode({"from": frm, "to": to, "range": rng,
-                                **({"efficiency": 60} if "spansh" in path else {})})
-    req = urllib.request.Request(f"{base}{path}?{q}",
-                                 headers={"x-route-key": key} if key else {})
+def _post(base, path, body, key, timeout):
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(
+        f"{base}{path}", data=data,
+        headers={"Content-Type": "application/json",
+                 **({"x-route-key": key} if key else {})})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.load(r).get("total_jumps"), None
@@ -39,7 +45,8 @@ def _jumps(base, path, frm, to, rng, key, timeout):
             det = json.loads(e.read()).get("detail")
         except Exception:
             det = None
-        return None, (det.get("error") if isinstance(det, dict) else f"http{e.code}")
+        return None, (det.get("error") if isinstance(det, dict)
+                      else (det if isinstance(det, str) else f"http{e.code}"))
     except Exception as e:
         return None, type(e).__name__
 
@@ -48,22 +55,35 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", default="https://edgis.elitedangereuse.fr")
     ap.add_argument("--key", default="")
-    ap.add_argument("--timeout", type=float, default=120.0)
+    ap.add_argument("--loadout", default=str(HERE / "../../../live_loadout.json"),
+                    help="SLEF/Journal loadout JSON for the reference ship")
+    ap.add_argument("--timeout", type=float, default=150.0)
     a = ap.parse_args()
-    print(f"Bidirectional vs spansh ({len(PAIRS)} pairs, both ways) -> {a.base_url}\n")
-    for frm, to, rng in PAIRS:
+
+    lp = pathlib.Path(a.loadout)
+    if not lp.exists():
+        print(f"Reference loadout not found: {lp}\nPass --loadout <ship.json> "
+              f"(the exact plotter is fuel-aware and needs a ship).", file=sys.stderr)
+        return 2
+    loadout = lp.read_text()
+    print(f"Bidirectional vs spansh EXACT (Galaxy) Plotter, ship={lp.name}, "
+          f"{len(PAIRS)} pairs both ways -> {a.base_url}\n")
+
+    for frm, to in PAIRS:
         res = {}
         for x, y in ((frm, to), (to, frm)):
-            oj, oe = _jumps(a.base_url, "/route", x, y, rng, a.key, a.timeout)
-            sj, se = _jumps(a.base_url, "/spansh/route", x, y, rng, a.key, a.timeout)
-            res[(x, y)] = (oj, oe, sj, se)
-            m = (f"{oj - sj:+d}" if oj and sj else "-")
+            oj, oe = _post(a.base_url, "/route",
+                           {"from": x, "to": y, "loadout": loadout, "fuel_safe": True},
+                           a.key, a.timeout)
+            sj, se = _post(a.base_url, "/spansh/galaxy-route",
+                           {"from": x, "to": y, "loadout": loadout}, a.key, a.timeout)
+            res[(x, y)] = (oj, sj)
+            m = f"{oj - sj:+d}" if oj and sj else "-"
             tag = ("WIN" if oj and sj and oj < sj else "LOSS" if oj and sj and oj > sj
                    else "TIE" if oj and sj else (oe or se or "-"))
-            print(f"  {x[:26]+' -> '+y[:24]:54} ours={str(oj or oe):>8}  spansh={str(sj or se):>8}  {tag} {m}")
-        # Flip detection.
-        (o1, _, s1, _) = res[(frm, to)]
-        (o2, _, s2, _) = res[(to, frm)]
+            print(f"  {x[:26]+' -> '+y[:24]:54} ours={str(oj or oe):>8}  "
+                  f"spansh={str(sj or se):>8}  {tag} {m}")
+        (o1, s1), (o2, s2) = res[(frm, to)], res[(to, frm)]
         if all(v is not None for v in (o1, s1, o2, s2)):
             d1, d2 = o1 - s1, o2 - s2
             if (d1 < 0) != (d2 < 0) and d1 and d2:
