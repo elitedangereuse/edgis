@@ -40,7 +40,48 @@ const SLEF_LS = "edgis_route_loadout";
 const FUELSAFE_LS = "edgis_route_fuelsafe";
 let shipInfo = null;  // parsed ship summary, or null when no ship is imported
 $("loadout").value = localStorage.getItem(SLEF_LS) || "";
+
+// Ship library: multiple stored SLEF loadouts the commander can switch between.
+// Each entry is { name, loadout }; the active one's loadout also lives in
+// SLEF_LS (the textarea) for the single-ship import flow.
+const SHIPS_LS = "edgis_route_ships";
+const ACTIVE_SHIP_LS = "edgis_route_active_ship";
+function loadShips() { try { return JSON.parse(localStorage.getItem(SHIPS_LS)) || []; } catch (e) { return []; } }
+function saveShips(a) { localStorage.setItem(SHIPS_LS, JSON.stringify(a)); }
+function activeShip() { const i = Number(localStorage.getItem(ACTIVE_SHIP_LS)); return Number.isInteger(i) ? i : -1; }
+function setActiveShip(i) { localStorage.setItem(ACTIVE_SHIP_LS, String(i)); }
+// Upsert a loadout (by label or identical text), make it active, return index.
+function rememberShip(loadout) {
+  const ships = loadShips();
+  const name = shipLabel(loadout);
+  let i = ships.findIndex(s => s.loadout === loadout || s.name === name);
+  if (i < 0) { ships.push({ name, loadout }); i = ships.length - 1; }
+  else { ships[i] = { name, loadout }; }
+  saveShips(ships); setActiveShip(i); renderShipLibrary();
+  return i;
+}
+function renderShipLibrary() {
+  const el = $("shipLibrary"); if (!el) return;
+  const ships = loadShips(); const active = activeShip();
+  if (!ships.length) { el.hidden = true; el.innerHTML = ""; return; }
+  el.hidden = false;
+  el.innerHTML = ships.map((s, i) =>
+    `<span class="ship-item ${i === active ? "active" : ""}">`
+    + `<button type="button" class="ship-pick" data-i="${i}" title="Switch to this ship">${escapeHtml(s.name)}</button>`
+    + `<button type="button" class="ship-del" data-i="${i}" title="Remove this ship">&times;</button>`
+    + `</span>`).join("");
+}
+// Remove every stored ship and return to fuel-agnostic plotting. Confirms first
+// since it wipes the whole library and can't be undone.
+function clearAllShips() {
+  const n = loadShips().length;
+  if (!n) return;  // nothing to clear
+  if (!confirm(`Remove all ${n} stored ship${n > 1 ? "s" : ""}? This cannot be undone.`)) return;
+  saveShips([]); setActiveShip(-1); clearShip();
+}
+
 setShipSummary();  // reflect a restored (saved, not-yet-imported) loadout at once
+renderShipLibrary();
 $("fuelSafe").checked = (localStorage.getItem(FUELSAFE_LS) ?? "1") === "1";
 $("fuelSafe").addEventListener("change", () =>
   localStorage.setItem(FUELSAFE_LS, $("fuelSafe").checked ? "1" : "0"));
@@ -61,6 +102,17 @@ const companionMaxLs = () =>
   Math.min(2000, Math.max(0, Number($("companionLs").value) || 0));
 $("companionLs").addEventListener("change", () =>
   localStorage.setItem(COMPANION_LS, String(companionMaxLs())));
+
+// Opt-in FSD synthesis injection, used "when required" to cross gaps a normal
+// jump can't reach: 1 = off, 1.25/1.5/2 = basic/standard/premium.
+const INJECT_MULT = "edgis_route_inject";
+$("injectMult").value = localStorage.getItem(INJECT_MULT) || "1";
+const injectMult = () => {
+  const v = Number($("injectMult").value) || 1;
+  return v >= 1 && v <= 2 ? v : 1;
+};
+$("injectMult").addEventListener("change", () =>
+  localStorage.setItem(INJECT_MULT, String(injectMult())));
 
 // Friendly ship label from a SLEF loadout, shown on the Ship & fuel summary so
 // it's visible even when collapsed. Prefers the commander's ship name. The SLEF
@@ -123,13 +175,13 @@ function setShipSummary() {
   const el = $("shipSummary");
   const hasText = !!($("loadout").value || "").trim();
   if (shipInfo) {
-    el.innerHTML = `Ship &amp; fuel <span class="good">✓</span> · `
+    el.innerHTML = `Ship &amp; options <span class="good">✓</span> · `
       + `${escapeHtml(shipLabel($("loadout").value))} · ${fmt(shipInfo.jump_range, 2)} LY`;
   } else if (hasText) {
-    el.innerHTML = `Ship &amp; fuel · ${escapeHtml(shipLabel($("loadout").value))} `
-      + `<span class="tiny">(saved — not imported)</span>`;
+    el.innerHTML = `Ship &amp; options · ${escapeHtml(shipLabel($("loadout").value))} `
+      + `<span class="tiny">(saved, not added)</span>`;
   } else {
-    el.textContent = "Ship & fuel (optional)";
+    el.textContent = "Ship & options";
   }
 }
 
@@ -138,7 +190,7 @@ async function importShip() {
   if (!loadout) { shipInfo = null; localStorage.removeItem(SLEF_LS); $("shipInfo").textContent = ""; $("cmpGalaxy").hidden = true; setShipSummary(); return; }
   $("importShip").disabled = true;
   $("shipInfo").innerHTML = `<span class="tiny">Reading loadout…</span>`;
-  $("shipSummary").innerHTML = `Ship &amp; fuel · <span class="tiny">reading loadout…</span>`;
+  $("shipSummary").innerHTML = `Ship &amp; options · <span class="tiny">reading loadout…</span>`;
   try {
     const res = await fetch("/route/ship", {
       method: "POST", credentials: "include",
@@ -161,6 +213,7 @@ async function importShip() {
     }
     shipInfo = await res.json();
     localStorage.setItem(SLEF_LS, loadout);
+    rememberShip(loadout);  // add/update this ship in the library + make it active
     $("range").value = shipInfo.jump_range;
     localStorage.setItem(RANGE_LS, String(shipInfo.jump_range));
     // Auto-set the neutron supercharge for the imported ship (6x only on the
@@ -187,16 +240,18 @@ async function importShip() {
   }
 }
 
-// Drop the imported ship: empties the loadout, forgets the stored copy, and
-// returns the plotter to fuel-agnostic mode. The textarea is cleared too so a
-// stale "saved, not imported" summary can't linger after a reload.
+// Deselect the active ship: clears the loadout textarea and returns to
+// fuel-agnostic plotting, but keeps the ships in the library. Also used by
+// clearAllShips (after the list has been emptied) to reset the active state.
 function clearShip() {
   shipInfo = null;
   $("loadout").value = "";
   localStorage.removeItem(SLEF_LS);
   $("shipInfo").textContent = "";
   $("cmpGalaxy").hidden = true;
+  setActiveShip(-1);
   setShipSummary();
+  renderShipLibrary();
 }
 
 // Bootstrap "bi-copy" icon + clipboard helper (matches the main EDGIS app).
@@ -217,6 +272,60 @@ function copyText(text, btn) {
 // Bootstrap "fuel-pump" icon (https://icons.getbootstrap.com/icons/fuel-pump/).
 const FUEL = `<svg class="fuel" width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><title>Fuel-scoopable (KGBFOAM)</title><path d="M3 2.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5v5a.5.5 0 0 1-.5.5h-5a.5.5 0 0 1-.5-.5z"/><path d="M1 2a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v8a2 2 0 0 1 2 2v.5a.5.5 0 0 0 1 0V8h-.5a.5.5 0 0 1-.5-.5V4.375a.5.5 0 0 1 .5-.5h1.495c-.011-.476-.053-.894-.201-1.222a.97.97 0 0 0-.394-.458c-.184-.11-.464-.195-.9-.195a.5.5 0 0 1 0-1q.846-.002 1.412.336c.383.228.634.551.794.907.295.655.294 1.465.294 2.081v3.175a.5.5 0 0 1-.5.501H15v4.5a1.5 1.5 0 0 1-3 0V12a1 1 0 0 0-1-1v4h.5a.5.5 0 0 1 0 1H.5a.5.5 0 0 1 0-1H1zm9 0a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v13h8z"/></svg>`;
 
+// FSD synthesis injection grade icons: an upward delta with a baseline and
+// 1/2/3 pips = basic/standard/premium (matches the in-game synthesis motif).
+// currentColor so CSS tints them.
+const _injSvg = (pips) => `<svg class="inject" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M8 2.2 13.4 9.4H2.6Z"/><path d="M4.5 11.2h7" stroke-linecap="round"/>${pips.map(cx => `<circle cx="${cx}" cy="13.8" r="1" fill="currentColor" stroke="none"/>`).join("")}</svg>`;
+const INJECT_ICONS = { "1.25": _injSvg([8]), "1.5": _injSvg([6.2, 9.8]), "2": _injSvg([5, 8, 11]) };
+const INJECT_NAMES = { "1.25": "Basic", "1.5": "Standard", "2": "Premium" };
+// FSD Injection synthesis recipes (materials per craft; each craft = one jump).
+// Confirmed against the ED synthesis tables (Inara / Fandom wiki). All current
+// quantities are 1 each.
+const INJECT_RECIPES = {
+  "1.25": { Carbon: 1, Vanadium: 1, Germanium: 1 },
+  "1.5": { Carbon: 1, Vanadium: 1, Germanium: 1, Cadmium: 1, Niobium: 1 },
+  "2": { Carbon: 1, Germanium: 1, Arsenic: 1, Niobium: 1, Yttrium: 1, Polonium: 1 },
+};
+// A leg's grade is a float; snap to the nearest known key.
+function injectKey(g) { return g >= 2 ? "2" : g >= 1.5 ? "1.5" : "1.25"; }
+function injectBadge(g) {
+  if (!g) return "";
+  const k = injectKey(g);
+  return ` <span class="inject-badge" title="FSD synthesis: ${INJECT_NAMES[k]} injection (+${Math.round((Number(k) - 1) * 100)}% range) needed for this jump">${INJECT_ICONS[k]}</span>`;
+}
+// Max grade needed across jumps [i0, i1) (0 = none), for the compact view.
+function injectInRange(r, i0, i1) {
+  let best = 0;
+  for (let i = i0; i < i1 && i < r.jumps.length; i++) {
+    const g = r.jumps[i] && r.jumps[i].inject_grade;
+    if (g && g > best) best = g;
+  }
+  return best;
+}
+// "Synthesis: N injections needed: [icon] 2x Basic ..." built from the legs, so
+// the commander knows what to synthesise and how much before the route.
+function injectSummary(r) {
+  const counts = {};
+  for (const j of r.jumps || []) {
+    if (j.inject_grade) { const k = injectKey(j.inject_grade); counts[k] = (counts[k] || 0) + 1; }
+  }
+  const parts = ["1.25", "1.5", "2"].filter(k => counts[k])
+    .map(k => `${INJECT_ICONS[k]} <b>${counts[k]}x</b> ${INJECT_NAMES[k]}`);
+  if (!parts.length) return "";
+  const n = Object.values(counts).reduce((a, b) => a + b, 0);
+  // Total raw materials consumed = sum of each grade's recipe x its count.
+  const mats = {};
+  for (const k of Object.keys(counts)) {
+    for (const [m, q] of Object.entries(INJECT_RECIPES[k])) mats[m] = (mats[m] || 0) + q * counts[k];
+  }
+  const matParts = Object.entries(mats)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([m, q]) => `<b>${q}x</b> ${m}`);
+  return `<div class="injectbar" title="Synthesise these FSD injections before the route; each is used on one jump where a normal jump cannot reach. The least sufficient grade is chosen per gap.">`
+    + `<div><b>Synthesis:</b> ${n} FSD injection${n > 1 ? "s" : ""} needed: ${parts.join(" · ")}</div>`
+    + `<div class="injectmats" title="Total materials consumed across the whole route (each injection is one craft / one jump).">Materials: ${matParts.join(", ")}</div>`
+    + `</div>`;
+}
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function fmt(n, d = 0) { return Number(n).toLocaleString(undefined, { maximumFractionDigits: d }); }
 // Friendly star-type display. The route legs carry whatever is in
@@ -270,7 +379,10 @@ function spectralCell(j) {
 function legLabel(j, last) {
   if (last) return "arrive";
   if (j.type === "boost") return j.neutron_star ? "neutron ★" : "supercharged";
-  return j.neutron_star ? "board ★" : "bridge";
+  const base = j.neutron_star ? "board ★" : "bridge";
+  // An FSD-injected jump reaches past a normal gap; flag it so the commander
+  // knows this hop needs synthesis materials.
+  return j.inject_grade ? `${base} + inject` : base;
 }
 function copyBtn(name) {
   return name ? ` <button class="copy-btn" data-copy="${escapeHtml(name)}" title="Copy system name">${copyIconSvg}</button>` : "";
@@ -325,6 +437,7 @@ function shareUrl() {
   if (q.range) p.set("range", q.range);
   if (q.supercharge && q.supercharge !== "4") p.set("supercharge", q.supercharge);
   if (q.companionLs > 0) p.set("companion_max_ls", String(q.companionLs));
+  if (q.inject > 1) p.set("inject_mult", String(q.inject));
   const cargo = cargoTons();
   if (cargo > 0) p.set("cargo", String(cargo));
   return `${location.origin}${location.pathname}?${p.toString()}`;
@@ -660,7 +773,7 @@ function sourceRow(r, compact) {
 function renderRoute(r) {
   lastOurs = r;
   loadDone();
-  let header, rows, legend;
+  let header, rows;
   const riskMap = fuelRisks(r);
   if (compactMode) {
     const wps = compactRows(r);
@@ -671,7 +784,7 @@ function renderRoute(r) {
       return `<tr class="${risk ? "risk-row " : ""}${doneSet.has(cname) ? "done" : ""}">
       ${doneBox(cname)}
       <td class="num">${i + 1}</td>
-      <td class="sys ${w.neutron ? "boost" : ""}">${escapeHtml(w.system)}${riskBadge(risk)}${copyBtn(cname)}</td>
+      <td class="sys ${w.neutron ? "boost" : ""}">${escapeHtml(w.system)}${injectBadge(injectInRange(r, w.i0, w.i1))}${riskBadge(risk)}${copyBtn(cname)}</td>
       <td>${spectralCell({ spectral: w.spectral, neutron_star: w.neutron, inflight_scoop: w.inflight_scoop, scoop_ls: w.scoop_ls, arrival_ls: w.arrival_ls })}</td>
       <td class="num">${fmt(w.jumps)}</td>
       <td class="num">${fmt(w.ly, 0)}</td>
@@ -680,7 +793,6 @@ function renderRoute(r) {
     </tr>`;
     }).join("");
     rows = sourceRow(r, true) + rows;
-    legend = "";
   } else {
     header = `<th class="chk-head" title="Done"></th><th class="num">#</th><th>system</th><th>star</th><th class="num">jumped</th><th class="num">left</th><th class="acts-head">actions</th>`;
     rows = r.jumps.map((j, i) => {
@@ -690,7 +802,7 @@ function renderRoute(r) {
       return `<tr class="${risk ? "risk-row " : ""}${doneSet.has(name) ? "done" : ""}">
       ${doneBox(name)}
       <td class="num">${i + 1}</td>
-      <td class="sys">${escapeHtml(name)}${riskBadge(risk)}${copyBtn(j.system ?? r.destination)}</td>
+      <td class="sys">${escapeHtml(name)}${injectBadge(j.inject_grade)}${riskBadge(risk)}${copyBtn(j.system ?? r.destination)}</td>
       <td>${spectralCell(j)}</td>
       <td class="num">${fmt(j.distance_jumped, 1)}</td>
       <td class="num">${fmt(j.distance_left, 0)}</td>
@@ -698,7 +810,6 @@ function renderRoute(r) {
     </tr>`;
     }).join("");
     rows = sourceRow(r, false) + rows;
-    legend = "";
   }
   $("out").innerHTML = `
     <div class="summary">
@@ -710,8 +821,8 @@ function renderRoute(r) {
       <div class="stat"><b>${fmt(r.solve_ms, 0)} ms</b><span>solve</span></div>
     </div>
     ${r.fuel ? `<div class="fuelbar">${fuelVerdict(r.fuel)}</div>` : ""}
+    ${injectSummary(r)}
     <div id="cmpOut"></div>
-    ${legend ? `<p class="legend">${legend}</p>` : ""}
     <div class="summary-actions">
       <label class="switch" title="Compact: only the waypoints you plot in-game. Off: every jump.">
         <input type="checkbox" id="compactToggle" ${compactMode ? "checked" : ""} />
@@ -780,26 +891,13 @@ async function compareSpansh() {
     if (!res.ok) { if (out()) out().innerHTML = `<span class="bad">spansh compare failed (HTTP ${res.status})</span>`; return; }
     const s = await res.json();
     const sDur = s.duration_s != null ? `, ${fmt(s.duration_s, 1)} s` : "";
-    const ours = lastOurs ? lastOurs.total_jumps : null;
-    let verdict = "";
-    if (ours != null) { const d = s.total_jumps - ours;
-      verdict = d > 0 ? `<span class="good">ours ${d} fewer ✓</span>` : d < 0 ? `<span class="bad">spansh ${-d} fewer</span>` : "tie"; }
-    // Time comparison: spansh's job duration vs our solve time.
-    let timeStr = "";
-    if (s.duration_s != null && lastOurs) {
-      const spMs = s.duration_s * 1000, ourMs = lastOurs.solve_ms, dMs = spMs - ourMs;
-      const ft = (ms) => ms >= 1000 ? `${fmt(ms / 1000, 1)} s` : `${fmt(ms)} ms`;
-      timeStr = ` · ⏱ ${ft(ourMs)} vs ${ft(spMs)} <span class="${dMs >= 0 ? "good" : "bad"}">(${ft(Math.abs(dMs))} ${dMs >= 0 ? "faster" : "slower"})</span>`;
-    }
     const link = s.results_url ? ` · <a href="${escapeHtml(s.results_url)}" target="_blank" rel="noopener">open in spansh ↗</a>` : "";
     // Both sides use the selected supercharge; label it so the compare is
     // unambiguously apples-to-apples (e.g. Caspian 6x vs spansh at 6x).
     const sc = Number(supercharge || 4);
     const modeTag = sc !== 4 ? `<span class="tiny">supercharge ${sc}x</span> · ` : "";
-    // Our solve time is already in the "solve" stat above; show only spansh's count here.
     if (out()) out().innerHTML = modeTag + `<b>spansh Neutron&nbsp;Plotter:</b> ${fmt(s.total_jumps)} jumps (eff 60${sDur})`
-      + (ours != null ? ` · <b>ours:</b> ${fmt(ours)} jumps · ${verdict}` : "")
-      + timeStr + link;
+      + cmpVerdict(s.total_jumps) + cmpTime(s.duration_s) + link;
   } catch (e) { if (out()) out().innerHTML = `<span class="bad">${e.message || e}</span>`; }
   finally { $("cmp").disabled = false; setBusy(false); }
 }
@@ -818,7 +916,7 @@ async function compareGalaxy() {
     const res = await fetch("/spansh/galaxy-route", {
       method: "POST", credentials: "include",
       headers: { ...headers(), "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to, loadout, cargo: cargoTons() }),
+      body: JSON.stringify({ from, to, loadout, cargo: cargoTons(), inject_mult: injectMult() }),
     });
     if (!res.ok) {
       const d = (await res.json().catch(() => ({}))).detail;
@@ -842,7 +940,7 @@ async function plot() {
   const companionLs = companionMaxLs();
   // Fuel-aware plotting (POST with the loadout) kicks in once a ship is imported.
   const loadout = shipInfo ? ($("loadout").value || "").trim() : "";
-  lastQuery = { from, to, range, supercharge, companionLs };
+  lastQuery = { from, to, range, supercharge, companionLs, inject: injectMult() };
   lastOurs = null;  // so a post-failure spansh compare doesn't show a stale "ours"
   $("go").disabled = true; setBusy(true); $("out").innerHTML = `<div class="msg">Plotting…</div>`;
   try {
@@ -853,13 +951,14 @@ async function plot() {
         headers: { ...headers(), "Content-Type": "application/json" },
         body: JSON.stringify({
           from, to, range: Number(range), supercharge: Number(supercharge),
-          companion_max_ls: companionLs,
+          companion_max_ls: companionLs, inject_mult: injectMult(),
           loadout, cargo: cargoTons(), fuel_safe: $("fuelSafe").checked,
         }),
       });
     } else {
       let url = `/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}&supercharge=${encodeURIComponent(supercharge)}`;
       if (companionLs > 0) url += `&companion_max_ls=${encodeURIComponent(companionLs)}`;
+      if (injectMult() > 1) url += `&inject_mult=${encodeURIComponent(injectMult())}`;
       res = await fetch(url, { headers: headers(), credentials: "include" });
     }
     if (res.status === 403) {
@@ -947,6 +1046,23 @@ $("cmp").addEventListener("click", compareSpansh);
 $("cmpGalaxy").addEventListener("click", compareGalaxy);
 $("importShip").addEventListener("click", importShip);
 $("clearShip").addEventListener("click", clearShip);
+$("clearAllShips").addEventListener("click", clearAllShips);
+// Switch to or remove a stored ship (buttons are rendered dynamically).
+$("shipLibrary").addEventListener("click", (ev) => {
+  const pick = ev.target.closest(".ship-pick");
+  const del = ev.target.closest(".ship-del");
+  const ships = loadShips();
+  if (pick) {
+    const i = Number(pick.dataset.i);
+    if (ships[i]) { $("loadout").value = ships[i].loadout; importShip(); }
+  } else if (del) {
+    const i = Number(del.dataset.i);
+    const wasActive = i === activeShip();
+    ships.splice(i, 1); saveShips(ships);
+    if (wasActive) { clearShip(); }          // deselect + re-render
+    else { const a = activeShip(); if (a > i) setActiveShip(a - 1); renderShipLibrary(); }
+  }
+});
 // Swap departure and arrival, then re-plot if both are set (tester: "to go back
 // I have to retype the systems").
 $("swapFromTo").addEventListener("click", () => {
@@ -974,6 +1090,8 @@ window.edgisInitRoutePanel = function () {
   if (cargo != null && cargo !== "") { $("cargo").value = cargo; localStorage.setItem(CARGO_LS, String(cargoTons())); }
   const cml = q.get("companion_max_ls");
   if (cml != null && cml !== "") { $("companionLs").value = cml; localStorage.setItem(COMPANION_LS, String(companionMaxLs())); }
+  const inj = q.get("inject_mult");
+  if (inj != null && inj !== "") { $("injectMult").value = inj; localStorage.setItem(INJECT_MULT, String(injectMult())); }
   if ($("loadout").value.trim()) { importShip(); }
   loadStatus();
   // A shared link (from + to both present) plots straight away, at the shared

@@ -236,6 +236,14 @@ def test_enforce_fuel_safety_respects_permit_lock():
     assert info["safe"] is False
 
 
+def test_spansh_params_injection_flag_tracks_inject_mult():
+    params = fsd.parse_loadout(COBRA_SLEF)
+    off = fsd.spansh_params(params, 4.0, 1.0)
+    on = fsd.spansh_params(params, 4.0, 2.0)
+    assert off["use_injections_when_required"] is False
+    assert on["use_injections_when_required"] is True
+
+
 def test_is_scoopable_excludes_black_holes():
     # KGBFOAM main-sequence stars are scoopable, in bare, friendly and FDev forms.
     assert fsd.is_scoopable("K") is True
