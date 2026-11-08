@@ -40,7 +40,42 @@ const SLEF_LS = "edgis_route_loadout";
 const FUELSAFE_LS = "edgis_route_fuelsafe";
 let shipInfo = null;  // parsed ship summary, or null when no ship is imported
 $("loadout").value = localStorage.getItem(SLEF_LS) || "";
+
+// Ship library: multiple stored SLEF loadouts the commander can switch between.
+// Each entry is { name, loadout }; the active one's loadout also lives in
+// SLEF_LS (the textarea) for the single-ship import flow.
+const SHIPS_LS = "edgis_route_ships";
+const ACTIVE_SHIP_LS = "edgis_route_active_ship";
+function loadShips() { try { return JSON.parse(localStorage.getItem(SHIPS_LS)) || []; } catch (e) { return []; } }
+function saveShips(a) { localStorage.setItem(SHIPS_LS, JSON.stringify(a)); }
+function activeShip() { const i = Number(localStorage.getItem(ACTIVE_SHIP_LS)); return Number.isInteger(i) ? i : -1; }
+function setActiveShip(i) { localStorage.setItem(ACTIVE_SHIP_LS, String(i)); }
+// Upsert a loadout (by label or identical text), make it active, return index.
+function rememberShip(loadout) {
+  const ships = loadShips();
+  const name = shipLabel(loadout);
+  let i = ships.findIndex(s => s.loadout === loadout || s.name === name);
+  if (i < 0) { ships.push({ name, loadout }); i = ships.length - 1; }
+  else { ships[i] = { name, loadout }; }
+  saveShips(ships); setActiveShip(i); renderShipLibrary();
+  return i;
+}
+function renderShipLibrary() {
+  const el = $("shipLibrary"); if (!el) return;
+  const ships = loadShips(); const active = activeShip();
+  if (!ships.length) { el.hidden = true; el.innerHTML = ""; return; }
+  el.hidden = false;
+  el.innerHTML = ships.map((s, i) =>
+    `<span class="ship-item ${i === active ? "active" : ""}">`
+    + `<button type="button" class="ship-pick" data-i="${i}" title="Switch to this ship">${escapeHtml(s.name)}</button>`
+    + `<button type="button" class="ship-del" data-i="${i}" title="Remove this ship">&times;</button>`
+    + `</span>`).join("");
+}
+// Remove every stored ship and return to fuel-agnostic plotting.
+function clearAllShips() { saveShips([]); setActiveShip(-1); clearShip(); }
+
 setShipSummary();  // reflect a restored (saved, not-yet-imported) loadout at once
+renderShipLibrary();
 $("fuelSafe").checked = (localStorage.getItem(FUELSAFE_LS) ?? "1") === "1";
 $("fuelSafe").addEventListener("change", () =>
   localStorage.setItem(FUELSAFE_LS, $("fuelSafe").checked ? "1" : "0"));
@@ -134,13 +169,13 @@ function setShipSummary() {
   const el = $("shipSummary");
   const hasText = !!($("loadout").value || "").trim();
   if (shipInfo) {
-    el.innerHTML = `Ship &amp; fuel <span class="good">✓</span> · `
+    el.innerHTML = `Ship &amp; options <span class="good">✓</span> · `
       + `${escapeHtml(shipLabel($("loadout").value))} · ${fmt(shipInfo.jump_range, 2)} LY`;
   } else if (hasText) {
-    el.innerHTML = `Ship &amp; fuel · ${escapeHtml(shipLabel($("loadout").value))} `
-      + `<span class="tiny">(saved — not imported)</span>`;
+    el.innerHTML = `Ship &amp; options · ${escapeHtml(shipLabel($("loadout").value))} `
+      + `<span class="tiny">(saved, not added)</span>`;
   } else {
-    el.textContent = "Ship & fuel (optional)";
+    el.textContent = "Ship & options";
   }
 }
 
@@ -149,7 +184,7 @@ async function importShip() {
   if (!loadout) { shipInfo = null; localStorage.removeItem(SLEF_LS); $("shipInfo").textContent = ""; $("cmpGalaxy").hidden = true; setShipSummary(); return; }
   $("importShip").disabled = true;
   $("shipInfo").innerHTML = `<span class="tiny">Reading loadout…</span>`;
-  $("shipSummary").innerHTML = `Ship &amp; fuel · <span class="tiny">reading loadout…</span>`;
+  $("shipSummary").innerHTML = `Ship &amp; options · <span class="tiny">reading loadout…</span>`;
   try {
     const res = await fetch("/route/ship", {
       method: "POST", credentials: "include",
@@ -172,6 +207,7 @@ async function importShip() {
     }
     shipInfo = await res.json();
     localStorage.setItem(SLEF_LS, loadout);
+    rememberShip(loadout);  // add/update this ship in the library + make it active
     $("range").value = shipInfo.jump_range;
     localStorage.setItem(RANGE_LS, String(shipInfo.jump_range));
     // Auto-set the neutron supercharge for the imported ship (6x only on the
@@ -198,16 +234,18 @@ async function importShip() {
   }
 }
 
-// Drop the imported ship: empties the loadout, forgets the stored copy, and
-// returns the plotter to fuel-agnostic mode. The textarea is cleared too so a
-// stale "saved, not imported" summary can't linger after a reload.
+// Deselect the active ship: clears the loadout textarea and returns to
+// fuel-agnostic plotting, but keeps the ships in the library. Also used by
+// clearAllShips (after the list has been emptied) to reset the active state.
 function clearShip() {
   shipInfo = null;
   $("loadout").value = "";
   localStorage.removeItem(SLEF_LS);
   $("shipInfo").textContent = "";
   $("cmpGalaxy").hidden = true;
+  setActiveShip(-1);
   setShipSummary();
+  renderShipLibrary();
 }
 
 // Bootstrap "bi-copy" icon + clipboard helper (matches the main EDGIS app).
@@ -1000,6 +1038,23 @@ $("cmp").addEventListener("click", compareSpansh);
 $("cmpGalaxy").addEventListener("click", compareGalaxy);
 $("importShip").addEventListener("click", importShip);
 $("clearShip").addEventListener("click", clearShip);
+$("clearAllShips").addEventListener("click", clearAllShips);
+// Switch to or remove a stored ship (buttons are rendered dynamically).
+$("shipLibrary").addEventListener("click", (ev) => {
+  const pick = ev.target.closest(".ship-pick");
+  const del = ev.target.closest(".ship-del");
+  const ships = loadShips();
+  if (pick) {
+    const i = Number(pick.dataset.i);
+    if (ships[i]) { $("loadout").value = ships[i].loadout; importShip(); }
+  } else if (del) {
+    const i = Number(del.dataset.i);
+    const wasActive = i === activeShip();
+    ships.splice(i, 1); saveShips(ships);
+    if (wasActive) { clearShip(); }          // deselect + re-render
+    else { const a = activeShip(); if (a > i) setActiveShip(a - 1); renderShipLibrary(); }
+  }
+});
 // Swap departure and arrival, then re-plot if both are set (tester: "to go back
 // I have to retype the systems").
 $("swapFromTo").addEventListener("click", () => {
