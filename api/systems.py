@@ -3208,9 +3208,10 @@ def _annotate_inflight_scoops(legs: list, conn, max_ls: float = INFLIGHT_SCOOP_M
     cursor = conn.cursor()
     try:
         # lower(name) = ANY hits idx_systems_big_name_lower_prefix (a plain
-        # name= ANY seq-scans the 40M-row table, ~34s). substr(name,1,1) IN
-        # KGBFOAM mirrors fsd.is_scoopable (first-letter rule). Result keeps the
-        # DB's original-case name, which matches the leg's `system`.
+        # name= ANY seq-scans the 40M-row table, ~34s). The star-type regex
+        # mirrors fsd.is_scoopable: the class letter must stand alone so a
+        # black hole ("Black Hole") is not matched as a B-class star. Result
+        # keeps the DB's original-case name, which matches the leg's `system`.
         cursor.execute(
             "SELECT s.name, min(b.distance_from_arrival_ls) "
             "FROM systems_big s "
@@ -3219,9 +3220,10 @@ def _annotate_inflight_scoops(legs: list, conn, max_ls: float = INFLIGHT_SCOOP_M
             "WHERE lower(s.name) = ANY(%s) "
             "AND b.distance_from_arrival_ls > 0 "
             "AND b.distance_from_arrival_ls <= %s "
-            "AND substr(st.name, 1, 1) IN ('K','G','B','F','O','A','M') "
+            "AND st.name ~ %s "
             "GROUP BY s.name",
-            ([n.lower() for n in names], float(max_ls)),
+            ([n.lower() for n in names], float(max_ls),
+             r"^[KGBFOAM]($|[ _(0-9])"),
         )
         scoop_ls = {row[0]: float(row[1]) for row in cursor.fetchall()}
     finally:
@@ -3267,8 +3269,11 @@ def _enforce_fuel_sync(base_result: dict, params, fuel_safe: bool,
                             "coords, ST_MakePoint(%s, %s, %s), %s) "
                             "ORDER BY ST_3DDistance(coords, ST_MakePoint(%s, %s, %s)) "
                             "LIMIT 48",
-                            ("^[KGBFOAM]", pos[0], pos[1], pos[2], radius,
-                             pos[0], pos[1], pos[2]),
+                            # Class letter must stand alone so "Black Hole" (B+l)
+                            # is not matched as a B-class star. Mirrors
+                            # fsd.is_scoopable; _nearest_scoopable re-checks too.
+                            (r"^[KGBFOAM]($|[ _(0-9])", pos[0], pos[1], pos[2],
+                             radius, pos[0], pos[1], pos[2]),
                         )
                         return cursor.fetchall()
                     finally:

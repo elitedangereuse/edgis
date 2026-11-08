@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -236,9 +237,18 @@ def ship_summary(params: "FuelParams") -> dict:
     }
 
 
+# The class letter must STAND ALONE (end of string, or followed by a space /
+# '_' / '(' / digit), so a black hole ("Black Hole") is not mistaken for a
+# B-class star by the bare first-letter rule. Mirrors the UI's
+# /^[KGBFOAM]($| |\()/ check. Covers "G", "M (Red dwarf) Star", "A_BlueWhite...".
+_SCOOPABLE_RE = re.compile(r"^[KGBFOAM]($|[ _(0-9])", re.IGNORECASE)
+
+
 def is_scoopable(spectral: Optional[str]) -> bool:
-    """KGBFOAM main-sequence stars are fuel-scoopable (matches the UI rule)."""
-    return bool(spectral) and str(spectral).strip()[:1].upper() in "KGBFOAM"
+    """KGBFOAM main-sequence stars are fuel-scoopable (matches the UI rule).
+    A black hole ("Black Hole") starts with 'B' but is NOT scoopable, so the
+    class letter must stand alone rather than begin a word."""
+    return bool(spectral) and bool(_SCOOPABLE_RE.match(str(spectral).strip()))
 
 
 def is_refuel_landing(leg: dict) -> bool:
