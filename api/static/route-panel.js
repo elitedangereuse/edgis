@@ -191,7 +191,7 @@ function setShipSummary() {
 
 async function importShip() {
   const loadout = ($("loadout").value || "").trim();
-  if (!loadout) { shipInfo = null; localStorage.removeItem(SLEF_LS); $("shipInfo").textContent = ""; $("cmpGalaxy").disabled = true; setShipSummary(); return; }
+  if (!loadout) { shipInfo = null; localStorage.removeItem(SLEF_LS); $("shipInfo").textContent = ""; setShipSummary(); updateCompareButton(); return; }
   $("importShip").disabled = true;
   $("shipInfo").innerHTML = `<span class="tiny">Reading loadout…</span>`;
   $("shipSummary").innerHTML = `Ship &amp; options · <span class="tiny">reading loadout…</span>`;
@@ -240,7 +240,7 @@ async function importShip() {
     shipInfo = null;
     $("shipInfo").innerHTML = `<span class="bad">${escapeHtml(e.message || String(e))}</span>`;
   } finally {
-    $("importShip").disabled = false; $("cmpGalaxy").disabled = !shipInfo; setShipSummary();
+    $("importShip").disabled = false; setShipSummary(); updateCompareButton();
     // A non-empty loadout that failed to import (bad JSON, access gate): open
     // the section so the reason in #shipInfo is visible, not hidden when collapsed.
     if (!shipInfo) { const dt = $("loadout").closest("details"); if (dt) dt.open = true; }
@@ -255,10 +255,10 @@ function clearShip() {
   $("loadout").value = "";
   localStorage.removeItem(SLEF_LS);
   $("shipInfo").textContent = "";
-  $("cmpGalaxy").disabled = true;
   setActiveShip(-1);
   setShipSummary();
   renderShipLibrary();
+  updateCompareButton();  // route may still be plotted -> fall back to neutron compare
 }
 
 // Bootstrap "bi-copy" icon + clipboard helper (matches the main EDGIS app).
@@ -361,31 +361,30 @@ function starName(s) {
 // map to their base letter, e.g. A_BlueWhiteSuperGiant -> "A" -> scoopable;
 // Ae/Be, DQ, N, etc. are not).
 function scoopable(s) { return /^[KGBFOAM]$/.test(starShort(s)); }
-// The same fuel-pump glyph, tinted, for a neutron whose system has a scoopable
-// companion in supercruise range: you refuel there WITHOUT leaving the route.
-const FUEL_INFLIGHT = FUEL
-  .replace('class="fuel"', 'class="fuel inflight"')
-  .replace('<title>Fuel-scoopable (KGBFOAM)</title>', '');
 function inflightScoopMarker(ls) {
   const t = (ls != null)
     ? `In-system scoop: scoopable companion ~${fmt(ls, 0)} Ls (refuel without leaving the route)`
     : "In-system scoop (scoopable companion star)";
-  return `<span class="inflight-scoop" title="${escapeHtml(t)}">${FUEL_INFLIGHT}</span>`;
+  // Green fuel-pump (the scooping colour), same as a primary scoopable star.
+  return `<span class="inflight-scoop" title="${escapeHtml(t)}">${FUEL}</span>`;
 }
 function spectralCell(j) {
   if (!j.spectral) return "";
+  // Green fuel-pump when you can scoop here (primary scoopable, or a scoopable
+  // companion in range); placed to the RIGHT of the star.
   const scoop = scoopable(j.spectral) ? FUEL
     : (j.inflight_scoop ? inflightScoopMarker(j.scoop_ls) : "");
-  // Companion (secondary) neutron: show how far in-system you supercruise to it.
+  // Companion (secondary) neutron: how far in-system you supercruise to it (amber).
   const companion = (j.neutron_star && j.arrival_ls > 0)
     ? ` <span class="arrls" title="Companion neutron ${escapeHtml(fmt(j.arrival_ls, 0))} Ls from arrival (supercruise to it, then supercharge)">@${escapeHtml(fmt(j.arrival_ls, 0))} Ls</span>`
     : "";
-  // In-system refuel companion: show the supercruise distance inline too, like
-  // the neutron companion, so the scoop distance is visible without hovering.
+  // In-system refuel companion distance (green), shown inline like the neutron one.
   const scoopLs = (!scoopable(j.spectral) && j.inflight_scoop && j.scoop_ls != null)
     ? ` <span class="arrls scoop-ls" title="In-system scoop: scoopable companion ${escapeHtml(fmt(j.scoop_ls, 0))} Ls from arrival (refuel without leaving the route)">@${escapeHtml(fmt(j.scoop_ls, 0))} Ls</span>`
     : "";
-  return `<span class="starcell">${scoop}<span class="spec" title="${escapeHtml(starName(j.spectral))}">${escapeHtml(starShort(j.spectral))}</span>${companion}${scoopLs}</span>`;
+  // Neutron star class letter shown in neutron-amber (neutron steps are amber).
+  const spec = `<span class="spec${j.neutron_star ? " neutron" : ""}" title="${escapeHtml(starName(j.spectral))}">${escapeHtml(starShort(j.spectral))}</span>`;
+  return `<span class="starcell">${spec}${scoop}${companion}${scoopLs}</span>`;
 }
 function legLabel(j, last) {
   if (last) return "arrive";
@@ -853,7 +852,7 @@ function renderRoute(r) {
       <table><thead><tr>${header}</tr></thead>
       <tbody>${rows}</tbody></table>
     </div>`;
-  $("cmpGalaxy").disabled = !shipInfo;  // exact compare needs a ship
+  updateCompareButton();  // enable + set exact/neutron tooltip for the plotted route
   // Trigger the neighbors-style refresh glow on the freshly rendered table.
   const tbl = $("out").querySelector(".tablewrap.result-table");
   if (tbl) {
@@ -890,9 +889,43 @@ function cmpTime(durationS) {
   return ` · ⏱ ${ft(ourMs)} vs ${ft(spMs)} <span class="${dMs >= 0 ? "good" : "bad"}">(${ft(Math.abs(dMs))} ${dMs >= 0 ? "faster" : "slower"})</span>`;
 }
 
+// The "vs spansh" button adapts: with a ship imported we compare to spansh's
+// fuel-aware Galaxy (exact) Plotter (the real competitor); without one we fall
+// back to the range-only Neutron Plotter, which needs no ship. Enabled once a
+// route has been plotted.
+function updateCompareButton() {
+  const btn = $("cmpGalaxy"); if (!btn) return;
+  btn.disabled = !lastQuery;
+  btn.title = shipInfo
+    ? "Compare to spansh's fuel-aware Galaxy (exact) Plotter"
+    : "Compare to spansh's Neutron Plotter (import a ship to compare to the exact Plotter)";
+}
+function compareVsSpansh() { return shipInfo ? compareGalaxy() : compareSpansh(); }
+
+// spansh Neutron Plotter compare (range-only, no ship needed): the fallback when
+// no loadout is imported.
+async function compareSpansh() {
+  if (!lastQuery) return;
+  const { from, to, range, supercharge } = lastQuery;
+  $("cmpGalaxy").disabled = true; setBusy(true);
+  const out = () => cmpLine("cmpNeutron");
+  out().innerHTML = `<span class="tiny">Querying spansh Neutron Plotter… (can take ~10-30 s)</span>`;
+  try {
+    const res = await fetch(`/spansh/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}&efficiency=60&supercharge=${encodeURIComponent(supercharge || 4)}`, { headers: headers(), credentials: "include" });
+    if (!res.ok) { if (out()) out().innerHTML = `<span class="bad">spansh compare failed (HTTP ${res.status})</span>`; return; }
+    const s = await res.json();
+    const sDur = s.duration_s != null ? `, ${fmt(s.duration_s, 1)} s` : "";
+    const link = s.results_url ? ` · <a href="${escapeHtml(s.results_url)}" target="_blank" rel="noopener">open in spansh ↗</a>` : "";
+    const sc = Number(supercharge || 4);
+    const modeTag = sc !== 4 ? `<span class="tiny">supercharge ${sc}x</span> · ` : "";
+    if (out()) out().innerHTML = modeTag + `<b>spansh Neutron&nbsp;Plotter:</b> ${fmt(s.total_jumps)} jumps (eff 60${sDur})`
+      + cmpVerdict(s.total_jumps) + cmpTime(s.duration_s) + link;
+  } catch (e) { if (out()) out().innerHTML = `<span class="bad">${e.message || e}</span>`; }
+  finally { updateCompareButton(); setBusy(false); }
+}
+
 // Compare against spansh's fuel-aware Galaxy (exact) Plotter. Needs the ship
-// build, so it's only offered once a loadout is imported. This is the only
-// spansh comparison -- we measure against the exact plotter, not the neutron one.
+// build, so it's only reached (via compareVsSpansh) once a loadout is imported.
 async function compareGalaxy() {
   if (!lastQuery) return;
   const loadout = shipInfo ? ($("loadout").value || "").trim() : "";
@@ -918,7 +951,7 @@ async function compareGalaxy() {
     out().innerHTML = `<b>spansh Galaxy&nbsp;Plotter:</b> ${fmt(s.total_jumps)} jumps${dur}`
       + cmpVerdict(s.total_jumps) + cmpTime(s.duration_s) + link;
   } catch (e) { out().innerHTML = `<span class="bad">${escapeHtml(e.message || String(e))}</span>`; }
-  finally { $("cmpGalaxy").disabled = false; setBusy(false); }
+  finally { updateCompareButton(); setBusy(false); }
 }
 
 async function plot() {
@@ -972,7 +1005,7 @@ async function plot() {
     setBusy(false);
     // Allow comparing against spansh (exact) after any attempt, including when
     // EDGIS couldn't find a route (spansh often can). Needs a ship.
-    if (lastQuery && shipInfo) $("cmpGalaxy").disabled = false;
+    updateCompareButton();
     loadStatus();
   }
 }
@@ -1030,7 +1063,7 @@ $("out").addEventListener("change", (e) => {
 });
 
 $("go").addEventListener("click", plot);
-$("cmpGalaxy").addEventListener("click", compareGalaxy);
+$("cmpGalaxy").addEventListener("click", compareVsSpansh);
 $("importShip").addEventListener("click", importShip);
 $("clearShip").addEventListener("click", clearShip);
 $("clearAllShips").addEventListener("click", clearAllShips);
