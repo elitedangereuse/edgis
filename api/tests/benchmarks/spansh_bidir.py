@@ -67,15 +67,27 @@ def main():
               f"(the exact plotter is fuel-aware and needs a ship).", file=sys.stderr)
         return 2
     loadout = lp.read_text()
-    print(f"Bidirectional vs spansh EXACT (Galaxy) Plotter, ship={lp.name}, "
-          f"{len(PAIRS)} pairs both ways -> {a.base_url}\n")
+    # Our /route defaults range to 50 if unset; pass the SHIP's range so the
+    # geometry matches the fuel-aware exact plotter (which uses the ship range).
+    ship_range = None
+    try:
+        req = urllib.request.Request(
+            f"{a.base_url}/route/ship", data=json.dumps({"loadout": loadout}).encode(),
+            headers={"Content-Type": "application/json",
+                     **({"x-route-key": a.key} if a.key else {})})
+        ship_range = json.load(urllib.request.urlopen(req, timeout=60)).get("jump_range")
+    except Exception:
+        pass
+    print(f"Bidirectional vs spansh EXACT (Galaxy) Plotter, ship={lp.name} "
+          f"(range {ship_range}), {len(PAIRS)} pairs both ways -> {a.base_url}\n")
 
     for frm, to in PAIRS:
         res = {}
         for x, y in ((frm, to), (to, frm)):
-            oj, oe = _post(a.base_url, "/route",
-                           {"from": x, "to": y, "loadout": loadout, "fuel_safe": True},
-                           a.key, a.timeout)
+            body = {"from": x, "to": y, "loadout": loadout, "fuel_safe": True}
+            if ship_range:
+                body["range"] = ship_range
+            oj, oe = _post(a.base_url, "/route", body, a.key, a.timeout)
             sj, se = _post(a.base_url, "/spansh/galaxy-route",
                            {"from": x, "to": y, "loadout": loadout}, a.key, a.timeout)
             res[(x, y)] = (oj, sj)
