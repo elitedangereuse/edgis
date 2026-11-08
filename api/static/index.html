@@ -308,17 +308,12 @@
                   <div class="flex-1 flex flex-col gap-2" style="min-width:150px"><label for="companionLs" class="text-sm font-semibold">Companion neutrons (Ls)</label>
                     <input id="companionLs" type="number" min="0" max="2000" step="10" value="0" title="Also boost from secondary (companion) neutron stars within this many light-seconds of arrival. 0 = main-star neutrons only." class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
                   </div>
-                  <div class="flex-1 flex flex-col gap-2" style="min-width:150px"><label for="injectMult" class="text-sm font-semibold">FSD injection</label>
-                    <select id="injectMult" title="Allow FSD synthesis injection, used only when required to cross a gap a normal jump can't reach. The route uses the least grade that works per gap and lists what to synthesise. This sets the highest grade allowed. Off by default." class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2">
-                      <option value="1">Off</option>
-                      <option value="1.25">Up to Basic (+25%)</option>
-                      <option value="1.5">Up to Standard (+50%)</option>
-                      <option value="2">Up to Premium (+100%)</option>
-                    </select>
-                    <div class="inject-legend" aria-hidden="true">
-                      <span title="Basic (+25%)"><img src="/static/assets/synthesis/basic.svg" alt="" />Basic</span>
-                      <span title="Standard (+50%)"><img src="/static/assets/synthesis/standard.svg" alt="" />Standard</span>
-                      <span title="Premium (+100%)"><img src="/static/assets/synthesis/premium.svg" alt="" />Premium</span>
+                  <div class="flex-1 flex flex-col gap-2" style="min-width:150px"><span class="text-sm font-semibold" id="injectLabel">FSD injection</span>
+                    <div class="inject-radios" role="radiogroup" aria-labelledby="injectLabel" title="Allow FSD synthesis injection, used only when required to cross a gap a normal jump can't reach. The route uses the least grade that works per gap and lists what to synthesise. This sets the highest grade allowed. Off by default.">
+                      <label class="inj-opt"><input type="radio" name="injectMult" value="1" checked /><span class="inj-txt">Off</span></label>
+                      <label class="inj-opt"><input type="radio" name="injectMult" value="1.25" /><img src="/static/assets/synthesis/basic.svg" alt="" /><span class="inj-txt">Basic <small>+25%</small></span></label>
+                      <label class="inj-opt"><input type="radio" name="injectMult" value="1.5" /><img src="/static/assets/synthesis/standard.svg" alt="" /><span class="inj-txt">Standard <small>+50%</small></span></label>
+                      <label class="inj-opt"><input type="radio" name="injectMult" value="2" /><img src="/static/assets/synthesis/premium.svg" alt="" /><span class="inj-txt">Premium <small>+100%</small></span></label>
                     </div>
                   </div>
                   <div class="flex flex-col gap-2" style="min-width:90px"><label for="cargo" class="text-sm font-semibold" title="Cargo tonnage aboard: adds mass and shortens range.">Cargo (t)</label>
