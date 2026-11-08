@@ -3529,7 +3529,7 @@ async def _solve_route_cached(
     _route_inflight[cache_key] = inflight
     try:
         try:
-            (src, src_name, _src_star, src_id64), (dst, dst_name, dst_star, _dst_id64) = (
+            (src, src_name, _src_star, src_id64), (dst, dst_name, dst_star, dst_id64) = (
                 await asyncio.gather(
                     _resolve_route_endpoint(from_),
                     _resolve_route_endpoint(to),
@@ -3564,13 +3564,15 @@ async def _solve_route_cached(
                 )
 
         # The final leg is the arrival at the destination: label it with the
-        # destination's name and spectral type.
+        # destination's name, spectral type and id64 (for the spansh export).
         if result["jumps"]:
             last = result["jumps"][-1]
             if last.get("system") is None:
                 last["system"] = dst_name
             if not last.get("spectral"):
                 last["spectral"] = dst_star
+            if last.get("id64") is None:
+                last["id64"] = dst_id64
 
         result["source"] = src_name
         result["destination"] = dst_name
