@@ -73,6 +73,9 @@ TMP_CHANGED_FILE_LIST=$(mktemp)
     echo static/assets/materials/3-standard.svg
     echo static/assets/materials/4-rare.svg
     echo "static/assets/materials/5-very rare.svg"
+    echo static/assets/synthesis/basic.svg
+    echo static/assets/synthesis/standard.svg
+    echo static/assets/synthesis/premium.svg
     echo static/fixtures/sysmap-body-palette.json
     for file in "${EXTRA_FILES[@]}"; do
         if [[ -n "$file" ]]; then
