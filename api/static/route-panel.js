@@ -42,8 +42,20 @@ let shipInfo = null;  // parsed ship summary, or null when no ship is imported
 $("loadout").value = localStorage.getItem(SLEF_LS) || "";
 setShipSummary();  // reflect a restored (saved, not-yet-imported) loadout at once
 $("fuelSafe").checked = (localStorage.getItem(FUELSAFE_LS) ?? "1") === "1";
-$("fuelSafe").addEventListener("change", () =>
-  localStorage.setItem(FUELSAFE_LS, $("fuelSafe").checked ? "1" : "0"));
+
+// Fuel-safe reserve margin (jumps of spare fuel kept before a refuel is inserted).
+const RESERVE_LS = "edgis_route_reserve";
+$("reserveJumps").value = localStorage.getItem(RESERVE_LS) || "1";
+const reserveJumps = () => Math.min(3, Math.max(1, Number($("reserveJumps").value) || 1));
+$("reserveJumps").addEventListener("change", () =>
+  localStorage.setItem(RESERVE_LS, String(reserveJumps())));
+// The reserve only applies when fuel-safe is on; grey it out otherwise.
+const syncReserveEnabled = () => { $("reserveJumps").disabled = !$("fuelSafe").checked; };
+syncReserveEnabled();
+$("fuelSafe").addEventListener("change", () => {
+  localStorage.setItem(FUELSAFE_LS, $("fuelSafe").checked ? "1" : "0");
+  syncReserveEnabled();
+});
 
 // Cargo tonnage (dynamic, not in the loadout): adds mass, shortens range.
 const CARGO_LS = "edgis_route_cargo";
@@ -802,6 +814,7 @@ async function plot() {
           from, to, range: Number(range), supercharge: Number(supercharge),
           companion_max_ls: companionLs,
           loadout, cargo: cargoTons(), fuel_safe: $("fuelSafe").checked,
+          reserve_jumps: reserveJumps(),
         }),
       });
     } else {
