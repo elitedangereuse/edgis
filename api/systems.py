@@ -2720,7 +2720,7 @@ class NeutronStarResponse(BaseModel):
 
 
 @app.get("/coords/predict", response_model=SystemResponse)
-async def get_coords(name_or_id: str = Query(..., alias="q")):
+async def get_coords_predict(name_or_id: str = Query(..., alias="q")):
     loop = asyncio.get_event_loop()
     try:
         if name_or_id.isdigit() or (
@@ -3190,11 +3190,18 @@ def _solve_route_sync(
                 inject_mult=im,
             )
             if result is not None:
+                result["engine"] = "graph"
                 return result
-        return routing.solve_route(
+        # Beam fallback. Tagged so the trace can tell us whether beam is ever the
+        # winning path in prod -- if it never is, the whole beam engine
+        # (solve_route/_beam/_nearest_star_toward, ~330 lines) can be removed.
+        result = routing.solve_route(
             index, src, dst, jump_range, fetch_stars_within, width=beam_width,
             boost_mult=boost_mult, companion_max_ls=companion_max_ls,
         )
+        if result is not None:
+            result["engine"] = "beam"
+        return result
 
 
 # In-system refuel distance: a neutron waypoint whose system carries a scoopable
@@ -3404,6 +3411,9 @@ class RouteResponse(BaseModel):
     beam_width: int
     solve_ms: float
     access: Optional[str] = None
+    # Which solver produced the route: "graph" (primary corridor A*) or "beam"
+    # (fallback). Diagnostic, for confirming the beam path is unused before removal.
+    engine: Optional[str] = None
     # Source coordinates (the jumps carry their own; the start otherwise has
     # none). Lets the UI emit a faithful spansh-format export (source first).
     source_coords: Optional[dict] = None
@@ -3526,7 +3536,7 @@ async def _solve_route_cached(
         _log_route_trace(
             "route", frm=cached.get("source"), to=cached.get("destination"),
             range=jump_range, status="ok", total_jumps=cached.get("total_jumps"),
-            cached=True, access=access_via,
+            cached=True, access=access_via, engine=cached.get("engine"),
         )
         return cached
 
@@ -3542,7 +3552,7 @@ async def _solve_route_cached(
         _log_route_trace(
             "route", frm=out.get("source"), to=out.get("destination"),
             range=jump_range, status="ok", total_jumps=out.get("total_jumps"),
-            coalesced=True, access=access_via,
+            coalesced=True, access=access_via, engine=out.get("engine"),
         )
         return out
 
@@ -3611,6 +3621,7 @@ async def _solve_route_cached(
             total_jumps=result["total_jumps"], neutron=result["neutron_jumps"],
             bridge=result["bridge_jumps"], eff=round(result["efficiency"], 4),
             solve_ms=round(result["solve_ms"], 1), access=access_via,
+            engine=result.get("engine"),
         )
         to_cache = dict(result)
         to_cache.pop("access", None)
