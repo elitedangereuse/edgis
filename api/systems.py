@@ -3293,20 +3293,23 @@ def _enforce_fuel_sync(base_result: dict, params, fuel_safe: bool,
         fuel["safe"] = ((not fuel["stranded"]) and (not fuel["over_range"])
                         and info["safe"])
         result["fuel"] = fuel
+        fsd.annotate_leg_fuel(new_legs, params, boost_mult=boost_mult)
     else:
         # Report-only (fuel-safe off, or no source coords to anchor detours).
         # Use the annotated copies so in-system refuels show in the report + UI.
         result["jumps"] = legs
         result["fuel"] = fsd.fuel_report(legs, params, boost_mult=boost_mult)
         result["fuel"]["enforced"] = False
+        fsd.annotate_leg_fuel(legs, params, boost_mult=boost_mult)
     return result
 
 
 async def _resolve_route_endpoint(
     value: str,
-) -> tuple[tuple[float, float, float], str]:
+) -> tuple[tuple[float, float, float], str, Optional[str], Optional[int]]:
     """Resolve a system name/id64 to coordinates, predicting via EDTS for
-    procedural systems that aren't scanned into the DB yet."""
+    procedural systems that aren't scanned into the DB yet. Returns
+    ``(coords, name, mainstar, id64)`` (id64 may be None for a prediction)."""
 
     record = await fetch_system_from_db(value)
     if record and record.get("coords"):
@@ -3315,6 +3318,7 @@ async def _resolve_route_endpoint(
             (coords["x"], coords["y"], coords["z"]),
             record["name"],
             record.get("mainstar"),
+            record.get("id64"),
         )
     loop = asyncio.get_event_loop()
     try:
@@ -3332,6 +3336,7 @@ async def _resolve_route_endpoint(
             (float(position[0]), float(position[1]), float(position[2])),
             getattr(sys_obj, "name", value),
             getattr(sys_obj, "mainstar", None),
+            getattr(sys_obj, "id64", None),
         )
     raise HTTPException(status_code=404, detail=f"System not found: {value}")
 
@@ -3354,6 +3359,10 @@ class RouteJump(BaseModel):
     # Set on a companion (secondary) neutron waypoint: its distance from arrival
     # (Ls). The UI shows "neutron at X Ls" (you supercruise to it to supercharge).
     arrival_ls: Optional[float] = None
+    # Per-leg fuel (POST /route with a loadout): for the spansh-exact export.
+    fuel_in_tank: Optional[float] = None
+    fuel_used: Optional[float] = None
+    must_refuel: Optional[bool] = None
 
 
 class RouteResponse(BaseModel):
@@ -3373,9 +3382,15 @@ class RouteResponse(BaseModel):
     # Source coordinates (the jumps carry their own; the start otherwise has
     # none). Lets the UI emit a faithful spansh-format export (source first).
     source_coords: Optional[dict] = None
+    # id64 of the source system (the source leg otherwise carries none); for the
+    # spansh-exact export's leading entry + parameters.source_system.
+    source_id64: Optional[int] = None
     # Present only on POST /route when a ship loadout was supplied: the fuel
     # simulation verdict (safe/stranded, refuels, tank capacity in jumps).
     fuel: Optional[dict] = None
+    # The spansh Galaxy-Plotter parameters block (POST /route with a loadout),
+    # so the client can emit the exact-format export.
+    spansh_params: Optional[dict] = None
     jumps: list[RouteJump]
 
 
@@ -3514,7 +3529,7 @@ async def _solve_route_cached(
     _route_inflight[cache_key] = inflight
     try:
         try:
-            (src, src_name, _src_star), (dst, dst_name, dst_star) = (
+            (src, src_name, _src_star, src_id64), (dst, dst_name, dst_star, _dst_id64) = (
                 await asyncio.gather(
                     _resolve_route_endpoint(from_),
                     _resolve_route_endpoint(to),
@@ -3560,6 +3575,7 @@ async def _solve_route_cached(
         result["source"] = src_name
         result["destination"] = dst_name
         result["source_coords"] = {"x": src[0], "y": src[1], "z": src[2]}
+        result["source_id64"] = src_id64
         result["access"] = access_via
         _log_route_trace(
             "route", frm=src_name, to=dst_name, range=jump_range, status="ok",
@@ -3663,6 +3679,8 @@ async def plot_route_post(
         result = await _run_db_task(
             _enforce_fuel_sync, result, params, req.fuel_safe, req.supercharge
         )
+        # Parameters block for the spansh-exact export (ship build + fuel model).
+        result["spansh_params"] = fsd.spansh_params(params, req.supercharge)
     # Record the fuel mode on its own trace line: the shared geometry trace is
     # ship-agnostic, so without this the trace never shows whether a ship was
     # imported or whether fuel-safe enforcement ran.

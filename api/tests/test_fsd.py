@@ -275,6 +275,31 @@ def test_enforce_fuel_safety_no_divert_when_neutrons_scoop_inflight():
     assert not any(j["system"] == "ScoopK" for j in new_legs)
 
 
+def test_annotate_leg_fuel_tracks_burn_and_refuel():
+    p = fsd.parse_loadout(COBRA_SLEF)  # tank 32
+    legs = [
+        _jump(40, neutron=True, spectral="N"),               # burns, no refuel
+        _jump(40, neutron=False, spectral="K (Yellow) Star"),  # scoopable -> refuel
+    ]
+    fsd.annotate_leg_fuel(legs, p)
+    assert legs[0]["fuel_used"] > 0 and legs[0]["must_refuel"] is False
+    assert legs[0]["fuel_in_tank"] < p.tank_size          # declined after the burn
+    assert legs[1]["must_refuel"] is True                  # scoopable landing tops up
+    assert legs[1]["fuel_in_tank"] == p.tank_size          # back to full
+
+
+def test_spansh_params_has_exact_shape():
+    p = fsd.parse_loadout(COBRA_SLEF)
+    sp = fsd.spansh_params(p, supercharge=6)
+    for key in ("base_mass", "fuel_multiplier", "fuel_power", "optimal_mass",
+                "max_fuel_per_jump", "range_boost", "tank_size", "reserve_size",
+                "internal_tank_size", "supercharge_multiplier", "use_supercharge"):
+        assert key in sp
+    assert sp["reserve_size"] == 0                 # folded into base_mass
+    assert sp["supercharge_multiplier"] == 6
+    assert sp["base_mass"] >= p.base_mass          # reserve (+cargo) folded in
+
+
 def test_cargo_reduces_range_and_is_reported():
     p0 = fsd.parse_loadout(COBRA_SLEF)
     p6 = fsd.parse_loadout(COBRA_SLEF, cargo=6)
