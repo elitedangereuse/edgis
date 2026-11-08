@@ -55,8 +55,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", default="https://edgis.elitedangereuse.fr")
     ap.add_argument("--key", default="")
-    ap.add_argument("--loadout", default=str(HERE / "../../../live_loadout.json"),
-                    help="SLEF/Journal loadout JSON for the reference ship")
+    ap.add_argument("--loadout", default=str(HERE / "loadouts/cobra_mkv.json"),
+                    help="SLEF/Journal loadout JSON for the reference ship "
+                         "(fixtures: loadouts/cobra_mkv.json, loadouts/caspian.json)")
     ap.add_argument("--timeout", type=float, default=150.0)
     a = ap.parse_args()
 
