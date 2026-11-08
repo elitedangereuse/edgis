@@ -2720,7 +2720,7 @@ class NeutronStarResponse(BaseModel):
 
 
 @app.get("/coords/predict", response_model=SystemResponse)
-async def get_coords(name_or_id: str = Query(..., alias="q")):
+async def get_coords_predict(name_or_id: str = Query(..., alias="q")):
     loop = asyncio.get_event_loop()
     try:
         if name_or_id.isdigit() or (
@@ -3019,6 +3019,9 @@ _route_inflight: dict[str, "asyncio.Future"] = {}
 # index version) so an index rebuild (changed neutron count) invalidates
 # naturally. Caller-specific fields (access) are set fresh on every hit.
 ROUTE_CACHE_TTL = int(os.getenv("ROUTE_CACHE_TTL") or str(24 * 60 * 60))
+# Max seconds for the FSD-injection (pass 2) solve, which only runs after a
+# non-injected solve already failed. Bounds the worst-case double-pass.
+_ROUTE_INJECT_TIME_CAP = float(os.getenv("ROUTE_INJECT_TIME_CAP") or "45")
 _route_cache = RedisCache(
     endpoint=REDIS_HOST, port=REDIS_PORT, namespace="route",
     serializer=PickleSerializer(),
@@ -3094,6 +3097,7 @@ def _solve_route_sync(
     beam_width: int | None,
     boost_mult: float = 4.0,
     companion_max_ls: float = 0.0,
+    inject_mult: float = 1.0,
 ):
     index = _neutron_index
     if index is None:  # pragma: no cover - guarded by caller
@@ -3170,21 +3174,43 @@ def _solve_route_sync(
         # beam stays as the fallback when the graph can't realize a route
         # within its time cap (scaled with route length: a 65 kly rim route
         # legitimately needs several blacklist rounds).
-        result = routing.graph_route(
-            index, src, dst, jump_range, fetch_stars_within,
-            fetch_stars_near_segment=fetch_stars_near_segment,
-            fetch_stars_toward=fetch_stars_toward,
-            time_cap=60.0 + math.dist(src, dst) / 500.0,
-            is_locked=permit_zones.is_locked,
-            boost_mult=boost_mult,
-            companion_max_ls=companion_max_ls,
-        )
-        if result is not None:
-            return result
-        return routing.solve_route(
+        # FSD injection is "when required": first solve WITHOUT it (the best
+        # all-regular route), and only if no such route exists retry with
+        # injection. A per-edge last resort inside the realizer isn't enough --
+        # injection can rescue a worse neutron sequence that graph_route's
+        # blacklist retry would otherwise reject for a better all-regular one
+        # (Sol->Beagle@50 went 585 -> 603 that way). A global two-pass avoids it.
+        base_cap = 60.0 + math.dist(src, dst) / 500.0
+        passes = (1.0, inject_mult) if inject_mult > 1.0 else (1.0,)
+        for im in passes:
+            # The injection pass (pass 2) only runs when pass 1 already failed, so
+            # bound its time cap -- otherwise a void-stuck route with injection on
+            # could burn two full caps (minutes) and tie up a solve slot. An
+            # injection rescue is quick when it exists.
+            time_cap = base_cap if im == 1.0 else min(base_cap, _ROUTE_INJECT_TIME_CAP)
+            result = routing.graph_route(
+                index, src, dst, jump_range, fetch_stars_within,
+                fetch_stars_near_segment=fetch_stars_near_segment,
+                fetch_stars_toward=fetch_stars_toward,
+                time_cap=time_cap,
+                is_locked=permit_zones.is_locked,
+                boost_mult=boost_mult,
+                companion_max_ls=companion_max_ls,
+                inject_mult=im,
+            )
+            if result is not None:
+                result["engine"] = "graph"
+                return result
+        # Beam fallback. Tagged so the trace can tell us whether beam is ever the
+        # winning path in prod -- if it never is, the whole beam engine
+        # (solve_route/_beam/_nearest_star_toward, ~330 lines) can be removed.
+        result = routing.solve_route(
             index, src, dst, jump_range, fetch_stars_within, width=beam_width,
             boost_mult=boost_mult, companion_max_ls=companion_max_ls,
         )
+        if result is not None:
+            result["engine"] = "beam"
+        return result
 
 
 # In-system refuel distance: a neutron waypoint whose system carries a scoopable
@@ -3371,6 +3397,9 @@ class RouteJump(BaseModel):
     # Set on a companion (secondary) neutron waypoint: its distance from arrival
     # (Ls). The UI shows "neutron at X Ls" (you supercruise to it to supercharge).
     arrival_ls: Optional[float] = None
+    # Set when this jump required an FSD synthesis injection: the grade used
+    # (1.25 basic / 1.5 standard / 2.0 premium), the least that bridged the gap.
+    inject_grade: Optional[float] = None
     # Per-leg fuel (POST /route with a loadout): for the spansh-exact export.
     fuel_in_tank: Optional[float] = None
     fuel_used: Optional[float] = None
@@ -3391,6 +3420,9 @@ class RouteResponse(BaseModel):
     beam_width: int
     solve_ms: float
     access: Optional[str] = None
+    # Which solver produced the route: "graph" (primary corridor A*) or "beam"
+    # (fallback). Diagnostic, for confirming the beam path is unused before removal.
+    engine: Optional[str] = None
     # Source coordinates (the jumps carry their own; the start otherwise has
     # none). Lets the UI emit a faithful spansh-format export (source first).
     source_coords: Optional[dict] = None
@@ -3476,6 +3508,7 @@ async def _solve_route_cached(
     supercharge: float,
     access_via: Optional[str],
     companion_max_ls: float = 0.0,
+    inject_mult: float = 1.0,
 ) -> dict:
     """Resolve + solve a route with the Redis cache and in-flight coalescing.
     Shared by GET and POST /route; the fuel layer (POST only) runs on top of
@@ -3500,6 +3533,7 @@ async def _solve_route_cached(
         # Only append when opted in, so the default path keeps its existing key
         # (no cache fragmentation / one-time miss on the common route).
         + (f"|cml{companion_max_ls:g}" if companion_max_ls > 0 else "")
+        + (f"|inj{inject_mult:g}" if inject_mult > 1.0 else "")
     )
     try:
         cached = await _route_cache.get(cache_key)
@@ -3511,7 +3545,7 @@ async def _solve_route_cached(
         _log_route_trace(
             "route", frm=cached.get("source"), to=cached.get("destination"),
             range=jump_range, status="ok", total_jumps=cached.get("total_jumps"),
-            cached=True, access=access_via,
+            cached=True, access=access_via, engine=cached.get("engine"),
         )
         return cached
 
@@ -3527,7 +3561,7 @@ async def _solve_route_cached(
         _log_route_trace(
             "route", frm=out.get("source"), to=out.get("destination"),
             range=jump_range, status="ok", total_jumps=out.get("total_jumps"),
-            coalesced=True, access=access_via,
+            coalesced=True, access=access_via, engine=out.get("engine"),
         )
         return out
 
@@ -3562,7 +3596,7 @@ async def _solve_route_cached(
             try:
                 result = await _run_db_task(
                     _solve_route_sync, src, dst, jump_range, beam_width,
-                    supercharge, companion_max_ls,
+                    supercharge, companion_max_ls, inject_mult,
                 )
             except routing.RouteError as exc:
                 _log_route_trace(
@@ -3596,6 +3630,7 @@ async def _solve_route_cached(
             total_jumps=result["total_jumps"], neutron=result["neutron_jumps"],
             bridge=result["bridge_jumps"], eff=round(result["efficiency"], 4),
             solve_ms=round(result["solve_ms"], 1), access=access_via,
+            engine=result.get("engine"),
         )
         to_cache = dict(result)
         to_cache.pop("access", None)
@@ -3630,13 +3665,18 @@ async def plot_route(
         description="Also boost from companion (secondary) neutron stars within "
         "this many light-seconds of arrival. 0 = main-star neutrons only.",
     ),
+    inject_mult: float = Query(
+        1.0, ge=1.0, le=2.0,
+        description="FSD synthesis injection multiplier used 'when required' to "
+        "cross gaps: 1 = off, 1.25 basic, 1.5 standard, 2 premium.",
+    ),
     access: dict = Depends(entitlements.require_entitlement("route")),
 ):
     """Plot a neutron-boosted route (ship-agnostic). For fuel-aware plotting,
     POST the same parameters plus an EDSY/SLEF ``loadout``."""
     return await _solve_route_cached(
         from_, to, jump_range, beam_width, supercharge, access.get("via"),
-        companion_max_ls=companion_max_ls,
+        companion_max_ls=companion_max_ls, inject_mult=inject_mult,
     )
 
 
@@ -3652,6 +3692,7 @@ class RouteRequest(BaseModel):
     beam_width: Optional[int] = Field(None, ge=1, le=100)
     supercharge: float = Field(4.0, ge=1.0, le=6.0)
     companion_max_ls: float = Field(0.0, ge=0.0, le=COMPANION_NEUTRON_BUILD_MAX_LS)
+    inject_mult: float = Field(1.0, ge=1.0, le=2.0)
     loadout: Optional[str] = None
     cargo: float = Field(0.0, ge=0, le=2048)
     fuel_safe: bool = True
@@ -3687,6 +3728,7 @@ async def plot_route_post(
     result = await _solve_route_cached(
         req.from_, req.to, req.jump_range, req.beam_width, req.supercharge,
         access.get("via"), companion_max_ls=req.companion_max_ls,
+        inject_mult=req.inject_mult,
     )
     params = fsd.parse_loadout(req.loadout, req.cargo) if req.loadout else None
     if params is not None:
@@ -3696,7 +3738,8 @@ async def plot_route_post(
             _enforce_fuel_sync, result, params, req.fuel_safe, req.supercharge
         )
         # Parameters block for the spansh-exact export (ship build + fuel model).
-        result["spansh_params"] = fsd.spansh_params(params, req.supercharge)
+        result["spansh_params"] = fsd.spansh_params(
+            params, req.supercharge, req.inject_mult)
     # Record the fuel mode on its own trace line: the shared geometry trace is
     # ship-agnostic, so without this the trace never shows whether a ship was
     # imported or whether fuel-safe enforcement ran.
@@ -3822,6 +3865,7 @@ class GalaxyRouteRequest(BaseModel):
     to: str = Field(..., min_length=1)
     loadout: str
     cargo: float = Field(0.0, ge=0, le=2048)
+    inject_mult: float = Field(1.0, ge=1.0, le=2.0)
     model_config = {"populate_by_name": True}
 
 
@@ -3856,7 +3900,9 @@ async def spansh_galaxy_route(
         "is_supercharged": "0",
         "use_supercharge": "1",
         "use_injections": "0",
-        "use_injections_when_required": "0",
+        # Match our own injection setting so the comparison is fair: when we plot
+        # with FSD injection, let spansh inject "when required" too.
+        "use_injections_when_required": "1" if req.inject_mult > 1.0 else "0",
         "exclude_secondary": "0",
         # 0 = refuel only when needed (range grows as the tanks empty) -- the
         # optimal mode serious explorers actually use, so the comparison matches

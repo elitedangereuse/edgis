@@ -284,34 +284,47 @@
             </div>
             <div class="flex flex-wrap gap-3">
               <div class="flex-1 flex flex-col gap-2" style="min-width:180px"><label for="range" class="text-sm font-semibold">Jump range (LY)</label><input id="range" type="number" min="1" max="200" step="0.1" value="50" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" /></div>
-              <div class="flex-1 flex flex-col gap-2" style="min-width:180px"><label for="ship" class="text-sm font-semibold">Supercharge</label>
-                <select id="ship" title="Neutron supercharge: standard ships 4x, Caspian Explorer Mk II SCO drive 6x" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2">
-                  <option value="4">Standard (4x)</option>
-                  <option value="6">Caspian SCO (6x)</option>
-                </select>
-              </div>
-              <div class="flex-1 flex flex-col gap-2" style="min-width:180px"><label for="companionLs" class="text-sm font-semibold">Companion neutrons (Ls)</label>
-                <input id="companionLs" type="number" min="0" max="2000" step="10" value="0" title="Also boost from secondary (companion) neutron stars within this many light-seconds of arrival. 0 = main-star neutrons only." class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
-              </div>
             </div>
             <datalist id="sysopts"></datalist>
             <details class="shiprow">
-              <summary id="shipSummary">Ship &amp; fuel (optional)</summary>
-              <div style="margin-top:10px">
-                <textarea id="loadout" spellcheck="false" placeholder="Paste your ship's loadout (SLEF / Journal JSON from EDSY &quot;Export&quot;, Coriolis, or the game) to plot fuel-aware…" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" style="min-height:140px;resize:vertical;font-family:var(--mono)"></textarea>
+              <summary id="shipSummary">Ship &amp; options</summary>
+              <div class="shipopts" style="margin-top:10px">
+                <!-- Stored ships (SLEF loadouts): switch active, remove one, or clear all. -->
+                <div id="shipLibrary" class="ship-library" hidden></div>
+                <textarea id="loadout" spellcheck="false" placeholder="Paste a ship loadout (SLEF / Journal JSON from EDSY &quot;Export&quot;, Coriolis, or the game) and Add ship to plot fuel-aware…" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" style="min-height:120px;resize:vertical;font-family:var(--mono)"></textarea>
                 <div class="shipline">
-                  <button id="importShip" class="tool-action" type="button">Import ship</button>
-                  <button id="clearShip" class="ghost" type="button" title="Remove the imported ship and plot without fuel awareness">Clear ship</button>
-                  <label class="cargo-field" title="Cargo tonnage aboard — adds mass and shortens range.">Cargo (t)
-                    <input id="cargo" type="number" min="0" step="1" value="0" class="bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" style="width:64px" />
-                  </label>
+                  <button id="importShip" class="tool-action" type="button">Add ship</button>
+                  <button id="clearShip" class="ghost" type="button" title="Deselect the active ship and plot without fuel awareness (keeps it in the list)">Clear active</button>
+                  <button id="clearAllShips" class="ghost" type="button" title="Remove every stored ship">Clear all</button>
                   <span id="shipInfo" class="tiny"></span>
-                  <label class="switch" title="Fuel-safe: simulate the tank along the route and refuel before you could strand. See the note below.">
-                    <input type="checkbox" id="fuelSafe" checked />
-                    <span class="track"></span><span>fuel-safe</span>
-                  </label>
                 </div>
-                <p class="tiny fuelsafe-note"><b>Fuel-safe</b> (on): EDGIS keeps at least one jump of fuel in reserve so you can always reach a scoopable star &mdash; never stranded. When a refuel is needed it uses an in-system companion scoop at a neutron waypoint (no extra jumps) where possible, otherwise a short detour to the nearest scoopable star (+2 jumps). <b>Off</b>: the route is left as-is and fuel risk is only flagged. Range and ship are stored in this browser only.</p>
+                <div class="flex flex-wrap gap-3" style="margin-top:12px">
+                  <div class="flex-1 flex flex-col gap-2" style="min-width:150px"><label for="ship" class="text-sm font-semibold">Supercharge</label>
+                    <select id="ship" title="Neutron supercharge: standard ships 4x, Caspian Explorer Mk II SCO drive 6x" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2">
+                      <option value="4">Standard (4x)</option>
+                      <option value="6">Caspian SCO (6x)</option>
+                    </select>
+                  </div>
+                  <div class="flex-1 flex flex-col gap-2" style="min-width:150px"><label for="companionLs" class="text-sm font-semibold">Companion neutrons (Ls)</label>
+                    <input id="companionLs" type="number" min="0" max="2000" step="10" value="0" title="Also boost from secondary (companion) neutron stars within this many light-seconds of arrival. 0 = main-star neutrons only." class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+                  </div>
+                  <div class="flex-1 flex flex-col gap-2" style="min-width:150px"><label for="injectMult" class="text-sm font-semibold">FSD injection</label>
+                    <select id="injectMult" title="Allow FSD synthesis injection, used only when required to cross a gap a normal jump can't reach. The route uses the least grade that works per gap and lists what to synthesise. This sets the highest grade allowed. Off by default." class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2">
+                      <option value="1">Off</option>
+                      <option value="1.25">Up to Basic (+25%)</option>
+                      <option value="1.5">Up to Standard (+50%)</option>
+                      <option value="2">Up to Premium (+100%)</option>
+                    </select>
+                  </div>
+                  <div class="flex flex-col gap-2" style="min-width:90px"><label for="cargo" class="text-sm font-semibold" title="Cargo tonnage aboard: adds mass and shortens range.">Cargo (t)</label>
+                    <input id="cargo" type="number" min="0" step="1" value="0" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" style="max-width:90px" />
+                  </div>
+                </div>
+                <label class="switch" style="margin-top:12px" title="Fuel-safe: simulate the tank along the route and refuel before you could strand. See the note below.">
+                  <input type="checkbox" id="fuelSafe" checked />
+                  <span class="track"></span><span>fuel-safe</span>
+                </label>
+                <p class="tiny fuelsafe-note"><b>Fuel-safe</b> (on): EDGIS keeps at least one jump of fuel in reserve so you can always reach a scoopable star, never stranded. When a refuel is needed it uses an in-system companion scoop at a neutron waypoint (no extra jumps) where possible, otherwise a short detour to the nearest scoopable star (+2 jumps). <b>Off</b>: the route is left as-is and fuel risk is only flagged. Ships and options are stored in this browser only.</p>
               </div>
             </details>
             <div class="actions">

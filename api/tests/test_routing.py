@@ -51,6 +51,87 @@ def assert_legal(result, jump_range):
     assert_legal_boost(result, jump_range, 4.0)
 
 
+def test_bridge_greedy_injects_only_when_required():
+    # Stars every 16 ly toward the target; with J=10 a normal jump can't reach
+    # the next one (dead end), but premium injection (2x -> 20 ly) can.
+    J = 10.0
+    pts = [(0.0, 0.0, float(z)) for z in range(16, 101, 16)]
+
+    def fetch_within(pos, radius):
+        px, py, pz = pos
+        r2 = radius * radius
+        return [(x, y, z, f"S{int(z)}") for (x, y, z) in pts
+                if (x - px) ** 2 + (y - py) ** 2 + (z - pz) ** 2 <= r2]
+
+    target = np.array([0.0, 0.0, 100.0])
+    dst = target
+    off = routing._bridge_greedy(
+        fetch_within, None, np.zeros(3), False, target, J, dst, set(), 50,
+        inject_mult=1.0,
+    )
+    assert off is None  # no forward star within J -> dead end
+    on = routing._bridge_greedy(
+        fetch_within, None, np.zeros(3), False, target, J, dst, set(), 50,
+        inject_mult=2.0,
+    )
+    assert on is not None
+    legs = on[0]
+    assert legs, "injection should have produced bridge legs"
+    # Every hop needed injection, and 16 ly gaps (1.6*J) fit a BASIC (1.25*J=12.5)?
+    # No: 16 > 12.5, so the least sufficient grade is standard (1.5*J=15)? 16 > 15
+    # too, so premium (2*J=20). Confirms "least grade that works" picks premium.
+    assert all(leg.get("inject_grade") == 2.0 for leg in legs)
+    assert all(leg["distance_jumped"] <= 2.0 * J + 1e-6 for leg in legs)
+
+
+def test_bridge_greedy_picks_least_sufficient_grade():
+    # A single 11 ly gap (J=10): basic (12.5 ly) already bridges it, so the
+    # least-grade logic must pick 1.25, not a higher grade, even when premium
+    # is allowed.
+    J = 10.0
+
+    def fetch_within(pos, radius):
+        px, py, pz = pos
+        s = (0.0, 0.0, 11.0)
+        return [(s[0], s[1], s[2], "S11")] if (s[2] - pz) ** 2 <= radius ** 2 else []
+
+    # pos 0 -> star at 11 (needs basic injection) -> target at 20 (within J).
+    tgt = np.array([0.0, 0.0, 20.0])
+    r = routing._bridge_greedy(
+        fetch_within, None, np.zeros(3), False, tgt, J, tgt, set(), 5,
+        inject_mult=2.0,
+    )
+    assert r is not None and r[0]
+    assert r[0][0].get("inject_grade") == 1.25  # least grade that reaches 11 ly
+
+
+def test_graph_route_injection_crosses_otherwise_impassable_gap():
+    # One unusable off-axis neutron; the real path is a src->dst bridge over a
+    # star field spaced 1.6*J. Without injection graph_route cannot realize it;
+    # premium injection bridges the gaps.
+    J = 10.0
+    idx = make_index([(9999.0, 9999.0, 9999.0)])
+    pts = [(0.0, 0.0, float(z)) for z in range(16, 97, 16)]
+
+    def fetch_within(pos, radius):
+        px, py, pz = pos
+        r2 = radius * radius
+        return [(x, y, z, f"S{int(z)}") for (x, y, z) in pts
+                if (x - px) ** 2 + (y - py) ** 2 + (z - pz) ** 2 <= r2]
+
+    src, dst = (0.0, 0.0, 0.0), (0.0, 0.0, 104.0)
+    off = routing.graph_route(idx, src, dst, J, fetch_within,
+                              inject_mult=1.0, time_cap=10.0)
+    on = routing.graph_route(idx, src, dst, J, fetch_within,
+                             inject_mult=2.0, time_cap=10.0)
+    assert off is None
+    assert on is not None
+    assert any(leg.get("inject_grade") for leg in on["jumps"])
+    # Injected legs legitimately exceed J (up to inject_mult*J); the final leg
+    # still lands on the destination.
+    assert on["jumps"][-1]["distance_left"] == pytest.approx(0.0)
+
+
 def test_straight_boost_route_no_bridging():
     # Neutrons every 180 LY (<= 200 boost); first within jump range of src.
     pts = [(0.0, 0.0, float(40 + 180 * k)) for k in range(11)]  # 40..1840

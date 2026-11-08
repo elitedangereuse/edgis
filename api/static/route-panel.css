@@ -107,6 +107,15 @@
 #panel-route .cargo-field { font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted);
                display:inline-flex; align-items:center; gap:6px; }
 #panel-route #shipInfo { font-family:var(--mono); }
+/* Ship library: chips of stored ships; active one highlighted; x removes one. */
+#panel-route .ship-library { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+#panel-route .ship-item { display:inline-flex; align-items:stretch; border:1px solid rgba(255,255,255,0.14); border-radius:8px; overflow:hidden; }
+#panel-route .ship-item.active { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+#panel-route .ship-pick { background:transparent; border:0; color:var(--text); padding:5px 10px; cursor:pointer; font-size:12px; }
+#panel-route .ship-item.active .ship-pick { color:var(--accent); font-weight:600; }
+#panel-route .ship-pick:hover { background:rgba(255,255,255,0.06); }
+#panel-route .ship-del { background:transparent; border:0; border-left:1px solid rgba(255,255,255,0.14); color:var(--muted); padding:0 8px; cursor:pointer; font-size:14px; line-height:1; }
+#panel-route .ship-del:hover { color:var(--bad); background:rgba(255,255,255,0.06); }
 #panel-route .fuelbar { margin:12px 0 2px; font-size:13px; }
 
 #panel-route .summary { display:flex; gap:24px; flex-wrap:wrap; margin:20px 0 8px; align-items:flex-end; }
@@ -148,6 +157,14 @@
 #panel-route .arrls { color:var(--neutron); opacity:.8; font-size:11px; cursor:help; white-space:nowrap; }
 /* In-system scoop distance reuses .arrls but in the fuel (green) colour. */
 #panel-route .arrls.scoop-ls { color:var(--ok); }
+/* FSD synthesis injection: violet delta icon (distinct from neutron-amber and
+   fuel-green) on a jump that needs it, and
+   the summary bar listing how many of each grade the route requires. */
+#panel-route .inject-badge { display:inline-flex; vertical-align:-2px; margin-left:4px; cursor:help; color:#c495f6; }
+#panel-route svg.inject { display:inline-block; }
+#panel-route .injectbar { margin:8px 0 2px; font-size:13px; color:var(--text); display:flex; flex-direction:column; gap:4px; align-items:flex-start; }
+#panel-route .injectbar svg.inject { color:#c495f6; vertical-align:-2px; margin-right:2px; }
+#panel-route .injectbar .injectmats { color:var(--muted); font-size:12px; }
 /* Fuel-safe explainer note under the ship row. */
 #panel-route .fuelsafe-note { margin-top:8px; line-height:1.5; color:var(--muted); max-width:70ch; }
 #panel-route .fuelsafe-note b { color:var(--text); font-weight:600; }
