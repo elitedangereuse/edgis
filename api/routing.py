@@ -880,10 +880,14 @@ def _realize_graph(
         reach = boost if boosted else J
         if d > reach + 1e-9:
             max_steps = int(math.ceil(d / J)) * 4 + 8
+            # First try to bridge WITHOUT injection: FSD injection is "when
+            # required" only, so it must never be used merely to shorten a
+            # segment a normal/capsule bridge can already cross (that would
+            # regress hard-but-solvable routes).
             br = _bridge_greedy(
                 fetch_stars_within, fetch_stars_toward, pos, boosted, tgt,
                 J, dst_v, set(), max_steps, is_locked=is_locked,
-                boost_mult=boost_mult, inject_mult=inject_mult,
+                boost_mult=boost_mult, inject_mult=1.0,
             )
             if fetch_stars_near_segment is not None:
                 # Quality guard: greedy can SUCCEED badly, wandering around an
@@ -905,6 +909,15 @@ def _realize_graph(
                         br is None or len(alt[0]) < len(br[0])
                     ):
                         br = alt
+            if br is None and inject_mult > 1.0:
+                # Last resort: no non-injected path bridges this segment, so
+                # FSD-inject (reach inject_mult*J) to cross it. This is the only
+                # place injection fires, keeping it strictly "when required".
+                br = _bridge_greedy(
+                    fetch_stars_within, fetch_stars_toward, pos, boosted, tgt,
+                    J, dst_v, set(), max_steps, is_locked=is_locked,
+                    boost_mult=boost_mult, inject_mult=inject_mult,
+                )
             if br is None:
                 mid = (pos + tgt) / 2.0
                 return None, ((prev_gid, gid), mid, d)
