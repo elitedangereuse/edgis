@@ -3094,6 +3094,7 @@ def _solve_route_sync(
     beam_width: int | None,
     boost_mult: float = 4.0,
     companion_max_ls: float = 0.0,
+    inject_mult: float = 1.0,
 ):
     index = _neutron_index
     if index is None:  # pragma: no cover - guarded by caller
@@ -3178,6 +3179,7 @@ def _solve_route_sync(
             is_locked=permit_zones.is_locked,
             boost_mult=boost_mult,
             companion_max_ls=companion_max_ls,
+            inject_mult=inject_mult,
         )
         if result is not None:
             return result
@@ -3371,6 +3373,8 @@ class RouteJump(BaseModel):
     # Set on a companion (secondary) neutron waypoint: its distance from arrival
     # (Ls). The UI shows "neutron at X Ls" (you supercruise to it to supercharge).
     arrival_ls: Optional[float] = None
+    # Set when this jump required an FSD synthesis injection (reach > normal J).
+    injected: Optional[bool] = None
     # Per-leg fuel (POST /route with a loadout): for the spansh-exact export.
     fuel_in_tank: Optional[float] = None
     fuel_used: Optional[float] = None
@@ -3476,6 +3480,7 @@ async def _solve_route_cached(
     supercharge: float,
     access_via: Optional[str],
     companion_max_ls: float = 0.0,
+    inject_mult: float = 1.0,
 ) -> dict:
     """Resolve + solve a route with the Redis cache and in-flight coalescing.
     Shared by GET and POST /route; the fuel layer (POST only) runs on top of
@@ -3500,6 +3505,7 @@ async def _solve_route_cached(
         # Only append when opted in, so the default path keeps its existing key
         # (no cache fragmentation / one-time miss on the common route).
         + (f"|cml{companion_max_ls:g}" if companion_max_ls > 0 else "")
+        + (f"|inj{inject_mult:g}" if inject_mult > 1.0 else "")
     )
     try:
         cached = await _route_cache.get(cache_key)
@@ -3562,7 +3568,7 @@ async def _solve_route_cached(
             try:
                 result = await _run_db_task(
                     _solve_route_sync, src, dst, jump_range, beam_width,
-                    supercharge, companion_max_ls,
+                    supercharge, companion_max_ls, inject_mult,
                 )
             except routing.RouteError as exc:
                 _log_route_trace(
@@ -3630,13 +3636,18 @@ async def plot_route(
         description="Also boost from companion (secondary) neutron stars within "
         "this many light-seconds of arrival. 0 = main-star neutrons only.",
     ),
+    inject_mult: float = Query(
+        1.0, ge=1.0, le=2.0,
+        description="FSD synthesis injection multiplier used 'when required' to "
+        "cross gaps: 1 = off, 1.25 basic, 1.5 standard, 2 premium.",
+    ),
     access: dict = Depends(entitlements.require_entitlement("route")),
 ):
     """Plot a neutron-boosted route (ship-agnostic). For fuel-aware plotting,
     POST the same parameters plus an EDSY/SLEF ``loadout``."""
     return await _solve_route_cached(
         from_, to, jump_range, beam_width, supercharge, access.get("via"),
-        companion_max_ls=companion_max_ls,
+        companion_max_ls=companion_max_ls, inject_mult=inject_mult,
     )
 
 
@@ -3652,6 +3663,7 @@ class RouteRequest(BaseModel):
     beam_width: Optional[int] = Field(None, ge=1, le=100)
     supercharge: float = Field(4.0, ge=1.0, le=6.0)
     companion_max_ls: float = Field(0.0, ge=0.0, le=COMPANION_NEUTRON_BUILD_MAX_LS)
+    inject_mult: float = Field(1.0, ge=1.0, le=2.0)
     loadout: Optional[str] = None
     cargo: float = Field(0.0, ge=0, le=2048)
     fuel_safe: bool = True
@@ -3687,6 +3699,7 @@ async def plot_route_post(
     result = await _solve_route_cached(
         req.from_, req.to, req.jump_range, req.beam_width, req.supercharge,
         access.get("via"), companion_max_ls=req.companion_max_ls,
+        inject_mult=req.inject_mult,
     )
     params = fsd.parse_loadout(req.loadout, req.cargo) if req.loadout else None
     if params is not None:
@@ -3696,7 +3709,8 @@ async def plot_route_post(
             _enforce_fuel_sync, result, params, req.fuel_safe, req.supercharge
         )
         # Parameters block for the spansh-exact export (ship build + fuel model).
-        result["spansh_params"] = fsd.spansh_params(params, req.supercharge)
+        result["spansh_params"] = fsd.spansh_params(
+            params, req.supercharge, req.inject_mult)
     # Record the fuel mode on its own trace line: the shared geometry trace is
     # ship-agnostic, so without this the trace never shows whether a ship was
     # imported or whether fuel-safe enforcement ran.
@@ -3856,7 +3870,9 @@ async def spansh_galaxy_route(
         "is_supercharged": "0",
         "use_supercharge": "1",
         "use_injections": "0",
-        "use_injections_when_required": "0",
+        # Match our own injection setting so the comparison is fair: when we plot
+        # with FSD injection, let spansh inject "when required" too.
+        "use_injections_when_required": "1" if req.inject_mult > 1.0 else "0",
         "exclude_secondary": "0",
         # 0 = refuel only when needed (range grows as the tanks empty) -- the
         # optimal mode serious explorers actually use, so the comparison matches

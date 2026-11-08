@@ -62,6 +62,17 @@ const companionMaxLs = () =>
 $("companionLs").addEventListener("change", () =>
   localStorage.setItem(COMPANION_LS, String(companionMaxLs())));
 
+// Opt-in FSD synthesis injection, used "when required" to cross gaps a normal
+// jump can't reach: 1 = off, 1.25/1.5/2 = basic/standard/premium.
+const INJECT_MULT = "edgis_route_inject";
+$("injectMult").value = localStorage.getItem(INJECT_MULT) || "1";
+const injectMult = () => {
+  const v = Number($("injectMult").value) || 1;
+  return v >= 1 && v <= 2 ? v : 1;
+};
+$("injectMult").addEventListener("change", () =>
+  localStorage.setItem(INJECT_MULT, String(injectMult())));
+
 // Friendly ship label from a SLEF loadout, shown on the Ship & fuel summary so
 // it's visible even when collapsed. Prefers the commander's ship name. The SLEF
 // `Ship` field is the FDev internal symbol (e.g. "explorer_nx"); this maps it to
@@ -270,7 +281,10 @@ function spectralCell(j) {
 function legLabel(j, last) {
   if (last) return "arrive";
   if (j.type === "boost") return j.neutron_star ? "neutron ★" : "supercharged";
-  return j.neutron_star ? "board ★" : "bridge";
+  const base = j.neutron_star ? "board ★" : "bridge";
+  // An FSD-injected jump reaches past a normal gap; flag it so the commander
+  // knows this hop needs synthesis materials.
+  return j.injected ? `${base} + inject` : base;
 }
 function copyBtn(name) {
   return name ? ` <button class="copy-btn" data-copy="${escapeHtml(name)}" title="Copy system name">${copyIconSvg}</button>` : "";
@@ -325,6 +339,7 @@ function shareUrl() {
   if (q.range) p.set("range", q.range);
   if (q.supercharge && q.supercharge !== "4") p.set("supercharge", q.supercharge);
   if (q.companionLs > 0) p.set("companion_max_ls", String(q.companionLs));
+  if (q.inject > 1) p.set("inject_mult", String(q.inject));
   const cargo = cargoTons();
   if (cargo > 0) p.set("cargo", String(cargo));
   return `${location.origin}${location.pathname}?${p.toString()}`;
@@ -818,7 +833,7 @@ async function compareGalaxy() {
     const res = await fetch("/spansh/galaxy-route", {
       method: "POST", credentials: "include",
       headers: { ...headers(), "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to, loadout, cargo: cargoTons() }),
+      body: JSON.stringify({ from, to, loadout, cargo: cargoTons(), inject_mult: injectMult() }),
     });
     if (!res.ok) {
       const d = (await res.json().catch(() => ({}))).detail;
@@ -842,7 +857,7 @@ async function plot() {
   const companionLs = companionMaxLs();
   // Fuel-aware plotting (POST with the loadout) kicks in once a ship is imported.
   const loadout = shipInfo ? ($("loadout").value || "").trim() : "";
-  lastQuery = { from, to, range, supercharge, companionLs };
+  lastQuery = { from, to, range, supercharge, companionLs, inject: injectMult() };
   lastOurs = null;  // so a post-failure spansh compare doesn't show a stale "ours"
   $("go").disabled = true; setBusy(true); $("out").innerHTML = `<div class="msg">Plotting…</div>`;
   try {
@@ -853,13 +868,14 @@ async function plot() {
         headers: { ...headers(), "Content-Type": "application/json" },
         body: JSON.stringify({
           from, to, range: Number(range), supercharge: Number(supercharge),
-          companion_max_ls: companionLs,
+          companion_max_ls: companionLs, inject_mult: injectMult(),
           loadout, cargo: cargoTons(), fuel_safe: $("fuelSafe").checked,
         }),
       });
     } else {
       let url = `/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}&supercharge=${encodeURIComponent(supercharge)}`;
       if (companionLs > 0) url += `&companion_max_ls=${encodeURIComponent(companionLs)}`;
+      if (injectMult() > 1) url += `&inject_mult=${encodeURIComponent(injectMult())}`;
       res = await fetch(url, { headers: headers(), credentials: "include" });
     }
     if (res.status === 403) {
@@ -974,6 +990,8 @@ window.edgisInitRoutePanel = function () {
   if (cargo != null && cargo !== "") { $("cargo").value = cargo; localStorage.setItem(CARGO_LS, String(cargoTons())); }
   const cml = q.get("companion_max_ls");
   if (cml != null && cml !== "") { $("companionLs").value = cml; localStorage.setItem(COMPANION_LS, String(companionMaxLs())); }
+  const inj = q.get("inject_mult");
+  if (inj != null && inj !== "") { $("injectMult").value = inj; localStorage.setItem(INJECT_MULT, String(injectMult())); }
   if ($("loadout").value.trim()) { importShip(); }
   loadStatus();
   // A shared link (from + to both present) plots straight away, at the shared

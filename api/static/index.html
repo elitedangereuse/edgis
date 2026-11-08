@@ -293,6 +293,14 @@
               <div class="flex-1 flex flex-col gap-2" style="min-width:180px"><label for="companionLs" class="text-sm font-semibold">Companion neutrons (Ls)</label>
                 <input id="companionLs" type="number" min="0" max="2000" step="10" value="0" title="Also boost from secondary (companion) neutron stars within this many light-seconds of arrival. 0 = main-star neutrons only." class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
               </div>
+              <div class="flex-1 flex flex-col gap-2" style="min-width:180px"><label for="injectMult" class="text-sm font-semibold">FSD injection</label>
+                <select id="injectMult" title="Use FSD synthesis injection (materials) when required, to cross gaps a normal jump can't reach. Off by default." class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2">
+                  <option value="1">Off</option>
+                  <option value="1.25">Basic (+25%)</option>
+                  <option value="1.5">Standard (+50%)</option>
+                  <option value="2">Premium (+100%)</option>
+                </select>
+              </div>
             </div>
             <datalist id="sysopts"></datalist>
             <details class="shiprow">
