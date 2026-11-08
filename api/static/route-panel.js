@@ -65,11 +65,15 @@ function renderShipLibrary() {
   const ships = loadShips(); const active = activeShip();
   if (!ships.length) { el.hidden = true; el.innerHTML = ""; return; }
   el.hidden = false;
-  el.innerHTML = ships.map((s, i) =>
-    `<span class="ship-item ${i === active ? "active" : ""}">`
-    + `<button type="button" class="ship-pick" data-i="${i}" title="Switch to this ship">${escapeHtml(s.name)}</button>`
-    + `<button type="button" class="ship-del" data-i="${i}" title="Remove this ship">&times;</button>`
-    + `</span>`).join("");
+  el.innerHTML = ships.map((s, i) => {
+    // The active chip's tooltip carries the fuel details (range/tank/scoop) that
+    // used to clutter the #shipInfo line below.
+    const tip = (i === active && shipInfo && shipInfo.detail) ? shipInfo.detail : "Switch to this ship";
+    return `<span class="ship-item ${i === active ? "active" : ""}">`
+      + `<button type="button" class="ship-pick" data-i="${i}" title="${escapeHtml(tip)}">${escapeHtml(s.name)}</button>`
+      + `<button type="button" class="ship-del" data-i="${i}" title="Remove this ship">&times;</button>`
+      + `</span>`;
+  }).join("");
 }
 // Remove every stored ship and return to fuel-agnostic plotting. Confirms first
 // since it wipes the whole library and can't be undone.
@@ -222,13 +226,16 @@ async function importShip() {
     const sc = detectSupercharge(loadout);
     $("ship").value = sc;
     localStorage.setItem(SHIP_LS, sc);
-    // Plots at the full-tank range (always feasible); note the lighter max so
-    // the lower-than-EDSY number isn't a surprise (range grows as fuel burns).
+    // The chip (highlighted) + summary already show the ship name + range, so
+    // keep #shipInfo clean: stash the fuel details on the chip tooltip (via
+    // renderShipLibrary) and surface only the one actionable fact not shown
+    // elsewhere -- a missing fuel scoop.
     const upTo = (shipInfo.max_range_light && shipInfo.max_range_light > shipInfo.jump_range + 0.1)
-      ? ` <span class="tiny">(up to ${fmt(shipInfo.max_range_light, 1)} as fuel burns)</span>` : "";
-    $("shipInfo").innerHTML = `<span class="good">Ship imported ✓</span> `
-      + `${FUEL} range ${fmt(shipInfo.jump_range, 2)} LY${upTo} · tank ≈ ${shipInfo.tank_jumps} jumps · `
-      + (shipInfo.has_scoop ? "fuel scoop fitted" : `<span class="bad">no fuel scoop</span>`);
+      ? ` (up to ${fmt(shipInfo.max_range_light, 1)} as fuel burns)` : "";
+    shipInfo.detail = `range ${fmt(shipInfo.jump_range, 2)} LY${upTo} · tank ≈ ${shipInfo.tank_jumps} jumps · `
+      + (shipInfo.has_scoop ? "fuel scoop fitted" : "no fuel scoop");
+    $("shipInfo").innerHTML = shipInfo.has_scoop ? "" : `<span class="bad">no fuel scoop</span>`;
+    renderShipLibrary();  // re-render so the active chip tooltip picks up .detail
   } catch (e) {
     shipInfo = null;
     $("shipInfo").innerHTML = `<span class="bad">${escapeHtml(e.message || String(e))}</span>`;
