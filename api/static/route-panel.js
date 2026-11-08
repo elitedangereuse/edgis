@@ -773,7 +773,7 @@ function sourceRow(r, compact) {
 function renderRoute(r) {
   lastOurs = r;
   loadDone();
-  let header, rows, legend;
+  let header, rows;
   const riskMap = fuelRisks(r);
   if (compactMode) {
     const wps = compactRows(r);
@@ -793,7 +793,6 @@ function renderRoute(r) {
     </tr>`;
     }).join("");
     rows = sourceRow(r, true) + rows;
-    legend = "";
   } else {
     header = `<th class="chk-head" title="Done"></th><th class="num">#</th><th>system</th><th>star</th><th class="num">jumped</th><th class="num">left</th><th class="acts-head">actions</th>`;
     rows = r.jumps.map((j, i) => {
@@ -811,7 +810,6 @@ function renderRoute(r) {
     </tr>`;
     }).join("");
     rows = sourceRow(r, false) + rows;
-    legend = "";
   }
   $("out").innerHTML = `
     <div class="summary">
@@ -825,7 +823,6 @@ function renderRoute(r) {
     ${r.fuel ? `<div class="fuelbar">${fuelVerdict(r.fuel)}</div>` : ""}
     ${injectSummary(r)}
     <div id="cmpOut"></div>
-    ${legend ? `<p class="legend">${legend}</p>` : ""}
     <div class="summary-actions">
       <label class="switch" title="Compact: only the waypoints you plot in-game. Off: every jump.">
         <input type="checkbox" id="compactToggle" ${compactMode ? "checked" : ""} />
@@ -894,26 +891,13 @@ async function compareSpansh() {
     if (!res.ok) { if (out()) out().innerHTML = `<span class="bad">spansh compare failed (HTTP ${res.status})</span>`; return; }
     const s = await res.json();
     const sDur = s.duration_s != null ? `, ${fmt(s.duration_s, 1)} s` : "";
-    const ours = lastOurs ? lastOurs.total_jumps : null;
-    let verdict = "";
-    if (ours != null) { const d = s.total_jumps - ours;
-      verdict = d > 0 ? `<span class="good">ours ${d} fewer ✓</span>` : d < 0 ? `<span class="bad">spansh ${-d} fewer</span>` : "tie"; }
-    // Time comparison: spansh's job duration vs our solve time.
-    let timeStr = "";
-    if (s.duration_s != null && lastOurs) {
-      const spMs = s.duration_s * 1000, ourMs = lastOurs.solve_ms, dMs = spMs - ourMs;
-      const ft = (ms) => ms >= 1000 ? `${fmt(ms / 1000, 1)} s` : `${fmt(ms)} ms`;
-      timeStr = ` · ⏱ ${ft(ourMs)} vs ${ft(spMs)} <span class="${dMs >= 0 ? "good" : "bad"}">(${ft(Math.abs(dMs))} ${dMs >= 0 ? "faster" : "slower"})</span>`;
-    }
     const link = s.results_url ? ` · <a href="${escapeHtml(s.results_url)}" target="_blank" rel="noopener">open in spansh ↗</a>` : "";
     // Both sides use the selected supercharge; label it so the compare is
     // unambiguously apples-to-apples (e.g. Caspian 6x vs spansh at 6x).
     const sc = Number(supercharge || 4);
     const modeTag = sc !== 4 ? `<span class="tiny">supercharge ${sc}x</span> · ` : "";
-    // Our solve time is already in the "solve" stat above; show only spansh's count here.
     if (out()) out().innerHTML = modeTag + `<b>spansh Neutron&nbsp;Plotter:</b> ${fmt(s.total_jumps)} jumps (eff 60${sDur})`
-      + (ours != null ? ` · <b>ours:</b> ${fmt(ours)} jumps · ${verdict}` : "")
-      + timeStr + link;
+      + cmpVerdict(s.total_jumps) + cmpTime(s.duration_s) + link;
   } catch (e) { if (out()) out().innerHTML = `<span class="bad">${e.message || e}</span>`; }
   finally { $("cmp").disabled = false; setBusy(false); }
 }
