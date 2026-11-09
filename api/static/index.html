@@ -315,7 +315,7 @@
                   </div>
                   <div class="opt-field opts-inject"><span class="text-sm font-semibold" id="injectLabel">FSD injection</span>
                     <div class="inject-radios" role="radiogroup" aria-labelledby="injectLabel" title="Allow FSD synthesis injection, used only when required to cross a gap a normal jump can't reach. The route uses the least grade that works per gap and lists what to synthesise. This sets the highest grade allowed. Off by default.">
-                      <label class="inj-opt"><input type="radio" name="injectMult" value="1" checked /><span class="inj-txt">Off</span></label>
+                      <label class="inj-opt"><input type="radio" name="injectMult" value="1" checked /><img src="/static/assets/synthesis/off.svg" alt="" /><span class="inj-txt">Off</span></label>
                       <label class="inj-opt"><input type="radio" name="injectMult" value="1.25" /><img src="/static/assets/synthesis/basic.svg" alt="" /><span class="inj-txt">Basic <small>+25%</small></span></label>
                       <label class="inj-opt"><input type="radio" name="injectMult" value="1.5" /><img src="/static/assets/synthesis/standard.svg" alt="" /><span class="inj-txt">Standard <small>+50%</small></span></label>
                       <label class="inj-opt"><input type="radio" name="injectMult" value="2" /><img src="/static/assets/synthesis/premium.svg" alt="" /><span class="inj-txt">Premium <small>+100%</small></span></label>
@@ -1218,21 +1218,11 @@
      activateTab(initialTab);
 
      if (toolMenuItems.length) {
-       const routeItem = toolMenuItems.find(item => item.dataset.tool === 'route');
-       if (routeItem) {
-         // Route plotting is now an embedded panel (panel-route): no dataset.href,
-         // so clicking activates it in-place rather than navigating. Gate the menu
-         // visibility like the standalone did -- shown on staging/localhost for
-         // testing, and on prod once /route/status is public (ROUTE_PUBLIC_AFTER).
-         const isStaging = globalThis.location.hostname.includes('staging')
-                        || globalThis.location.hostname === 'localhost';
-         routeItem.hidden = true;
-         if (isStaging) routeItem.hidden = false;
-         fetch('/route/status')
-           .then(r => r.json())
-           .then(st => { if (st && st.public) routeItem.hidden = false; })
-           .catch(() => {});
-       }
+       // Route plotting is now visible to everyone in the Tools menu. Access to
+       // actually plotting is still gated by the entitlement waves (the panel's
+       // banner + access indicator explain how to get in); the menu link is the
+       // soft-launch entry point. (Previously hidden on prod until /route/status
+       // reported public = ROUTE_PUBLIC_AFTER.)
 
        for (const item of toolMenuItems) {
          item.addEventListener('click', () => {
