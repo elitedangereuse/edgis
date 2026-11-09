@@ -17,3 +17,7 @@ AGENTS.md
 /api/.envrc
 /api/.venv/
 /api/static/index-staging.html
+
+# Local planning/handoff notes have carried prod secrets; keep them out of the
+# public repo.
+/docs/
