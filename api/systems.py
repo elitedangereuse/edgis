@@ -3248,8 +3248,12 @@ def _solve_route_sync(
 # In-system refuel distance: a neutron waypoint whose system carries a scoopable
 # KGBFOAM companion within this many light-seconds lets the commander refuel
 # WITHOUT a divert jump (supercruise to the companion, scoop, jump out, chain
-# unbroken). ~100 Ls matches spansh's "secondary scoopable near arrival" rule.
-INFLIGHT_SCOOP_MAX_LS = 100.0
+# unbroken). Set to 1000 Ls: a divert is TWO jumps (~2 min) AND breaks the
+# supercharge chain, whereas a ~1000 Ls supercruise is ~1 min and keeps the
+# boost, so in-system scooping wins comfortably out to ~1000 Ls (further still
+# on SCO drives). spansh uses ~100; we trade a short supercruise for fewer
+# detour jumps. The request field caps it at 2000 Ls (~break-even with a divert).
+INFLIGHT_SCOOP_MAX_LS = 1000.0
 
 
 def _annotate_inflight_scoops(legs: list, conn, max_ls: float = INFLIGHT_SCOOP_MAX_LS) -> int:
