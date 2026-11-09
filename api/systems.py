@@ -3003,7 +3003,7 @@ def read_route_plotter():
 # ---------------------------------------------------------------------------
 # Route plotter (neutron-boosted). The KD-tree of ~5M neutrons lives resident
 # in this worker; the solver and entitlement gate live in routing.py /
-# entitlements.py. See docs/route-endpoint-plan.md.
+# entitlements.py.
 # ---------------------------------------------------------------------------
 
 _neutron_index: "routing.NeutronIndex | None" = None
