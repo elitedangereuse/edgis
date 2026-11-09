@@ -3264,12 +3264,17 @@ def _annotate_inflight_scoops(legs: list, conn, max_ls: float = INFLIGHT_SCOOP_M
 
 
 def _enforce_fuel_sync(base_result: dict, params, fuel_safe: bool,
-                       boost_mult: float = 4.0) -> dict:
+                       boost_mult: float = 4.0,
+                       scoop_max_ls: float = INFLIGHT_SCOOP_MAX_LS) -> dict:
     """Run the fuel layer on an already-solved (ship-agnostic) route: annotate
     neutron waypoints that allow an in-system refuel, then (when ``fuel_safe``)
     insert scoop-stop detours so it never strands, and attach a fuel report. Runs
     in a DB task because scoop detours and the companion lookup need queries. The
-    base geometry stays cached and untouched; this works on copies."""
+    base geometry stays cached and untouched; this works on copies.
+
+    ``scoop_max_ls`` is how far in-system the commander will supercruise to a
+    companion scoopable to refuel without a divert jump (the request-tunable
+    counterpart to ``companion_max_ls`` for boosting)."""
     result = dict(base_result)
     legs = [dict(leg) for leg in (base_result.get("jumps") or [])]
     src = base_result.get("source_coords")
@@ -3280,7 +3285,7 @@ def _enforce_fuel_sync(base_result: dict, params, fuel_safe: bool,
     if do_enforce or has_neutron:
         with _db_connection() as conn:
             if has_neutron:
-                _annotate_inflight_scoops(legs, conn)
+                _annotate_inflight_scoops(legs, conn, scoop_max_ls)
             if do_enforce:
                 dst = (legs[-1]["x"], legs[-1]["y"], legs[-1]["z"])
                 src_t = (src["x"], src["y"], src["z"])
@@ -3696,6 +3701,9 @@ class RouteRequest(BaseModel):
     loadout: Optional[str] = None
     cargo: float = Field(0.0, ge=0, le=2048)
     fuel_safe: bool = True
+    # How far in-system to supercruise to a companion scoopable for an
+    # in-highway refuel (no divert jump). Fuel-layer only; 0 = always divert.
+    scoop_max_ls: float = Field(INFLIGHT_SCOOP_MAX_LS, ge=0.0, le=2000.0)
     model_config = {"populate_by_name": True}
 
 
@@ -3735,7 +3743,8 @@ async def plot_route_post(
         # Fuel layer (enforcement + report) runs in a DB task: scoop-stop
         # insertion needs a scoopable-star query. Copies the cached geometry.
         result = await _run_db_task(
-            _enforce_fuel_sync, result, params, req.fuel_safe, req.supercharge
+            _enforce_fuel_sync, result, params, req.fuel_safe, req.supercharge,
+            req.scoop_max_ls,
         )
         # Parameters block for the spansh-exact export (ship build + fuel model).
         result["spansh_params"] = fsd.spansh_params(
