@@ -289,8 +289,20 @@ def test_route_post_attaches_fuel_report(monkeypatch):
 
     monkeypatch.setattr(systems, "_solve_route_sync", fake_solve)
 
-    # fuel_safe off -> report-only path (no DB needed; enforcement insertion is
-    # unit-tested in test_fsd with a fake scoopable fetch).
+    # The neutron waypoint still triggers the in-system scoop annotation, which
+    # opens a DB connection even with fuel_safe off: stub it out.
+    class _NoDb:
+        def __enter__(self):
+            return None
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(systems, "_db_connection", lambda: _NoDb())
+    monkeypatch.setattr(systems, "_annotate_inflight_scoops", lambda *a, **k: None)
+
+    # fuel_safe off -> report-only path (enforcement insertion is unit-tested in
+    # test_fsd with a fake scoopable fetch).
     resp = client.post(
         "/route",
         json={"from": "Sol", "to": "Near", "range": 50, "loadout": COBRA_SLEF,
