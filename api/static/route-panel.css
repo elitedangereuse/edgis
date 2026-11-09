@@ -6,7 +6,8 @@
   --accent:#80c4e6; --dim:#3b5059; --dim-a:#3b505966;
   /* Match the index/neighbors results palette (milkyway.css). */
   --accent-blue:#3b505966; --accent-white:#f8f8ff; --head-ink:#8fa2ab;
-  --text:#e5e7eb; --muted:#8b97a7; --neutron:#ffd36b; --ok:#53d08a; --err:#ff6b6b;
+  --text:#e5e7eb; --muted:#8b97a7; --neutron:#1294d6; --ok:#53d08a; --err:#ff6b6b;
+  --warn:#ffd36b;  /* fuel-risk amber, kept distinct from the neutron blue */
   --line:rgba(255,255,255,.10); --line2:rgba(255,255,255,.08);
   /* Match the index .glass panel: a faint translucent tint + blur, not a dark box. */
   --panel:rgba(255,255,255,.03); --head:rgba(255,255,255,.04); --field:rgba(255,255,255,.05);
@@ -24,7 +25,7 @@
         text-transform:uppercase; letter-spacing:.6px; border:1px solid var(--dim);
         color:var(--muted); background:rgba(255,255,255,.03); }
 #panel-route .pill.ok { color:var(--ok); border-color:#2c6b48; }
-#panel-route .pill.warn { color:var(--neutron); border-color:#7a5f27; }
+#panel-route .pill.warn { color:var(--warn); border-color:#7a5f27; }
 
 #panel-route .banner { border:1px solid var(--line); border-radius:10px; padding:10px 14px;
           margin-bottom:16px; background:var(--panel); font-size:13px; }
@@ -146,7 +147,8 @@
 #panel-route .sys { font-family:var(--mono); }
 #panel-route .boost { color:var(--neutron); }
 #panel-route .spec { color:var(--muted); font-family:var(--mono); }
-/* Neutron class letter in neutron-amber (neutron steps are amber by convention). */
+/* Neutron class letter in neutron-blue (neutron steps are blue by convention,
+   matching the button-icon blue). */
 #panel-route .spec.neutron { color:var(--neutron); }
 /* Spectral letter + fuel icon on one baseline-centred line (icon to the right). */
 #panel-route .starcell { display:inline-flex; align-items:center; gap:5px; }
@@ -154,7 +156,7 @@
 /* In-system scoop (neutron with a scoopable companion): green fuel-pump (the
    scooping colour), help cursor shows the companion distance tooltip. */
 #panel-route .inflight-scoop { display:inline-flex; cursor:help; }
-/* Companion-neutron arrival distance ("@120 Ls"): muted neutron-amber, help cursor. */
+/* Companion-neutron arrival distance ("@120 Ls"): muted neutron-blue, help cursor. */
 #panel-route .arrls { color:var(--neutron); opacity:.8; font-size:11px; cursor:help; white-space:nowrap; }
 /* In-system scoop distance reuses .arrls but in the fuel (green) colour. */
 #panel-route .arrls.scoop-ls { color:var(--ok); }

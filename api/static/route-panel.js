@@ -110,7 +110,7 @@ $("companionLs").addEventListener("change", () =>
 // In-system refuel distance to a companion scoopable at a neutron (fuel layer;
 // 0 = always divert). Counterpart to the boost companion above.
 const SCOOP_LS = "edgis_route_scoop_ls";
-$("scoopLs").value = localStorage.getItem(SCOOP_LS) || "100";
+$("scoopLs").value = localStorage.getItem(SCOOP_LS) || "1000";
 const scoopMaxLs = () =>
   Math.min(2000, Math.max(0, Number($("scoopLs").value) || 0));
 $("scoopLs").addEventListener("change", () =>
@@ -395,7 +395,7 @@ function spectralCell(j) {
   // companion in range); placed to the RIGHT of the star.
   const scoop = scoopable(j.spectral) ? FUEL
     : (j.inflight_scoop ? inflightScoopMarker(j.scoop_ls) : "");
-  // Companion (secondary) neutron: how far in-system you supercruise to it (amber).
+  // Companion (secondary) neutron: how far in-system you supercruise to it (blue).
   const companion = (j.neutron_star && j.arrival_ls > 0)
     ? ` <span class="arrls" title="Companion neutron ${escapeHtml(fmt(j.arrival_ls, 0))} Ls from arrival (supercruise to it, then supercharge)">@${escapeHtml(fmt(j.arrival_ls, 0))} Ls</span>`
     : "";
@@ -403,7 +403,7 @@ function spectralCell(j) {
   const scoopLs = (!scoopable(j.spectral) && j.inflight_scoop && j.scoop_ls != null)
     ? ` <span class="arrls scoop-ls" title="In-system scoop: scoopable companion ${escapeHtml(fmt(j.scoop_ls, 0))} Ls from arrival (refuel without leaving the route)">@${escapeHtml(fmt(j.scoop_ls, 0))} Ls</span>`
     : "";
-  // Neutron star class letter shown in neutron-amber (neutron steps are amber).
+  // Neutron star class letter shown in neutron-blue (neutron steps are blue).
   const spec = `<span class="spec${j.neutron_star ? " neutron" : ""}" title="${escapeHtml(starName(j.spectral))}">${escapeHtml(starShort(j.spectral))}</span>`;
   return `<span class="starcell">${spec}${scoop}${companion}${scoopLs}</span>`;
 }
