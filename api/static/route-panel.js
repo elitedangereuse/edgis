@@ -107,6 +107,15 @@ const companionMaxLs = () =>
 $("companionLs").addEventListener("change", () =>
   localStorage.setItem(COMPANION_LS, String(companionMaxLs())));
 
+// In-system refuel distance to a companion scoopable at a neutron (fuel layer;
+// 0 = always divert). Counterpart to the boost companion above.
+const SCOOP_LS = "edgis_route_scoop_ls";
+$("scoopLs").value = localStorage.getItem(SCOOP_LS) || "100";
+const scoopMaxLs = () =>
+  Math.min(2000, Math.max(0, Number($("scoopLs").value) || 0));
+$("scoopLs").addEventListener("change", () =>
+  localStorage.setItem(SCOOP_LS, String(scoopMaxLs())));
+
 // Opt-in FSD synthesis injection, used "when required" to cross gaps a normal
 // jump can't reach: 1 = off, 1.25/1.5/2 = basic/standard/premium.
 const INJECT_MULT = "edgis_route_inject";
@@ -987,6 +996,7 @@ async function plot() {
           from, to, range: Number(range), supercharge: Number(supercharge),
           companion_max_ls: companionLs, inject_mult: injectMult(),
           loadout, cargo: cargoTons(), fuel_safe: $("fuelSafe").checked,
+          scoop_max_ls: scoopMaxLs(),
         }),
       });
     } else {
@@ -1122,6 +1132,8 @@ window.edgisInitRoutePanel = function () {
   if (cargo != null && cargo !== "") { $("cargo").value = cargo; localStorage.setItem(CARGO_LS, String(cargoTons())); }
   const cml = q.get("companion_max_ls");
   if (cml != null && cml !== "") { $("companionLs").value = cml; localStorage.setItem(COMPANION_LS, String(companionMaxLs())); }
+  const sml = q.get("scoop_max_ls");
+  if (sml != null && sml !== "") { $("scoopLs").value = sml; localStorage.setItem(SCOOP_LS, String(scoopMaxLs())); }
   const inj = q.get("inject_mult");
   if (inj != null && inj !== "") { setInjectMult(inj); localStorage.setItem(INJECT_MULT, String(injectMult())); }
   if ($("loadout").value.trim()) { importShip(); }

@@ -309,6 +309,9 @@
                     <div class="opt-field"><label for="companionLs" class="text-sm font-semibold">Companion neutron boost (Ls)</label>
                       <input id="companionLs" type="number" min="0" max="2000" step="10" value="100" title="Supercharge off secondary (companion) neutron stars within this many light-seconds of arrival: supercruise to the companion, boost, carry on. 0 = main-star neutrons only. (Separate from refuelling at a companion scoopable, which the fuel layer handles.)" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
                     </div>
+                    <div class="opt-field"><label for="scoopLs" class="text-sm font-semibold">Companion scoop (Ls)</label>
+                      <input id="scoopLs" type="number" min="0" max="2000" step="10" value="100" title="Refuel at a companion scoopable star within this many light-seconds of a neutron waypoint, without a divert jump (supercruise to it, scoop, jump out, chain unbroken). 0 = always divert to the nearest scoopable. Only used when a ship is loaded (fuel-safe)." class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+                    </div>
                     <div class="opt-field"><label for="cargo" class="text-sm font-semibold" title="Cargo tonnage aboard: adds mass and shortens range.">Cargo (t)</label>
                       <input id="cargo" type="number" min="0" step="1" value="0" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
                     </div>
