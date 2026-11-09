@@ -802,6 +802,11 @@ function sourceRow(r, compact) {
 }
 
 function renderRoute(r) {
+  // A re-render of the SAME route (e.g. the compact/all-jumps toggle) must keep
+  // any spansh comparison already shown in #cmpOut; only a NEW plot (a different
+  // result object) clears it, since it would be stale.
+  const keepCmp = (r === lastOurs)
+    ? (document.getElementById("cmpOut")?.innerHTML || "") : "";
   lastOurs = r;
   loadDone();
   let header, rows;
@@ -853,7 +858,7 @@ function renderRoute(r) {
     </div>
     ${r.fuel ? `<div class="fuelbar">${fuelVerdict(r.fuel)}</div>` : ""}
     ${injectSummary(r)}
-    <div id="cmpOut"></div>
+    <div id="cmpOut">${keepCmp}</div>
     <div class="summary-actions">
       <label class="switch" title="Compact: only the waypoints you plot in-game. Off: every jump.">
         <input type="checkbox" id="compactToggle" ${compactMode ? "checked" : ""} />
