@@ -54,6 +54,7 @@ class NeutronIndex:
         id64: list[int],
         names: list[str],
         arrival_ls: Optional[np.ndarray] = None,
+        scoop_ls: Optional[np.ndarray] = None,
     ) -> None:
         self.coords = coords
         self.id64 = id64
@@ -65,6 +66,17 @@ class NeutronIndex:
             np.asarray(arrival_ls, dtype=np.float64)
             if arrival_ls is not None
             else np.zeros(len(id64), dtype=np.float64)
+        )
+        # Distance-from-arrival (Ls) of the nearest SCOOPABLE companion star in
+        # this neutron's system, or +inf if none: landing here lets the commander
+        # refuel without leaving the highway (supercruise to the scoopable, scoop,
+        # jump out). The fuel-aware planner treats a neutron with
+        # scoop_ls <= scoop_max_ls as a free refuel. +inf unless folded in from
+        # the scoopable_neutrons precompute. See [[scoopable-neutron-precompute]].
+        self.scoop_ls = (
+            np.asarray(scoop_ls, dtype=np.float64)
+            if scoop_ls is not None
+            else np.full(len(id64), np.inf, dtype=np.float64)
         )
         self.tree = cKDTree(coords)
         self.count = len(id64)
@@ -81,7 +93,15 @@ class NeutronIndex:
             [float(r[5]) if len(r) > 5 and r[5] is not None else 0.0 for r in rows],
             dtype=np.float64,
         )
-        return cls(coords, [r[3] for r in rows], [r[4] for r in rows], arrival)
+        # Optional 7th column = scoop_ls (nearest scoopable companion Ls); +inf
+        # when absent (NULL) or the column isn't provided.
+        scoop = np.asarray(
+            [float(r[6]) if len(r) > 6 and r[6] is not None else np.inf
+             for r in rows],
+            dtype=np.float64,
+        )
+        return cls(coords, [r[3] for r in rows], [r[4] for r in rows],
+                   arrival, scoop)
 
 
 @dataclass

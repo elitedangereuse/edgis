@@ -3039,22 +3039,50 @@ def _fetch_neutron_rows_sync():
     with _db_connection() as conn:
         cursor = conn.cursor()
         try:
-            cursor.execute(
-                "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), id64, name "
-                "FROM systems_big WHERE mainstar IN ('N', 'Neutron Star')"
-            )
+            # scoop_ls (col 7) = nearest scoopable-companion Ls per neutron system,
+            # for fuel-aware refuel routing. It comes from the optional
+            # ``scoopable_neutrons`` precompute (built off-peak); when the table is
+            # absent the join is skipped and scoop_ls folds in as +inf, so the
+            # index build works on any database. NULL also folds in as +inf.
+            cursor.execute("SELECT to_regclass('scoopable_neutrons')")
+            has_scoop = cursor.fetchone()[0] is not None
+            if has_scoop:
+                cursor.execute(
+                    "SELECT ST_X(s.coords), ST_Y(s.coords), ST_Z(s.coords), s.id64, "
+                    "s.name, 0.0, sn.scoop_ls FROM systems_big s "
+                    "LEFT JOIN scoopable_neutrons sn ON sn.id64 = s.id64 "
+                    "WHERE s.mainstar IN ('N', 'Neutron Star')"
+                )
+            else:
+                cursor.execute(
+                    "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), id64, name "
+                    "FROM systems_big WHERE mainstar IN ('N', 'Neutron Star')"
+                )
             rows = cursor.fetchall()  # main-star neutrons; arrival_ls defaults 0
             # One point per system with a companion neutron (the closest one),
             # arrival distance as the 6th column. Uses idx_bodies_companion_neutron.
-            cursor.execute(
-                "SELECT ST_X(s.coords), ST_Y(s.coords), ST_Z(s.coords), "
-                "b.system_id64, s.name, min(b.distance_from_arrival_ls) "
-                "FROM bodies b JOIN systems_big s ON s.id64 = b.system_id64 "
-                "WHERE b.star_type_id = 28 AND b.distance_from_arrival_ls > 0 "
-                "AND b.distance_from_arrival_ls <= %s "
-                "GROUP BY b.system_id64, s.coords, s.name",
-                (COMPANION_NEUTRON_BUILD_MAX_LS,),
-            )
+            if has_scoop:
+                cursor.execute(
+                    "SELECT ST_X(s.coords), ST_Y(s.coords), ST_Z(s.coords), "
+                    "b.system_id64, s.name, min(b.distance_from_arrival_ls), "
+                    "sn.scoop_ls FROM bodies b "
+                    "JOIN systems_big s ON s.id64 = b.system_id64 "
+                    "LEFT JOIN scoopable_neutrons sn ON sn.id64 = b.system_id64 "
+                    "WHERE b.star_type_id = 28 AND b.distance_from_arrival_ls > 0 "
+                    "AND b.distance_from_arrival_ls <= %s "
+                    "GROUP BY b.system_id64, s.coords, s.name, sn.scoop_ls",
+                    (COMPANION_NEUTRON_BUILD_MAX_LS,),
+                )
+            else:
+                cursor.execute(
+                    "SELECT ST_X(s.coords), ST_Y(s.coords), ST_Z(s.coords), "
+                    "b.system_id64, s.name, min(b.distance_from_arrival_ls) "
+                    "FROM bodies b JOIN systems_big s ON s.id64 = b.system_id64 "
+                    "WHERE b.star_type_id = 28 AND b.distance_from_arrival_ls > 0 "
+                    "AND b.distance_from_arrival_ls <= %s "
+                    "GROUP BY b.system_id64, s.coords, s.name",
+                    (COMPANION_NEUTRON_BUILD_MAX_LS,),
+                )
             rows.extend(cursor.fetchall())
             return rows
         finally:
