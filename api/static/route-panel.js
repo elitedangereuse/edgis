@@ -101,7 +101,7 @@ $("cargo").addEventListener("change", () => {
 
 // Opt-in companion (secondary) neutrons within N Ls of arrival (0 = off).
 const COMPANION_LS = "edgis_route_companion_ls";
-$("companionLs").value = localStorage.getItem(COMPANION_LS) || "0";
+$("companionLs").value = localStorage.getItem(COMPANION_LS) || "100";
 const companionMaxLs = () =>
   Math.min(2000, Math.max(0, Number($("companionLs").value) || 0));
 $("companionLs").addEventListener("change", () =>
