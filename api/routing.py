@@ -514,6 +514,13 @@ _ORIENT_FLIP_RATIO = 1.5
 # native direction succeeds. The Sol bubble (~394 within 30J) reverses fine; the
 # Beagle Point rim (~35) does not. A flip that fails anyway falls back to native.
 _ORIENT_DENSITY_FLOOR = 150
+# Never flip on a galaxy-spanning route. Validation (the DB host, Colonia->deep-space
+# at J50) showed that beyond ~30 kly the reversed realization into the sparse
+# approach either explodes the jump count (dens~40 @ 33 kly: 812 vs native 322)
+# or runs pathologically long (dens~250 @ 46 kly: 790 s). The density floor alone
+# can't catch the far-but-locally-dense case; this does. Bubble/Colonia-ward and
+# moderate deep routes (<=29 kly measured) flip safely and are 10-100x faster.
+_ORIENT_MAX_LY = 30000.0
 # FSD synthesis injection grades (range multiplier), ascending so the bridger
 # picks the LEAST that crosses a gap: basic +25%, standard +50%, premium +100%.
 _INJECT_GRADES = (1.25, 1.5, 2.0)
@@ -1072,17 +1079,18 @@ def graph_route(
     # Orient the A* toward the denser endpoint when the destination is clearly
     # sparser (see _ORIENT_FLIP_RATIO): a sparse GOAL makes the ceil(d/boost)
     # heuristic wildly optimistic and explodes the frontier (Colonia->Sol was
-    # ~14x slower than Sol->Colonia for the same route). The flip is gated by an
-    # absolute floor on the destination's local density -- realization is only
-    # APPROXIMATELY direction-symmetric, and into an EXTREME-sparse rim (e.g.
-    # Beagle Point, ~35 neutrons within 30J) the reversed sequence can fail to
-    # realize where the native direction succeeds. If a flipped solve fails
-    # anyway, fall back to the native (proven) orientation so we are never worse
-    # than before.
+    # ~14x slower than Sol->Colonia for the same route). Realization is only
+    # APPROXIMATELY direction-symmetric, so the flip is gated three ways: a
+    # DISTANCE cap (galaxy-spanning reversed realization explodes the jumps or
+    # hangs -- _ORIENT_MAX_LY), a destination DENSITY floor (an extreme-sparse rim
+    # like Beagle Point can't realize reversed -- _ORIENT_DENSITY_FLOOR), and the
+    # ratio. If a flipped solve still fails, fall back to the native (proven)
+    # orientation so we are never worse than before.
     dens_s = len(index.tree.query_ball_point(sv, entry_r))
     dens_d = len(index.tree.query_ball_point(dv, entry_r))
     flip = (
-        dens_d >= _ORIENT_DENSITY_FLOOR
+        straight < _ORIENT_MAX_LY
+        and dens_d >= _ORIENT_DENSITY_FLOOR
         and dens_s > dens_d * _ORIENT_FLIP_RATIO
     )
     result = _solve(flip)

@@ -269,6 +269,33 @@ def test_graph_route_density_floor_blocks_flip_into_extreme_rim(monkeypatch):
     assert goals[-1][2] == pytest.approx(0.0), "flipped toward a sub-floor destination"
 
 
+def test_graph_route_distance_cap_blocks_flip(monkeypatch):
+    # Density asymmetry alone isn't enough: on a galaxy-spanning route the
+    # reversed realization into the sparse approach explodes/hangs, so the flip
+    # is also gated by _ORIENT_MAX_LY. Drop the floor (so only the distance cap
+    # is in play) and shrink the cap below this route's length: it must NOT flip.
+    chain = [(0.0, 0.0, float(40 + 180 * k)) for k in range(11)]
+    cluster = [(float(a), float(b), 1980.0)
+               for a in range(-40, 41, 20) for b in range(-40, 41, 20)]
+    index = make_index(chain + cluster)
+    A, B = (0.0, 0.0, 0.0), (0.0, 0.0, 2000.0)  # 2000 ly apart
+    monkeypatch.setattr(routing, "_ORIENT_DENSITY_FLOOR", 0)
+    monkeypatch.setattr(routing, "_ORIENT_MAX_LY", 1000.0)  # < 2000 ly route
+
+    goals = []
+    orig = routing._graph_search
+
+    def spy(index_, cand, ssv, sdv, *a, **k):
+        goals.append(tuple(np.asarray(sdv, dtype=float)))
+        return orig(index_, cand, ssv, sdv, *a, **k)
+
+    monkeypatch.setattr(routing, "_graph_search", spy)
+    rev = routing.graph_route(index, B, A, 50.0, grid_stars())  # would flip if not capped
+    assert rev is not None
+    assert_legal(rev, 50.0)
+    assert goals[-1][2] == pytest.approx(0.0), "flipped a galaxy-spanning route past the cap"
+
+
 def test_graph_route_excludes_permit_locked_neutrons():
     # A straight neutron chain where one neutron (by name) is permit-locked.
     # With exclusion on, that neutron must not be boarded.
