@@ -514,7 +514,7 @@ _ORIENT_FLIP_RATIO = 1.5
 # native direction succeeds. The Sol bubble (~394 within 30J) reverses fine; the
 # Beagle Point rim (~35) does not. A flip that fails anyway falls back to native.
 _ORIENT_DENSITY_FLOOR = 150
-# Never flip on a galaxy-spanning route. Validation (the DB host, Colonia->deep-space
+# Never flip on a galaxy-spanning route. Validation (Colonia->deep-space
 # at J50) showed that beyond ~30 kly the reversed realization into the sparse
 # approach either explodes the jump count (dens~40 @ 33 kly: 812 vs native 322)
 # or runs pathologically long (dens~250 @ 46 kly: 790 s). The density floor alone
