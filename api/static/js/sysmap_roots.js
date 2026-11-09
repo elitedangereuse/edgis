@@ -502,14 +502,25 @@ function associateBarycenterMembers(nodes){
         bary.baryChildren = children.filter(c => c.name && wanted.has(c.name));
     });
 
-    // 2) fallback: unclassified barycenters keep their two heaviest children
-    directChildren.forEach((children, baryId) => {
-        const bary = nodes.get(baryId);
-        if(bary.baryChildren.length >= 2) return;
-        bary.baryChildren = [...children]
-            .sort((a, b) => inBaryUnits(b, bary) - inBaryUnits(a, bary))
-            .slice(0, 2);
-    });
+    // 2) fallback: unclassified barycenters keep their two heaviest children.
+    // Nested barycenters go first so an unnamed inner pair (Gendalla's
+    // "Barycenter2" holding B+C) has its member mass before its parent
+    // compares it against circumbinary planets.
+    const baryDepth = (baryId, path = new Set()) => {
+        const parentId = nodes.get(baryId)?.directBaryParentId;
+        if(parentId == null || !nodes.has(parentId) || path.has(baryId)) return 0;
+        path.add(baryId);
+        return 1 + baryDepth(parentId, path);
+    };
+    [...directChildren.entries()]
+        .sort(([a], [b]) => baryDepth(b) - baryDepth(a))
+        .forEach(([baryId, children]) => {
+            const bary = nodes.get(baryId);
+            if(bary.baryChildren.length >= 2) return;
+            bary.baryChildren = [...children]
+                .sort((a, b) => inBaryUnits(b, bary) - inBaryUnits(a, bary))
+                .slice(0, 2);
+        });
 
     // 3) sort members by mass (heaviest first) and store member mass sums
     arrayNodes.forEach(node => {

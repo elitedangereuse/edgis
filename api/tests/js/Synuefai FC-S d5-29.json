@@ -1,0 +1,195 @@
+[
+  {
+    "body_id": 0,
+    "body_name": "Synuefai FC-S d5-29 ABCD",
+    "type": "Barycenter",
+    "parents": []
+  },
+  {
+    "body_id": 1,
+    "body_name": "Barycenter1",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 2,
+    "body_name": "Synuefai FC-S d5-29 A",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.878906
+  },
+  {
+    "body_id": 3,
+    "body_name": "Synuefai FC-S d5-29 B",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.378906
+  },
+  {
+    "body_id": 4,
+    "body_name": "Barycenter4",
+    "type": "Barycenter",
+    "parents": [
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 5,
+    "body_name": "Synuefai FC-S d5-29 C",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 4
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.359375
+  },
+  {
+    "body_id": 6,
+    "body_name": "Synuefai FC-S d5-29 D",
+    "type": "Star",
+    "parents": [
+      {
+        "Null": 4
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 0.179688
+  },
+  {
+    "body_id": 7,
+    "body_name": "Synuefai FC-S d5-29 B A Belt",
+    "type": "StellarRing",
+    "parents": [
+      {
+        "Star": 3
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 8,
+    "body_name": "Synuefai FC-S d5-29 B A Belt Cluster 1",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 7
+      },
+      {
+        "Star": 3
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 9,
+    "body_name": "Synuefai FC-S d5-29 B A Belt Cluster 2",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 7
+      },
+      {
+        "Star": 3
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 10,
+    "body_name": "Synuefai FC-S d5-29 B A Belt Cluster 3",
+    "type": "AsteroidCluster",
+    "parents": [
+      {
+        "Ring": 7
+      },
+      {
+        "Star": 3
+      },
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ]
+  },
+  {
+    "body_id": 11,
+    "body_name": "Synuefai FC-S d5-29 AB 1",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 1
+      },
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 5.270007
+  },
+  {
+    "body_id": 12,
+    "body_name": "Synuefai FC-S d5-29 ABCD 1",
+    "type": "Planet",
+    "parents": [
+      {
+        "Null": 0
+      }
+    ],
+    "mass": 2.872834
+  },
+  {
+    "body_id": 13,
+    "body_name": "Synuefai FC-S d5-29 ABCD 1 A Ring",
+    "type": "PlanetaryRing",
+    "parents": [
+      {
+        "Planet": 12
+      },
+      {
+        "Null": 0
+      }
+    ]
+  }
+]

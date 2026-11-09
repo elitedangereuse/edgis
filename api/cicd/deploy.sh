@@ -78,9 +78,16 @@ TMP_CHANGED_FILE_LIST=$(mktemp)
     echo static/assets/synthesis/standard.svg
     echo static/assets/synthesis/premium.svg
     echo static/fixtures/sysmap-body-palette.json
+    # Extra files may be untracked (index-staging.html is gitignored): skip the
+    # missing ones so rsync does not abort the deploy before the restart.
     for file in "${EXTRA_FILES[@]}"; do
-        if [[ -n "$file" ]]; then
+        if [[ -z "$file" ]]; then
+            continue
+        fi
+        if [[ -f "$file" ]]; then
             echo "$file"
+        else
+            echo "Skipping missing $file" >&2
         fi
     done
 } > "$TMP_CHANGED_FILE_LIST"

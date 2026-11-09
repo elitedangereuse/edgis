@@ -16,7 +16,7 @@ Froadik/Hyponia/Sidgoir regions). 28 sectors, 86 named systems.
 
 Regenerate: clone elitedangereuse/LoreExplorer, grep ``src/*.org`` for the
 ``:Permit:`` filetag, take each ``#+title:``, and split into procedural-sector
-prefixes vs named systems (see docs/route-plotter-handoff.md).
+prefixes vs named systems.
 
 In Elite a jump is point-to-point, so this is pure node filtering: the router
 drops any neutron waypoint or bridge star whose name is locked. The plotted
