@@ -3126,6 +3126,8 @@ def _solve_route_sync(
     boost_mult: float = 4.0,
     companion_max_ls: float = 0.0,
     inject_mult: float = 1.0,
+    tank_jumps: int = 0,
+    scoop_max_ls: float = 0.0,
 ):
     index = _neutron_index
     if index is None:  # pragma: no cover - guarded by caller
@@ -3225,6 +3227,8 @@ def _solve_route_sync(
                 boost_mult=boost_mult,
                 companion_max_ls=companion_max_ls,
                 inject_mult=im,
+                tank_jumps=tank_jumps,
+                scoop_max_ls=scoop_max_ls,
             )
             if result is not None:
                 result["engine"] = "graph"
@@ -3542,11 +3546,17 @@ async def _solve_route_cached(
     access_via: Optional[str],
     companion_max_ls: float = 0.0,
     inject_mult: float = 1.0,
+    tank_jumps: int = 0,
+    scoop_max_ls: float = 0.0,
 ) -> dict:
     """Resolve + solve a route with the Redis cache and in-flight coalescing.
-    Shared by GET and POST /route; the fuel layer (POST only) runs on top of
-    the dict this returns, so the geometry cache stays ship-agnostic (a route
-    is the same for every ship at a given range/supercharge)."""
+    Shared by GET and POST /route. The fuel REPORT always runs on top of the
+    returned geometry, but the GEOMETRY itself is ship-agnostic unless the
+    caller passes ``tank_jumps`` (from a loadout's tank capacity): then the
+    corridor A* plans fuel-aware -- threading scoopable neutrons as free refuels
+    -- and the cache key is extended with the tank + scoop reach so those
+    ship-specific routes don't collide with the shared ones. GET /route and
+    loadout-less POST pass ``tank_jumps == 0`` and keep the shared key."""
 
     global _route_solve_semaphore
     if _neutron_index is None:
@@ -3567,6 +3577,9 @@ async def _solve_route_cached(
         # (no cache fragmentation / one-time miss on the common route).
         + (f"|cml{companion_max_ls:g}" if companion_max_ls > 0 else "")
         + (f"|inj{inject_mult:g}" if inject_mult > 1.0 else "")
+        # Fuel-aware geometry is ship-specific: bucket by tank capacity (jumps)
+        # and scoop reach so it never collides with the shared ship-agnostic key.
+        + (f"|tj{tank_jumps}|sls{scoop_max_ls:g}" if tank_jumps > 0 else "")
     )
     try:
         cached = await _route_cache.get(cache_key)
@@ -3630,6 +3643,7 @@ async def _solve_route_cached(
                 result = await _run_db_task(
                     _solve_route_sync, src, dst, jump_range, beam_width,
                     supercharge, companion_max_ls, inject_mult,
+                    tank_jumps, scoop_max_ls,
                 )
             except routing.RouteError as exc:
                 _log_route_trace(
@@ -3761,12 +3775,19 @@ async def plot_route_post(
     When ``fuel_safe`` is set, ``_enforce_fuel_sync`` inserts scoop-stop detours
     (or an in-system companion scoop at a neutron waypoint) so the route never
     strands; otherwise fuel risk is only reported."""
+    # Parse the loadout first: its tank capacity (consecutive boosted jumps on a
+    # full tank) makes the corridor A* fuel-aware, threading scoopable neutrons
+    # as free refuels so it avoids the +2 scoop-stop detours the fuel layer would
+    # otherwise insert. No loadout -> tank_jumps 0 -> the shared, ship-agnostic
+    # geometry (identical to GET /route).
+    params = fsd.parse_loadout(req.loadout, req.cargo) if req.loadout else None
+    tank_jumps = fsd.tank_capacity_jumps(params) if params is not None else 0
     result = await _solve_route_cached(
         req.from_, req.to, req.jump_range, req.beam_width, req.supercharge,
         access.get("via"), companion_max_ls=req.companion_max_ls,
         inject_mult=req.inject_mult,
+        tank_jumps=tank_jumps, scoop_max_ls=req.scoop_max_ls,
     )
-    params = fsd.parse_loadout(req.loadout, req.cargo) if req.loadout else None
     if params is not None:
         # Fuel layer (enforcement + report) runs in a DB task: scoop-stop
         # insertion needs a scoopable-star query. Copies the cached geometry.

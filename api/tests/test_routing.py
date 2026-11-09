@@ -1,5 +1,6 @@
 import pathlib
 import sys
+import time
 
 import numpy as np
 import pytest
@@ -444,3 +445,91 @@ def test_solve_route_beam_respects_companion_cap():
     assert any(leg.get("system") == "N1" for leg in on["jumps"])  # companion used
     with pytest.raises(routing.RouteError):
         routing.solve_route(idx, src, dst, J, no_stars, companion_max_ls=0.0)
+
+
+def make_scoop_index(points, scoop_ls):
+    coords = np.asarray(points, dtype=np.float64)
+    return routing.NeutronIndex(
+        coords,
+        list(range(len(points))),
+        [f"N{i}" for i in range(len(points))],
+        scoop_ls=np.asarray(scoop_ls, dtype=np.float64),
+    )
+
+
+# Two equal-length boosted chains share an entry neutron N0 and a launch neutron
+# N3; the middle hop is either N1 (on-axis, NOT scoopable) or N2 (offset,
+# scoopable within 50 Ls). With a roomy tank they tie on jumps and the shorter
+# on-axis N1 wins; with a one-jump tank the N1 chain must detour to refuel
+# (+2 jumps) while the N2 chain refuels for free, so the fuel-aware search
+# threads the scoopable N2 instead. J=10 -> boost=40; every hop fits in 40 ly.
+_SCOOP_PTS = [(0.0, 0.0, 5.0), (0.0, 0.0, 40.0), (6.0, 0.0, 40.0), (0.0, 0.0, 75.0)]
+_SCOOP_LS = [np.inf, np.inf, 50.0, np.inf]  # only N2 has a scoopable companion
+_SCOOP_SRC, _SCOOP_DST = (0.0, 0.0, 0.0), (0.0, 0.0, 110.0)
+
+
+def _fuel_seq(tank_jumps, scoop_max_ls=100.0, index=None):
+    idx = index if index is not None else make_scoop_index(_SCOOP_PTS, _SCOOP_LS)
+    return routing._graph_search_fuel(
+        idx, np.arange(len(idx.id64)), np.asarray(_SCOOP_SRC),
+        np.asarray(_SCOOP_DST), 10.0, 300.0, 16, set(), [],
+        time.perf_counter() + 10.0, tank_jumps, scoop_max_ls,
+    )
+
+
+def test_fuel_search_threads_scoopable_neutron_on_tight_tank():
+    # One-jump tank: the non-scoopable N1 chain forces a refuel detour, so the
+    # search routes through the scoopable N2 (index 2) instead of N1 (index 1).
+    seq = _fuel_seq(tank_jumps=1)
+    assert seq == [0, 2, 3]
+
+
+def test_fuel_search_matches_plain_when_tank_is_roomy():
+    # A roomy tank never binds, so the fuel-aware search reduces to plain
+    # min-jumps: equal jump counts tie-broken to the shorter on-axis N1 chain,
+    # exactly what the ship-agnostic search returns.
+    roomy = _fuel_seq(tank_jumps=50)
+    plain = routing._graph_search(
+        make_scoop_index(_SCOOP_PTS, _SCOOP_LS), np.arange(4),
+        np.asarray(_SCOOP_SRC), np.asarray(_SCOOP_DST), 10.0, 300.0, 16,
+        set(), [], time.perf_counter() + 10.0,
+    )
+    assert roomy == plain == [0, 1, 3]
+
+
+def test_fuel_search_ignores_companion_beyond_scoop_cap():
+    # N2's scoopable companion sits at 50 Ls; a 20 Ls cap must not treat it as a
+    # free refuel, so the search gets no benefit from threading N2 and never
+    # routes through it.
+    seq = _fuel_seq(tank_jumps=1, scoop_max_ls=20.0)
+    assert 2 not in seq
+
+
+def test_graph_route_fuel_aware_disabled_without_scoop_data():
+    # graph_route must stay byte-for-byte when the index carries no scoop data
+    # (all +inf): tank_jumps is ignored and the plain geometry is produced.
+    J = 50.0
+    pts = [(0.0, 0.0, float(z)) for z in (40, 200, 360)]
+    idx = make_index(pts)  # scoop_ls defaults to +inf everywhere
+    src, dst = (0.0, 0.0, 0.0), (0.0, 0.0, 400.0)
+    base = routing.graph_route(idx, src, dst, J, no_stars, time_cap=10.0)
+    fuel = routing.graph_route(
+        idx, src, dst, J, no_stars, time_cap=10.0, tank_jumps=3,
+        scoop_max_ls=100.0,
+    )
+    assert base is not None and fuel is not None
+    assert fuel["total_jumps"] == base["total_jumps"]
+    assert [l["system"] for l in fuel["jumps"]] == [l["system"] for l in base["jumps"]]
+
+
+def test_graph_route_fuel_aware_realizes_scoopable_route():
+    # End to end through graph_route: the tight-tank fuel-aware solve realizes a
+    # legal route that boards the scoopable N2 waypoint.
+    idx = make_scoop_index(_SCOOP_PTS, _SCOOP_LS)
+    route = routing.graph_route(
+        idx, _SCOOP_SRC, _SCOOP_DST, 10.0, no_stars, time_cap=10.0,
+        tank_jumps=1, scoop_max_ls=100.0,
+    )
+    assert route is not None
+    assert_legal(route, 10.0)
+    assert any(leg.get("system") == "N2" for leg in route["jumps"])

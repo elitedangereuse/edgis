@@ -730,6 +730,246 @@ def _graph_search(
     return seq
 
 
+class _FuelLabel:
+    """A heap entry for the fuel-aware search: the node, cumulative jumps ``g``,
+    refuel resource ``r`` (boosted jumps since the last refuel), distance ``d``
+    (heap tiebreak + reconstruction), and the parent label for the path."""
+
+    __slots__ = ("node", "g", "r", "d", "par")
+
+    def __init__(self, node: int, g: int, r: int, d: float,
+                 par: "Optional[_FuelLabel]") -> None:
+        self.node = node
+        self.g = g
+        self.r = r
+        self.d = d
+        self.par = par
+
+
+def _graph_search_fuel(
+    index: NeutronIndex,
+    cand: np.ndarray,
+    sv: np.ndarray,
+    dv: np.ndarray,
+    jump_range: float,
+    entry_r: float,
+    gap_k: int,
+    blacklist: set[tuple[int, int]],
+    badzones: list[tuple[np.ndarray, float]],
+    deadline: float,
+    tank_jumps: int,
+    scoop_max_ls: float,
+    boost_mult: float = 4.0,
+) -> Optional[list[int]]:
+    """Fuel-aware variant of :func:`_graph_search`. Min-**jumps** over the
+    corridor neutrons where a boosted hop burns one jump of fuel and landing on a
+    *scoopable* neutron (``scoop_ls <= scoop_max_ls``, from the ``scoopable_neutrons``
+    precompute) is a FREE refuel, so the search threads scoopable neutrons rather
+    than landing on a dry neutron that forces a scoop-stop detour. This reproduces
+    spansh's inline refuels and kills the detour tax that makes our reverse
+    (Colonia->Sol) jump count blow out. See ``docs/fuel-aware-planner-plan.md``.
+
+    Models a refuel RESOURCE ``r`` = boosted jumps since the last refuel, in
+    ``[0, T]`` with ``T = tank_jumps``. A boost hop costs 1 and bumps ``r`` (reset
+    to 0 on a scoopable landing); a hop attempted on a dry tank (``r == T``) costs
+    3 -- the forced +2 scoop-stop detour folded into the edge. Multi-jump analytic
+    edges (entry / gap / tail / direct) are scoop-safe bridges the fuel enforcer
+    keeps fuelled, so they reset ``r`` to 0 and never pay the dry-tank penalty.
+
+    Dominance pruning keeps the (node x fuel) state space small: a candidate is
+    kept only when no lower-or-equal resource already reaches the node in no more
+    jumps. The front per node is an anti-chain of size ``<= T + 1``. The dominance
+    test is a ``best_g[node, r]`` array (fewest jumps to reach a node at each fuel
+    level) so a whole neighbour batch is relaxed with one vectorised prefix-min +
+    compare -- a naive per-label Python scan was ~10x the ship-agnostic search.
+
+    Returns the neutron sequence as GLOBAL index ids (same contract as
+    :func:`_graph_search`), or ``None`` on timeout / no route -- the caller then
+    falls back to the ship-agnostic search, so the fuel layer never regresses the
+    geometry below the proven min-jumps route.
+    """
+
+    J = jump_range
+    boost = boost_mult * J
+    straight = float(np.linalg.norm(dv - sv))
+    n = len(cand)
+    cc = index.coords[cand] if n else np.zeros((0, 3))
+    lt = cKDTree(cc) if n else None
+    dd_dst = np.linalg.norm(cc - dv, axis=1) if n else np.zeros(0)
+    hv = np.ceil(dd_dst / boost).astype(np.int64) if n else np.zeros(0, np.int64)
+    # Scoopable flag per corridor candidate: landing here is a free refuel.
+    sls = getattr(index, "scoop_ls", None)
+    scoopable = (
+        (np.asarray(sls)[cand] <= scoop_max_ls)
+        if (sls is not None and n) else np.zeros(n, dtype=bool)
+    )
+    T = int(tank_jumps)
+
+    def zone_ok(pa, pb) -> bool:
+        if not badzones:
+            return True
+        mid = (pa + pb) / 2.0
+        return all(float(np.linalg.norm(mid - c)) >= r for c, r in badzones)
+
+    SRC, DST = n, n + 1
+    BIG = np.iinfo(np.int64).max // 4
+    # best_g[node, r] = fewest jumps known to reach ``node`` with resource ``r``.
+    # This array IS the dominance structure: a candidate (node, g, r) is dominated
+    # iff some r' <= r already reaches node in <= g jumps, i.e. the prefix-minimum
+    # best_g[node, 0..r] <= g. Checking/relaxing a whole neighbour batch is then a
+    # vectorised prefix-min + compare (no per-label Python front scan, which was
+    # the hot spot). Columns are capped at r == T. SRC/DST use column 0.
+    best_g = np.full((n + 2, T + 1), BIG, dtype=np.int64)
+
+    # A corridor neutron's outgoing edges (boost neighbours, void-bridge gap edges,
+    # the tail to DST) are label-independent -- only the fuel bookkeeping on a boost
+    # hop varies -- and a node is popped once per non-dominated label, so memoise
+    # the (expensive) kd-tree queries per node.
+    edge_cache: dict[int, tuple] = {}
+
+    def node_edges(u: int) -> tuple:
+        hit = edge_cache.get(u)
+        if hit is not None:
+            return hit
+        cu = cc[u]
+        ms = np.asarray(lt.query_ball_point(cu, boost), dtype=np.int64)
+        if len(ms):
+            ms = ms[ms != u]
+        if len(ms):
+            dm = np.linalg.norm(cc[ms] - cu, axis=1)
+            scoop = scoopable[ms]
+            forward = bool(np.any(dd_dst[ms] < dd_dst[u] - 1e-6))
+        else:
+            dm = np.zeros(0)
+            scoop = np.zeros(0, dtype=bool)
+            forward = False
+        gap_edges: list[tuple[int, int, float]] = []
+        if not forward:
+            # Local dead end toward the target: bridge the void analytically
+            # (a scoop-safe bridge, so arrive refuelled).
+            for mult in _GAP_RADII_J:
+                near = np.asarray(
+                    lt.query_ball_point(cu, mult * J), dtype=np.int64
+                )
+                near = near[dd_dst[near] < dd_dst[u] - 1e-6]
+                if not len(near):
+                    continue
+                dms = np.linalg.norm(cc[near] - cu, axis=1)
+                got = False
+                for i in np.argsort(dms)[:gap_k]:
+                    m = int(near[i])
+                    if (int(cand[u]), int(cand[m])) in blacklist:
+                        continue
+                    if not zone_ok(cu, cc[m]):
+                        continue
+                    gap_edges.append(
+                        (m, _boosted_jumps(float(dms[i]), J, boost_mult),
+                         float(dms[i]))
+                    )
+                    got = True
+                if got:
+                    break
+        tail: Optional[tuple[int, float]] = None
+        if (int(cand[u]), -2) not in blacklist and zone_ok(cu, dv):
+            tail = (_boosted_jumps(float(dd_dst[u]), J, boost_mult),
+                    float(dd_dst[u]))
+        hit = (ms, dm, scoop, gap_edges, tail)
+        edge_cache[u] = hit
+        return hit
+
+    seq_counter = 0
+    pq: list[tuple[int, int, float, int, _FuelLabel]] = []
+
+    def push(node: int, g: int, r: int, d: float,
+             par: Optional[_FuelLabel]) -> None:
+        nonlocal seq_counter
+        h = 0 if node >= n else int(hv[node])
+        heapq.heappush(
+            pq, (g + h, -g, d, seq_counter, _FuelLabel(node, g, r, d, par))
+        )
+        seq_counter += 1
+
+    def relax(m: int, cg: int, cr: int, cd: float,
+              par: Optional[_FuelLabel]) -> None:
+        """Scalar relax for the analytic edges (entry / gap / tail / direct), all
+        of which arrive refuelled (cr == 0) or terminal. Pushes iff ``cg`` beats
+        every resource level up to ``cr`` at ``m``."""
+        if int(best_g[m, : cr + 1].min()) <= cg:
+            return  # dominated by an equal-or-better label already at m
+        best_g[m, cr] = cg
+        push(m, cg, cr, cd, par)
+
+    best_g[SRC, 0] = 0
+    push(SRC, 0, 0, 0.0, None)
+
+    dst_lab: Optional[_FuelLabel] = None
+    while pq:
+        _, _, _, _, lab = heapq.heappop(pq)
+        u = lab.node
+        if u == DST:
+            dst_lab = lab  # first DST pop is min-jumps (h(DST) == 0)
+            break
+        if u < n:
+            # Skip a label the array has since superseded: a smaller g reached its
+            # own (u, r) cell, or a lower-r label now dominates it.
+            if best_g[u, lab.r] < lab.g:
+                continue
+            if lab.r and int(best_g[u, : lab.r].min()) <= lab.g:
+                continue
+        if time.perf_counter() > deadline:
+            return None
+        gg = lab.g
+        if u == SRC:
+            if (-1, -2) not in blacklist and zone_ok(sv, dv):
+                relax(DST, gg + int(math.ceil(straight / J)), 0, straight, lab)
+            if lt is not None:
+                ms = np.asarray(lt.query_ball_point(sv, entry_r), dtype=np.int64)
+                for m in ms:
+                    m = int(m)
+                    if (-1, int(cand[m])) in blacklist or not zone_ok(sv, cc[m]):
+                        continue
+                    dm = float(np.linalg.norm(cc[m] - sv))
+                    # Entry is a scoop-safe regular bridge: arrive refuelled.
+                    relax(m, gg + max(int(math.ceil(dm / J)), 1), 0, dm, lab)
+            continue
+        r = lab.r
+        ms, dm, scoop, gap_edges, tail = node_edges(u)
+        if tail is not None:
+            # Tail: a supercharged bridge straight to the destination (terminal).
+            tcost, tdist = tail
+            relax(DST, gg + tcost, 0, lab.d + tdist, lab)
+        if len(ms):
+            # Vectorised boost-hop relax over all neighbours at once. A dry tank
+            # (r == T) folds the forced +2 scoop detour into the edge (cost 3);
+            # otherwise cost 1. Landing on a scoopable neutron refuels (nr = 0).
+            if r >= T:
+                cg = gg + 3
+                nr = np.where(scoop, 0, 1)
+            else:
+                cg = gg + 1
+                nr = np.where(scoop, 0, r + 1)
+            pmin = np.minimum.accumulate(best_g[ms], axis=1)
+            keep = pmin[np.arange(len(ms)), nr] > cg  # non-dominated candidates
+            if keep.any():
+                km = ms[keep]
+                knr = nr[keep]
+                kd = lab.d + dm[keep]
+                best_g[km, knr] = cg
+                for mm, rr, dd in zip(km, knr, kd):
+                    push(int(mm), cg, int(rr), float(dd), lab)
+        for m, cost, gdm in gap_edges:
+            relax(m, gg + cost, 0, lab.d + gdm, lab)
+    if dst_lab is None:
+        return None
+    seq: list[int] = []
+    cur = dst_lab.par
+    while cur is not None and cur.node != SRC:
+        seq.append(int(cand[cur.node]))
+        cur = cur.par
+    seq.reverse()
+    return seq
+
+
 def _bridge_greedy(
     fetch_stars_within: FetchStarsWithin,
     fetch_stars_toward: Optional[FetchStarsToward],
@@ -1021,6 +1261,8 @@ def graph_route(
     boost_mult: float = 4.0,
     companion_max_ls: float = 0.0,
     inject_mult: float = 1.0,
+    tank_jumps: int = 0,
+    scoop_max_ls: float = 0.0,
 ) -> Optional[dict]:
     """Min-**jumps** route via corridor-bounded neutron-graph A*, realized into
     legs with greedy + capsule-BFS bridging. Edges the realizer proves
@@ -1047,6 +1289,20 @@ def graph_route(
     straight = _dist(sv, dv)
     entry_r = entry_jumps * J
 
+    # Fuel-aware search is ship-SPECIFIC (tank size + scoopable-companion reach)
+    # and only pays off when the index carries the scoopable-neutron precompute.
+    # Without it, fall through to the proven ship-agnostic min-jumps search so
+    # GET /route and loadout-less POST stay byte-for-byte identical.
+    _sls = getattr(index, "scoop_ls", None)
+    use_fuel = (
+        int(tank_jumps) >= 1
+        # No reachable scoopable companions -> nothing to thread, so don't
+        # perturb the proven geometry (the user opted out of in-highway scoops).
+        and float(scoop_max_ls) > 0.0
+        and _sls is not None
+        and bool(np.isfinite(np.asarray(_sls)).any())
+    )
+
     cand = _corridor_candidates(index, sv, dv, corridor_ly, entry_r)
     # Companion neutrons (arrival_ls > 0) are boost sources you must fly to
     # in-system first; keep only those within companion_max_ls. Main-star
@@ -1071,10 +1327,21 @@ def graph_route(
         blacklist: set[tuple[int, int]] = set()
         badzones: list[tuple[np.ndarray, float]] = []
         for _ in range(rounds):
-            seq = _graph_search(
-                index, cand, ssv, sdv, J, entry_r, gap_k, blacklist, badzones,
-                deadline, boost_mult=boost_mult,
-            )
+            seq = None
+            if use_fuel:
+                # Fuel-aware: thread scoopable neutrons as free refuels. On a
+                # timeout / no-route it returns None; fall back to the proven
+                # ship-agnostic min-jumps search so we never regress.
+                seq = _graph_search_fuel(
+                    index, cand, ssv, sdv, J, entry_r, gap_k, blacklist,
+                    badzones, deadline, int(tank_jumps), float(scoop_max_ls),
+                    boost_mult=boost_mult,
+                )
+            if seq is None:
+                seq = _graph_search(
+                    index, cand, ssv, sdv, J, entry_r, gap_k, blacklist,
+                    badzones, deadline, boost_mult=boost_mult,
+                )
             if seq is None:
                 return None
             rseq = list(reversed(seq)) if flip else seq
