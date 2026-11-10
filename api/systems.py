@@ -3311,12 +3311,12 @@ def _solve_route_sync(
 # In-system refuel distance: a neutron waypoint whose system carries a scoopable
 # KGBFOAM companion within this many light-seconds lets the commander refuel
 # WITHOUT a divert jump (supercruise to the companion, scoop, jump out, chain
-# unbroken). Set to 1000 Ls: a divert is TWO jumps (~2 min) AND breaks the
-# supercharge chain, whereas a ~1000 Ls supercruise is ~1 min and keeps the
-# boost, so in-system scooping wins comfortably out to ~1000 Ls (further still
-# on SCO drives). spansh uses ~100; we trade a short supercruise for fewer
-# detour jumps. The request field caps it at 2000 Ls (~break-even with a divert).
-INFLIGHT_SCOOP_MAX_LS = 1000.0
+# unbroken). Default 500 Ls (matches the web UI default): a divert is TWO jumps
+# (~2 min) AND breaks the supercharge chain, whereas a short (~500 Ls) supercruise
+# keeps the boost, so in-system scooping wins comfortably. spansh uses ~100; we
+# trade a short supercruise for fewer detour jumps. The request field caps it at
+# 2000 Ls (~break-even with a divert).
+INFLIGHT_SCOOP_MAX_LS = 500.0
 
 
 def _annotate_inflight_scoops(legs: list, conn, max_ls: float = INFLIGHT_SCOOP_MAX_LS) -> int:
@@ -3782,9 +3782,10 @@ async def plot_route(
         "Caspian Explorer's Mk II SCO drive.",
     ),
     companion_max_ls: float = Query(
-        0.0, ge=0.0, le=COMPANION_NEUTRON_BUILD_MAX_LS,
+        500.0, ge=0.0, le=COMPANION_NEUTRON_BUILD_MAX_LS,
         description="Also boost from companion (secondary) neutron stars within "
-        "this many light-seconds of arrival. 0 = main-star neutrons only.",
+        "this many light-seconds of arrival. 0 = main-star neutrons only. "
+        "Default 500 (matches the web UI).",
     ),
     inject_mult: float = Query(
         1.0, ge=1.0, le=2.0,
@@ -3813,7 +3814,7 @@ class RouteRequest(BaseModel):
     jump_range: float = Field(50.0, alias="range", gt=0, le=200)
     beam_width: Optional[int] = Field(None, ge=1, le=100)
     supercharge: float = Field(4.0, ge=1.0, le=6.0)
-    companion_max_ls: float = Field(0.0, ge=0.0, le=COMPANION_NEUTRON_BUILD_MAX_LS)
+    companion_max_ls: float = Field(500.0, ge=0.0, le=COMPANION_NEUTRON_BUILD_MAX_LS)
     inject_mult: float = Field(1.0, ge=1.0, le=2.0)
     loadout: Optional[str] = None
     cargo: float = Field(0.0, ge=0, le=2048)
