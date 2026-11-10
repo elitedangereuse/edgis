@@ -1208,12 +1208,22 @@
          }
        }
 
-       // Route plotting is a native panel (panel-route) that carries its own
-       // results (route-panel.js), so hide the shared result/quote area for it.
-       const routeActive = resolved === 'route';
-       if (result) result.classList.toggle('hidden', routeActive);
+       // The system-lookup outputs (search result/count box, the system card and
+       // the system-map embed) render OUTSIDE the lookup panel, so switching tools
+       // used to leave a previously-searched system visible under the route
+       // plotter / explorer tools. Clear them whenever lookup isn't the active
+       // tool; a new search restores them.
+       const lookupActive = resolved === 'lookup';
+       if (result) result.classList.toggle('hidden', !lookupActive);
+       if (!lookupActive) {
+         if (systemCard) systemCard.hidden = true;
+         if (bodiesEmbedContainer) bodiesEmbedContainer.hidden = true;
+         if (bodiesEmbedOpenBtn) bodiesEmbedOpenBtn.hidden = true;
+         if (lookupActions) lookupActions.hidden = true;
+       }
        // Initialize the route panel (status/auth/ship fetches) only when it's
        // first opened, not on every index load.
+       const routeActive = resolved === 'route';
        if (routeActive && window.edgisInitRoutePanel) window.edgisInitRoutePanel();
      }
 
