@@ -500,7 +500,13 @@ function renderAccessIndicator() {
   const m = accessMethod();
   const ind = $("accessIndicator");
   if (!ind) return;
-  if (m) { ind.innerHTML = `<span class="dot"></span>access via <b>${escapeHtml(m)}</b>`; ind.hidden = false; }
+  const me = lastAccess.me;
+  // Logged-in CMDR name (from the elitedangereuse.fr session), shown in italics
+  // next to the access method.
+  const who = (me && me.authenticated && me.name)
+    ? ` <i class="cmdr-name">${escapeHtml(me.name)}</i>` : "";
+  if (m) { ind.innerHTML = `<span class="dot"></span>access via <b>${escapeHtml(m)}</b>${who}`; ind.hidden = false; }
+  else if (who) { ind.innerHTML = `<span class="dot"></span>${who.trim()}`; ind.hidden = false; }
   else { ind.hidden = true; }
 }
 
