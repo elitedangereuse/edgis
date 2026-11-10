@@ -970,6 +970,205 @@ def _graph_search_fuel(
     return seq
 
 
+def _graph_search_range(
+    index: NeutronIndex,
+    cand: np.ndarray,
+    sv: np.ndarray,
+    dv: np.ndarray,
+    jump_range: float,
+    entry_r: float,
+    gap_k: int,
+    blacklist: set[tuple[int, int]],
+    badzones: list[tuple[np.ndarray, float]],
+    deadline: float,
+    reach_by_r: np.ndarray,
+    scoop_max_ls: float,
+    boost_mult: float = 4.0,
+) -> Optional[list[int]]:
+    """B2 = fuel-aware search (B1's scoopable-neutron threading) PLUS range growth:
+    a ship's jump range grows as the tank empties, so a boost hop made at resource
+    r (boosted jumps since the last refuel) reaches ``reach_by_r[r]`` -- longer when
+    the tank is emptier -- letting the chain take fewer, longer hops late in a
+    refuel cycle. ``reach_by_r[r] = boost_mult * jump_range(fuel after r jumps)``,
+    computed by the caller from the loadout; reach_by_r[0] == the B1 full-tank reach
+    and grows toward 4*max_range_light at r == T-1 (T = len(reach_by_r)).
+
+    OVER-RANGE SAFE by construction: reach_by_r assumes the CONSERVATIVE max
+    fuel-burn per jump, so the realized fuel is always >= assumed and the real reach
+    >= reach_by_r[r]; the long hops only occur mid-chain where fuel is genuinely
+    low, and every bridge / refuel resets r to 0 (full tank, shortest reach).
+
+    DOMINANCE is SAME-r only: under range growth a lower r (fuller tank, more jumps
+    left but SHORTER reach) no longer dominates a higher r (emptier, longer reach),
+    so keep the min-jumps label per (node, r). best_g[node, r] holds it; relax iff
+    cg < best_g[m, r]. Heuristic uses the MAX reach to stay admissible.
+
+    Returns the neutron sequence as GLOBAL ids (the caller forward-simulates the
+    per-node resource for the realizer, which is flip-safe), or ``None`` (timeout /
+    no route); the caller then falls back to the ship-agnostic search.
+    """
+
+    J = jump_range
+    reach_by_r = np.asarray(reach_by_r, dtype=np.float64)
+    T = len(reach_by_r)
+    reach_max = float(reach_by_r.max())
+    straight = float(np.linalg.norm(dv - sv))
+    n = len(cand)
+    cc = index.coords[cand] if n else np.zeros((0, 3))
+    lt = cKDTree(cc) if n else None
+    dd_dst = np.linalg.norm(cc - dv, axis=1) if n else np.zeros(0)
+    hv = np.ceil(dd_dst / reach_max).astype(np.int64) if n else np.zeros(0, np.int64)
+    sls = getattr(index, "scoop_ls", None)
+    scoopable = (
+        (np.asarray(sls)[cand] <= scoop_max_ls)
+        if (sls is not None and n) else np.zeros(n, dtype=bool)
+    )
+
+    def zone_ok(pa, pb) -> bool:
+        if not badzones:
+            return True
+        mid = (pa + pb) / 2.0
+        return all(float(np.linalg.norm(mid - c)) >= r for c, r in badzones)
+
+    SRC, DST = n, n + 1
+    BIG = np.iinfo(np.int64).max // 4
+    best_g = np.full((n + 2, T + 1), BIG, dtype=np.int64)
+    par: dict[tuple[int, int], tuple[int, int]] = {}
+
+    # Boost neighbours within the MAX reach, kept sorted by distance so a label at
+    # resource r uses the prefix within reach_by_r[r]. Memoised per node.
+    edge_cache: dict[int, tuple] = {}
+
+    def node_edges(u: int) -> tuple:
+        hit = edge_cache.get(u)
+        if hit is not None:
+            return hit
+        cu = cc[u]
+        ms = np.asarray(lt.query_ball_point(cu, reach_max), dtype=np.int64)
+        if len(ms):
+            ms = ms[ms != u]
+        if len(ms):
+            dm = np.linalg.norm(cc[ms] - cu, axis=1)
+            o = np.argsort(dm)
+            ms = ms[o]; dm = dm[o]
+            scoop = scoopable[ms]
+        else:
+            dm = np.zeros(0); scoop = np.zeros(0, dtype=bool)
+        gap_edges: list[tuple[int, int, float]] = []
+        # Gap edges fire where no forward boost neighbour exists even at reach_max;
+        # a scoop-safe analytic bridge at full-tank J (arrives refuelled).
+        forward = bool(len(ms) and np.any(dd_dst[ms] < dd_dst[u] - 1e-6))
+        if not forward:
+            for mult in _GAP_RADII_J:
+                near = np.asarray(
+                    lt.query_ball_point(cu, mult * J), dtype=np.int64
+                )
+                near = near[dd_dst[near] < dd_dst[u] - 1e-6]
+                if not len(near):
+                    continue
+                dms = np.linalg.norm(cc[near] - cu, axis=1)
+                got = False
+                for i in np.argsort(dms)[:gap_k]:
+                    m = int(near[i])
+                    if (int(cand[u]), int(cand[m])) in blacklist:
+                        continue
+                    if not zone_ok(cu, cc[m]):
+                        continue
+                    gap_edges.append(
+                        (m, _boosted_jumps(float(dms[i]), J, boost_mult),
+                         float(dms[i]))
+                    )
+                    got = True
+                if got:
+                    break
+        tail: Optional[tuple[int, float]] = None
+        if (int(cand[u]), -2) not in blacklist and zone_ok(cu, dv):
+            tail = (_boosted_jumps(float(dd_dst[u]), J, boost_mult),
+                    float(dd_dst[u]))
+        hit = (ms, dm, scoop, gap_edges, tail)
+        edge_cache[u] = hit
+        return hit
+
+    order = 0
+    pq: list[tuple[int, int, float, int, int, int]] = []
+
+    def push(node: int, g: int, r: int, d: float) -> None:
+        nonlocal order
+        h = 0 if node >= n else int(hv[node])
+        heapq.heappush(pq, (g + h, g, d, order, node, r))
+        order += 1
+
+    def relax(m: int, cg: int, cr: int, cd: float, pnode: int, pr: int) -> None:
+        if best_g[m, cr] <= cg:
+            return  # same (node, r) already reached in no more jumps
+        best_g[m, cr] = cg
+        par[(m, cr)] = (pnode, pr)
+        push(m, cg, cr, cd)
+
+    best_g[SRC, 0] = 0
+    push(SRC, 0, 0, 0.0)
+    dst_r: Optional[int] = None
+    while pq:
+        _, g, cd, _, u, r = heapq.heappop(pq)
+        if u == DST:
+            dst_r = r
+            break
+        if u < n and best_g[u, r] < g:
+            continue  # a smaller g reached this (node, r) after it was queued
+        if time.perf_counter() > deadline:
+            return None
+        gg = g
+        if u == SRC:
+            if (-1, -2) not in blacklist and zone_ok(sv, dv):
+                relax(DST, gg + int(math.ceil(straight / J)), 0, straight, SRC, 0)
+            if lt is not None:
+                ms = np.asarray(lt.query_ball_point(sv, entry_r), dtype=np.int64)
+                for m in ms:
+                    m = int(m)
+                    if (-1, int(cand[m])) in blacklist or not zone_ok(sv, cc[m]):
+                        continue
+                    dm = float(np.linalg.norm(cc[m] - sv))
+                    relax(m, gg + max(int(math.ceil(dm / J)), 1), 0, dm, SRC, 0)
+            continue
+        ms, dm, scoop, gap_edges, tail = node_edges(u)
+        if tail is not None:
+            tcost, tdist = tail
+            relax(DST, gg + tcost, 0, cd + tdist, u, r)
+        if len(ms):
+            # Boost hops usable at this resource: reach grows with r. r == T is a
+            # dry tank -> +2 detour (cost 3) then a full-tank hop (reach_by_r[0]).
+            if r >= T:
+                reach = reach_by_r[0]; step = 3
+            else:
+                reach = reach_by_r[r]; step = 1
+            k = int(np.searchsorted(dm, reach, side="right"))
+            if k:
+                mm = ms[:k]; sc = scoop[:k]
+                if r >= T:
+                    nr = np.where(sc, 0, 1)
+                else:
+                    nr = np.where(sc, 0, r + 1)
+                cg = gg + step
+                keep = cg < best_g[mm, nr]
+                for i in np.nonzero(keep)[0]:
+                    m = int(mm[i]); rn = int(nr[i])
+                    best_g[m, rn] = cg; par[(m, rn)] = (u, r)
+                    push(m, cg, rn, cd + float(dm[i]))
+        for m, cost, gdm in gap_edges:
+            relax(m, gg + cost, 0, cd + gdm, u, r)
+    if dst_r is None:
+        return None
+    seq: list[int] = []
+    node = (DST, dst_r)
+    while node in par:
+        pnode, pr = par[node]
+        if node[0] < n:
+            seq.append(int(cand[node[0]]))
+        node = (pnode, pr)
+    seq.reverse()
+    return seq
+
+
 def _bridge_greedy(
     fetch_stars_within: FetchStarsWithin,
     fetch_stars_toward: Optional[FetchStarsToward],
@@ -1158,13 +1357,22 @@ def _realize_graph(
     is_locked: Optional[Callable[[str], bool]] = None,
     boost_mult: float = 4.0,
     inject_mult: float = 1.0,
+    seq_r: Optional[list[int]] = None,
+    reach_by_r: Optional[np.ndarray] = None,
 ):
     """Realize a neutron sequence into legs. Returns ``(legs, None)`` or
     ``(None, (edge, midpoint, seg_d))`` naming the unbridgeable edge.
-    ``inject_mult`` > 1 lets the greedy bridger FSD-inject across gaps."""
+    ``inject_mult`` > 1 lets the greedy bridger FSD-inject across gaps.
+
+    ``seq_r`` + ``reach_by_r`` enable B2 range growth: the boosted hop OFF
+    ``seq[i]`` is allowed up to ``reach_by_r[seq_r[i]]`` (range grows as the tank
+    empties), not a fixed ``boost_mult*J``, so longer late-cycle hops realize as a
+    single boost leg instead of a bridge. Over-range safe (``reach_by_r`` assumes
+    the conservative max fuel-burn, so the real reach is never shorter)."""
 
     J = jump_range
     boost = boost_mult * J
+    rbr = None if reach_by_r is None else np.asarray(reach_by_r, dtype=np.float64)
     coords = index.coords
     names = index.names
     id64 = index.id64
@@ -1176,10 +1384,15 @@ def _realize_graph(
     targets = [
         (coords[n], names[n], id64[n], True, int(n)) for n in seq
     ] + [(dst_v, None, None, False, -2)]
-    for tgt, name, idv, is_neut, gid in targets:
+    for j, (tgt, name, idv, is_neut, gid) in enumerate(targets):
         tgt = np.asarray(tgt, dtype=np.float64)
         d = float(np.linalg.norm(tgt - pos))
-        reach = boost if boosted else J
+        # B2: the hop boosts off the previous neutron seq[j-1] at its resource,
+        # so it may reach reach_by_r[seq_r[j-1]] (grows as the tank empties).
+        if boosted and rbr is not None and seq_r is not None and j >= 1:
+            reach = float(rbr[min(seq_r[j - 1], len(rbr) - 1)])
+        else:
+            reach = boost if boosted else J
         if d > reach + 1e-9:
             max_steps = int(math.ceil(d / J)) * 4 + 8
             # First try to bridge WITHOUT injection: FSD injection is "when
@@ -1263,6 +1476,7 @@ def graph_route(
     inject_mult: float = 1.0,
     tank_jumps: int = 0,
     scoop_max_ls: float = 0.0,
+    reach_by_r: Optional[list[float]] = None,
 ) -> Optional[dict]:
     """Min-**jumps** route via corridor-bounded neutron-graph A*, realized into
     legs with greedy + capsule-BFS bridging. Edges the realizer proves
@@ -1302,6 +1516,16 @@ def graph_route(
         and _sls is not None
         and bool(np.isfinite(np.asarray(_sls)).any())
     )
+    # B2: range growth on top of the fuel-aware search. Enabled when the caller
+    # supplies reach_by_r (per-resource boost reach from the loadout) and the reach
+    # actually grows; otherwise fall back to B1's fixed full-tank reach.
+    _rbr = (
+        np.asarray(reach_by_r, dtype=np.float64)
+        if (use_fuel and reach_by_r is not None and len(reach_by_r) >= 1)
+        else None
+    )
+    use_range = _rbr is not None and float(_rbr.max()) > float(_rbr[0]) + 1e-9
+    _sls_arr = np.asarray(_sls) if _sls is not None else None
 
     cand = _corridor_candidates(index, sv, dv, corridor_ly, entry_r)
     # Companion neutrons (arrival_ls > 0) are boost sources you must fly to
@@ -1328,8 +1552,16 @@ def graph_route(
         badzones: list[tuple[np.ndarray, float]] = []
         for _ in range(rounds):
             seq = None
-            if use_fuel:
-                # Fuel-aware: thread scoopable neutrons as free refuels. On a
+            if use_range:
+                # B2: fuel-aware threading + range growth (reach grows as fuel
+                # burns). On a timeout / no-route it returns None; fall back below.
+                seq = _graph_search_range(
+                    index, cand, ssv, sdv, J, entry_r, gap_k, blacklist,
+                    badzones, deadline, _rbr, float(scoop_max_ls),
+                    boost_mult=boost_mult,
+                )
+            if seq is None and use_fuel:
+                # B1: fuel-aware threading at the fixed full-tank reach. On a
                 # timeout / no-route it returns None; fall back to the proven
                 # ship-agnostic min-jumps search so we never regress.
                 seq = _graph_search_fuel(
@@ -1345,10 +1577,25 @@ def graph_route(
             if seq is None:
                 return None
             rseq = list(reversed(seq)) if flip else seq
+            # B2: forward-simulate the per-neutron resource in realization order
+            # (flip-safe) so the realizer caps each boost leg at reach_by_r[r].
+            seq_r = None
+            if use_range and _sls_arr is not None and rseq:
+                T = len(_rbr)
+                seq_r = []
+                for i, gid in enumerate(rseq):
+                    if i == 0:
+                        r = 0
+                    else:
+                        r = seq_r[i - 1] + 1
+                        if _sls_arr[gid] <= scoop_max_ls or r >= T:
+                            r = 0
+                    seq_r.append(r)
             legs, fail = _realize_graph(
                 index, src, dst, J, rseq, fetch_stars_within,
                 fetch_stars_near_segment, fetch_stars_toward, is_locked=is_locked,
                 boost_mult=boost_mult, inject_mult=inject_mult,
+                seq_r=seq_r, reach_by_r=(_rbr if use_range else None),
             )
             if legs is not None:
                 return _finalize(

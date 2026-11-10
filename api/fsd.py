@@ -475,6 +475,27 @@ def tank_capacity_jumps(params: "FuelParams") -> int:
     return int(params.tank_size / params.max_fuel_per_jump + 1e-9)
 
 
+def reach_profile(params: "FuelParams", boost_mult: float = 4.0) -> list[float]:
+    """Boosted jump reach at each resource level r (boosted jumps since the last
+    refuel), for the B2 range-growth planner: ``reach_by_r[r] = boost_mult *
+    jump_range(fuel after r jumps)``. A ship's range grows as the tank empties
+    (lighter), so the reach grows from ``boost_mult * max_range_full`` at r=0
+    (full tank, just refuelled) toward ``boost_mult * max_range_light`` at
+    r = T-1. Uses the CONSERVATIVE max fuel-burn per jump (matching
+    ``tank_capacity_jumps``) so the realized fuel is never below the assumption
+    and the planned long hops are never over-range. Returns ``[]`` when the tank
+    holds fewer than ~1 jump (no useful growth profile)."""
+    T = tank_capacity_jumps(params)
+    if T <= 0:
+        return []
+    maxf = params.max_fuel_per_jump
+    # Keep at least one jump of fuel in the mass estimate (you cannot jump drier).
+    return [
+        boost_mult * params.jump_range(max(maxf, params.tank_size - r * maxf))
+        for r in range(T)
+    ]
+
+
 def fuel_report(jumps, params: "FuelParams", start_fuel: Optional[float] = None,
                 boost_mult: float = 4.0):
     """Summarize a realized route's fuel safety for a given ship.

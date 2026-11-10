@@ -3128,6 +3128,7 @@ def _solve_route_sync(
     inject_mult: float = 1.0,
     tank_jumps: int = 0,
     scoop_max_ls: float = 0.0,
+    reach_by_r: list | None = None,
 ):
     index = _neutron_index
     if index is None:  # pragma: no cover - guarded by caller
@@ -3229,6 +3230,7 @@ def _solve_route_sync(
                 inject_mult=im,
                 tank_jumps=tank_jumps,
                 scoop_max_ls=scoop_max_ls,
+                reach_by_r=reach_by_r,
             )
             if result is not None:
                 result["engine"] = "graph"
@@ -3552,6 +3554,7 @@ async def _solve_route_cached(
     inject_mult: float = 1.0,
     tank_jumps: int = 0,
     scoop_max_ls: float = 0.0,
+    reach_by_r: list | None = None,
 ) -> dict:
     """Resolve + solve a route with the Redis cache and in-flight coalescing.
     Shared by GET and POST /route. The fuel REPORT always runs on top of the
@@ -3584,6 +3587,10 @@ async def _solve_route_cached(
         # Fuel-aware geometry is ship-specific: bucket by tank capacity (jumps)
         # and scoop reach so it never collides with the shared ship-agnostic key.
         + (f"|tj{tank_jumps}|sls{scoop_max_ls:g}" if tank_jumps > 0 else "")
+        # B2 range growth: the geometry depends on the ship's full->light reach
+        # spread, so bucket by the max (lightest-tank) reach when it grows.
+        + (f"|rbr{max(reach_by_r):.1f}"
+           if (reach_by_r and max(reach_by_r) > min(reach_by_r) + 1e-9) else "")
     )
     try:
         cached = await _route_cache.get(cache_key)
@@ -3647,7 +3654,7 @@ async def _solve_route_cached(
                 result = await _run_db_task(
                     _solve_route_sync, src, dst, jump_range, beam_width,
                     supercharge, companion_max_ls, inject_mult,
-                    tank_jumps, scoop_max_ls,
+                    tank_jumps, scoop_max_ls, reach_by_r,
                 )
             except routing.RouteError as exc:
                 _log_route_trace(
@@ -3786,11 +3793,18 @@ async def plot_route_post(
     # geometry (identical to GET /route).
     params = fsd.parse_loadout(req.loadout, req.cargo) if req.loadout else None
     tank_jumps = fsd.tank_capacity_jumps(params) if params is not None else 0
+    # B2: the per-resource boost reach (range grows as the tank empties) lets the
+    # planner chain fewer, longer hops late in a refuel cycle. Derived from the
+    # loadout + supercharge; None without a loadout (shared ship-agnostic geometry).
+    reach_by_r = (
+        fsd.reach_profile(params, req.supercharge) if params is not None else None
+    )
     result = await _solve_route_cached(
         req.from_, req.to, req.jump_range, req.beam_width, req.supercharge,
         access.get("via"), companion_max_ls=req.companion_max_ls,
         inject_mult=req.inject_mult,
         tank_jumps=tank_jumps, scoop_max_ls=req.scoop_max_ls,
+        reach_by_r=reach_by_r,
     )
     if params is not None:
         # Fuel layer (enforcement + report) runs in a DB task: scoop-stop

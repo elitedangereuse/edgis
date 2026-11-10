@@ -533,3 +533,52 @@ def test_graph_route_fuel_aware_realizes_scoopable_route():
     assert route is not None
     assert_legal(route, 10.0)
     assert any(leg.get("system") == "N2" for leg in route["jumps"])
+
+
+# B2 range growth: a chain of neutrons spaced 25 ly. At the fixed full-tank reach
+# (40) every neutron is a hop; once the tank empties the reach grows to 55, which
+# spans two gaps (50 ly), so the range-aware search takes fewer, longer hops.
+_B2_PTS = [(0.0, 0.0, float(z)) for z in (5, 30, 55, 80, 105, 130, 155)]
+
+
+def _b2_index():
+    # Finite scoop_ls above the 100 Ls cap: the index has scoop data (so the
+    # fuel-aware path engages) but none are free refuels, isolating range growth.
+    return make_scoop_index(_B2_PTS, [5000.0] * len(_B2_PTS))
+
+
+# Roomy tank (20) so the fixed-reach baseline never forces a dry-tank detour,
+# isolating the effect of range growth. Reach is 40 until the tank is 2 jumps
+# down, then 55 (spans a 50 ly double gap).
+_B2_GROWTH = [40.0, 40.0] + [55.0] * 18
+
+
+def test_graph_route_b2_range_growth_takes_fewer_longer_hops():
+    idx = _b2_index()
+    src, dst = (0.0, 0.0, 0.0), (0.0, 0.0, 160.0)
+    base = routing.graph_route(idx, src, dst, 10.0, no_stars, time_cap=10.0,
+                               tank_jumps=20, scoop_max_ls=100.0)
+    b2 = routing.graph_route(idx, src, dst, 10.0, no_stars, time_cap=10.0,
+                             tank_jumps=20, scoop_max_ls=100.0,
+                             reach_by_r=_B2_GROWTH)
+    assert base is not None and b2 is not None
+    assert b2["total_jumps"] < base["total_jumps"]  # range growth saves hops
+    # Every boost leg is within the reach available at its point in the cycle
+    # (<= the max grown reach); regular legs within J.
+    for leg in b2["jumps"]:
+        cap = 55.0 if leg["type"] == "boost" else 10.0
+        assert leg["distance_jumped"] <= cap + 1e-4, leg
+    assert b2["jumps"][-1]["distance_left"] == pytest.approx(0.0)
+
+
+def test_graph_route_b2_noop_without_growth():
+    # A flat reach_by_r (no growth) must match the fixed-reach route: use_range
+    # only engages when the reach actually grows.
+    idx = _b2_index()
+    src, dst = (0.0, 0.0, 0.0), (0.0, 0.0, 160.0)
+    flat = routing.graph_route(idx, src, dst, 10.0, no_stars, time_cap=10.0,
+                               tank_jumps=20, scoop_max_ls=100.0,
+                               reach_by_r=[40.0] * 20)
+    base = routing.graph_route(idx, src, dst, 10.0, no_stars, time_cap=10.0,
+                               tank_jumps=20, scoop_max_ls=100.0)
+    assert flat["total_jumps"] == base["total_jumps"]
