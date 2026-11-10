@@ -1457,6 +1457,25 @@ def _realize_graph(
     return legs, None
 
 
+# Radius (ly) around the B1 coarse path for the B2 flown-direction thin corridor.
+# The neutron highway is dense, so even this modest radius yields a large (but far
+# smaller than the full 700 ly corridor) candidate set the range search can chew.
+_B2_THIN_CORRIDOR_LY = 300.0
+
+
+def _thin_corridor(index: NeutronIndex, seq_ids: list[int],
+                   radius: float) -> np.ndarray:
+    """Global ids of every neutron within ``radius`` ly of any neutron in
+    ``seq_ids`` (the B1 coarse path): the bounded candidate set the B2 flown
+    search runs over, so the sparse-goal direction stays tractable."""
+    coords = index.coords
+    hit: set[int] = set()
+    for gid in seq_ids:
+        for m in index.tree.query_ball_point(coords[gid], radius):
+            hit.add(int(m))
+    return np.array(sorted(hit), dtype=np.int64)
+
+
 def graph_route(
     index: NeutronIndex,
     src: tuple[float, float, float],
@@ -1531,56 +1550,62 @@ def graph_route(
     # Companion neutrons (arrival_ls > 0) are boost sources you must fly to
     # in-system first; keep only those within companion_max_ls. Main-star
     # neutrons have arrival_ls == 0 so are always kept; companion_max_ls == 0
-    # (the default) drops every companion, leaving the main-only behaviour
-    # byte-for-byte. No-op on a main-only index (all arrival_ls == 0).
-    als = getattr(index, "arrival_ls", None)
-    if als is not None and len(cand) and float(companion_max_ls) >= 0.0:
-        cand = cand[als[cand] <= float(companion_max_ls)]
-    if is_locked is not None and len(cand):
-        names = index.names
-        cand = cand[np.array(
-            [not is_locked(names[int(c)]) for c in cand], dtype=bool
-        )]
-    def _solve(flip: bool) -> Optional[dict]:
-        """Run the A* + realization rounds in one orientation. When ``flip`` is
-        set, the search runs dst->src (toward the denser endpoint, so the A*
-        heuristic is well-informed) and the returned neutron sequence is
-        reversed to realize in the requested src->dst direction; a realization
-        failure edge is mapped back into search space with ``_flip_edge``."""
+    # (the default) drops every companion. Factored so the B2 thin corridor gets
+    # the same companion + permit filtering.
+    def _filter(c: np.ndarray) -> np.ndarray:
+        a = getattr(index, "arrival_ls", None)
+        if a is not None and len(c) and float(companion_max_ls) >= 0.0:
+            c = c[a[c] <= float(companion_max_ls)]
+        if is_locked is not None and len(c):
+            nm = index.names
+            c = c[np.array([not is_locked(nm[int(x)]) for x in c], dtype=bool)]
+        return c
+    cand = _filter(cand)
+
+    def _solve(flip: bool, cand_set: Optional[np.ndarray] = None,
+               range_search: bool = False) -> Optional[dict]:
+        """Run the A* + realization rounds in one orientation over ``cand_set``
+        (default the full corridor). When ``flip`` is set the search runs dst->src
+        (toward the denser endpoint, so the A* heuristic is well-informed) and the
+        neutron sequence is reversed to realize src->dst. ``range_search`` selects
+        the B2 range-growth search + a reach-aware realize; it must run UNFLIPPED
+        (fuel burns in the flown direction)."""
+        cset = cand if cand_set is None else cand_set
         ssv, sdv = (dv, sv) if flip else (sv, dv)
         blacklist: set[tuple[int, int]] = set()
         badzones: list[tuple[np.ndarray, float]] = []
         for _ in range(rounds):
-            seq = None
-            if use_range:
-                # B2: fuel-aware threading + range growth (reach grows as fuel
-                # burns). On a timeout / no-route it returns None; fall back below.
+            if range_search:
                 seq = _graph_search_range(
-                    index, cand, ssv, sdv, J, entry_r, gap_k, blacklist,
+                    index, cset, ssv, sdv, J, entry_r, gap_k, blacklist,
                     badzones, deadline, _rbr, float(scoop_max_ls),
                     boost_mult=boost_mult,
                 )
-            if seq is None and use_fuel:
-                # B1: fuel-aware threading at the fixed full-tank reach. On a
-                # timeout / no-route it returns None; fall back to the proven
-                # ship-agnostic min-jumps search so we never regress.
+            elif use_fuel:
+                # B1: fuel-aware threading at the fixed full-tank reach; fall back
+                # to the ship-agnostic min-jumps search so we never regress.
                 seq = _graph_search_fuel(
-                    index, cand, ssv, sdv, J, entry_r, gap_k, blacklist,
+                    index, cset, ssv, sdv, J, entry_r, gap_k, blacklist,
                     badzones, deadline, int(tank_jumps), float(scoop_max_ls),
                     boost_mult=boost_mult,
                 )
-            if seq is None:
+                if seq is None:
+                    seq = _graph_search(
+                        index, cset, ssv, sdv, J, entry_r, gap_k, blacklist,
+                        badzones, deadline, boost_mult=boost_mult,
+                    )
+            else:
                 seq = _graph_search(
-                    index, cand, ssv, sdv, J, entry_r, gap_k, blacklist,
+                    index, cset, ssv, sdv, J, entry_r, gap_k, blacklist,
                     badzones, deadline, boost_mult=boost_mult,
                 )
             if seq is None:
                 return None
             rseq = list(reversed(seq)) if flip else seq
-            # B2: forward-simulate the per-neutron resource in realization order
-            # (flip-safe) so the realizer caps each boost leg at reach_by_r[r].
+            # B2: forward-simulate the per-neutron resource in realization order so
+            # the realizer caps each boost leg at reach_by_r[r] (range growth).
             seq_r = None
-            if use_range and _sls_arr is not None and rseq:
+            if range_search and _sls_arr is not None and rseq:
                 T = len(_rbr)
                 seq_r = []
                 for i, gid in enumerate(rseq):
@@ -1595,7 +1620,7 @@ def graph_route(
                 index, src, dst, J, rseq, fetch_stars_within,
                 fetch_stars_near_segment, fetch_stars_toward, is_locked=is_locked,
                 boost_mult=boost_mult, inject_mult=inject_mult,
-                seq_r=seq_r, reach_by_r=(_rbr if use_range else None),
+                seq_r=seq_r, reach_by_r=(_rbr if range_search else None),
             )
             if legs is not None:
                 return _finalize(
@@ -1627,6 +1652,28 @@ def graph_route(
         and dens_d >= _ORIENT_DENSITY_FLOOR
         and dens_s > dens_d * _ORIENT_FLIP_RATIO
     )
+
+    # B2 (range growth) is DIRECTION-DEPENDENT: fuel burns in the flown direction,
+    # so it must search src->dst, which is the slow/sparse-goal orientation the
+    # flip exists to avoid. Two-phase resolves the tension: phase 1 runs the fast
+    # B1 search (oriented) just for a coarse path, phase 2 runs the range-growth
+    # search FLOWN on a thin corridor around that path (a small candidate set, so
+    # the sparse-goal direction stays tractable) with a reach-aware realize. On
+    # any miss we fall through to the proven B1 solve, so B2 never regresses.
+    if use_range:
+        coarse = _graph_search_fuel(
+            index, cand, (dv if flip else sv), (sv if flip else dv), J, entry_r,
+            gap_k, set(), [], deadline, int(tank_jumps), float(scoop_max_ls),
+            boost_mult=boost_mult,
+        )
+        if coarse:
+            b1seq = list(reversed(coarse)) if flip else coarse
+            tc = _filter(_thin_corridor(index, b1seq, _B2_THIN_CORRIDOR_LY))
+            if len(tc):
+                res = _solve(False, cand_set=tc, range_search=True)
+                if res is not None:
+                    return res
+
     result = _solve(flip)
     if result is None and flip:
         result = _solve(False)
