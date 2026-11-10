@@ -173,16 +173,33 @@ def permit_id64_count() -> int:
     return len(_PERMIT_ID64)
 
 
-def is_locked(name=None, id64=None) -> bool:
-    """Whether a system is permit-locked: by exact id64 (the DB set), then by
-    exact name or procedural sector prefix. ``id64`` is optional so existing
-    name-only callers keep working unchanged."""
+# Geometric permit REGIONS: (name, x, y, z, radius_ly). A permit sphere locks its
+# whole interior, including the procgen systems that the per-system needsPermit
+# dump does not flag (so the id64 set alone misses them). Add only confirmed
+# regions here. See [[permit-coverage]].
+PERMIT_SPHERES = (
+    ("Hen 2-333", -840.65625, -561.15625, 13361.8125, 100.0),
+)
+
+
+def is_locked(name=None, id64=None, coords=None) -> bool:
+    """Whether a system is permit-locked: by exact id64 (the DB set), by exact
+    name / procedural sector prefix, or by falling inside a permit sphere
+    (``coords`` = (x, y, z)). All args are optional so name-only callers keep
+    working unchanged."""
     if id64 is not None and int(id64) in _PERMIT_ID64:
         return True
-    if not name:
-        return False
-    low = name.strip().lower()
-    if low in PERMIT_SYSTEMS:
-        return True
-    sector = _sector_of(name)
-    return sector is not None and sector.lower() in PERMIT_SECTORS
+    if name:
+        low = name.strip().lower()
+        if low in PERMIT_SYSTEMS:
+            return True
+        sector = _sector_of(name)
+        if sector is not None and sector.lower() in PERMIT_SECTORS:
+            return True
+    if coords is not None and PERMIT_SPHERES:
+        x, y, z = float(coords[0]), float(coords[1]), float(coords[2])
+        for (_n, cx, cy, cz, r) in PERMIT_SPHERES:
+            dx, dy, dz = x - cx, y - cy, z - cz
+            if dx * dx + dy * dy + dz * dz <= r * r:
+                return True
+    return False

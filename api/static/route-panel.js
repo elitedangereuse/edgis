@@ -844,7 +844,7 @@ function renderRoute(r) {
       return `<tr class="${risk ? "risk-row " : ""}${doneSet.has(name) ? "done" : ""}">
       ${doneBox(name)}
       <td class="num">${i + 1}</td>
-      <td class="sys">${escapeHtml(name)}${injectBadge(j.inject_grade)}${riskBadge(risk)}${copyBtn(j.system ?? r.destination)}</td>
+      <td class="sys ${j.neutron_star ? "boost" : ""}">${escapeHtml(name)}${injectBadge(j.inject_grade)}${riskBadge(risk)}${copyBtn(j.system ?? r.destination)}</td>
       <td>${spectralCell(j)}</td>
       <td class="num">${fmt(j.distance_jumped, 1)}</td>
       <td class="num">${fmt(j.distance_left, 0)}</td>

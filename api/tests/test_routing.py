@@ -303,7 +303,7 @@ def test_graph_route_excludes_permit_locked_neutrons():
     pts = [(0.0, 0.0, float(40 + 180 * k)) for k in range(11)]
     index = make_index(pts)  # names are "N0".."N10"
 
-    def is_locked(name, id64=None):
+    def is_locked(name, id64=None, coords=None):
         return name == "N5"
 
     result = routing.graph_route(
@@ -324,7 +324,7 @@ def test_graph_route_excludes_permit_locked_by_id64():
     locked_id = index.id64[5]
     locked_name = index.names[5]
 
-    def is_locked(name, id64=None):
+    def is_locked(name, id64=None, coords=None):
         return id64 == locked_id
 
     result = routing.graph_route(

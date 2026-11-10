@@ -1287,7 +1287,8 @@ def _bridge_greedy(
             if row[3] in visited:
                 continue
             if is_locked is not None and is_locked(
-                row[3], id64=(row[5] if len(row) > 5 else None)
+                row[3], id64=(row[5] if len(row) > 5 else None),
+                coords=(row[0], row[1], row[2]),
             ):
                 continue
             d = (
@@ -1357,7 +1358,8 @@ def _bridge_capsule(
         rows = list(fetch_stars_near_segment(tuple(pos), tuple(target), width))
         if is_locked is not None:
             rows = [r for r in rows
-                    if not is_locked(r[3], id64=(r[5] if len(r) > 5 else None))]
+                    if not is_locked(r[3], id64=(r[5] if len(r) > 5 else None),
+                                     coords=(r[0], r[1], r[2]))]
         if not rows:
             continue
         pts = np.asarray([(r[0], r[1], r[2]) for r in rows])
@@ -1663,8 +1665,10 @@ def graph_route(
         if is_locked is not None and len(c):
             nm = index.names
             idl = index.id64
+            cc = index.coords
             c = c[np.array(
-                [not is_locked(nm[int(x)], id64=idl[int(x)]) for x in c],
+                [not is_locked(nm[int(x)], id64=idl[int(x)], coords=cc[int(x)])
+                 for x in c],
                 dtype=bool,
             )]
         return c
