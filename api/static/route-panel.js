@@ -101,7 +101,7 @@ $("cargo").addEventListener("change", () => {
 
 // Opt-in companion (secondary) neutrons within N Ls of arrival (0 = off).
 const COMPANION_LS = "edgis_route_companion_ls";
-$("companionLs").value = localStorage.getItem(COMPANION_LS) || "100";
+$("companionLs").value = localStorage.getItem(COMPANION_LS) || "500";
 const companionMaxLs = () =>
   Math.min(2000, Math.max(0, Number($("companionLs").value) || 0));
 $("companionLs").addEventListener("change", () =>
@@ -110,7 +110,7 @@ $("companionLs").addEventListener("change", () =>
 // In-system refuel distance to a companion scoopable at a neutron (fuel layer;
 // 0 = always divert). Counterpart to the boost companion above.
 const SCOOP_LS = "edgis_route_scoop_ls";
-$("scoopLs").value = localStorage.getItem(SCOOP_LS) || "1000";
+$("scoopLs").value = localStorage.getItem(SCOOP_LS) || "500";
 const scoopMaxLs = () =>
   Math.min(2000, Math.max(0, Number($("scoopLs").value) || 0));
 $("scoopLs").addEventListener("change", () =>
@@ -716,25 +716,31 @@ function toSpanshExactRoute(r) {
   };
 }
 
-// Full per-jump route as CSV (every leg, source first), for spreadsheets. Not
-// compacted like the view: gives all legs with a neutron/boost flag to filter.
+// Full per-jump route as CSV, byte-compatible with spansh's exact-plotter export
+// so it imports into the same tools/spreadsheets: source row first, every field
+// quoted, CRLF line endings with a trailing CRLF. Columns mirror spansh exactly
+// (System Name, Distance, Distance Remaining, Fuel Left, Fuel Used, Refuel,
+// Neutron Star, Inject). Fuel columns are populated only for a fuel-aware route
+// (ship loadout); ship-agnostic routes leave them blank, like the JSON export.
 function toCsvRoute(r) {
-  const r2 = (n) => Math.round(Number(n || 0) * 100) / 100;
-  const esc = (v) => {
-    const s = String(v == null ? "" : v);
-    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  const sc = r.source_coords || {};
-  const header = ["#", "system", "star", "neutron", "type", "jumped_ly", "left_ly", "x", "y", "z"];
-  const rows = [[1, r.source, "", "no", "source", 0, r2(r.straight_line_ly), sc.x ?? "", sc.y ?? "", sc.z ?? ""]];
+  const q = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+  const yn = (b) => (b ? "Yes" : "No");
+  const sp = r.spansh_params || null;
+  const tank = (sp && sp.tank_size != null) ? sp.tank_size
+    : (r.fuel && r.fuel.tank_size != null ? r.fuel.tank_size : null);
+  const header = ["System Name", "Distance", "Distance Remaining", "Fuel Left",
+    "Fuel Used", "Refuel", "Neutron Star", "Inject"];
+  const rows = [[r.source, 0, r.straight_line_ly, tank, 0, "No", "No", "No"]];
   r.jumps.forEach((j, i) => {
     const last = i === r.jumps.length - 1;
-    const star = j.spectral || (j.neutron_star ? "Neutron Star" : "");
-    rows.push([i + 2, j.system ?? (last ? r.destination : ""), star,
-      j.neutron_star ? "yes" : "no", j.type || "regular",
-      r2(j.distance_jumped), r2(j.distance_left), j.x ?? "", j.y ?? "", j.z ?? ""]);
+    rows.push([
+      j.system ?? (last ? r.destination : ""),
+      j.distance_jumped, j.distance_left,
+      j.fuel_in_tank ?? null, j.fuel_used ?? null,
+      yn(j.must_refuel), yn(j.neutron_star), yn(j.inject_grade),
+    ]);
   });
-  return [header, ...rows].map((row) => row.map(esc).join(",")).join("\r\n");
+  return [header, ...rows].map((row) => row.map(q).join(",")).join("\r\n") + "\r\n";
 }
 
 function downloadRoute(fmt) {
@@ -933,7 +939,7 @@ function compareVsSpansh() { return shipInfo ? compareGalaxy() : compareSpansh()
 async function compareSpansh() {
   if (!lastQuery) return;
   const { from, to, range, supercharge } = lastQuery;
-  $("cmpGalaxy").disabled = true; setBusy(true);
+  $("cmpGalaxy").disabled = true; $("cmpGalaxy").classList.add("querying"); setBusy(true);
   const out = () => cmpLine("cmpNeutron");
   out().innerHTML = `<span class="tiny">Querying spansh Neutron Plotter… (can take ~10-30 s)</span>`;
   try {
@@ -947,7 +953,7 @@ async function compareSpansh() {
     if (out()) out().innerHTML = modeTag + `<b>spansh Neutron&nbsp;Plotter:</b> ${fmt(s.total_jumps)} jumps (eff 60${sDur})`
       + cmpVerdict(s.total_jumps) + cmpTime(s.duration_s) + link;
   } catch (e) { if (out()) out().innerHTML = `<span class="bad">${e.message || e}</span>`; }
-  finally { updateCompareButton(); setBusy(false); }
+  finally { $("cmpGalaxy").classList.remove("querying"); updateCompareButton(); setBusy(false); }
 }
 
 // Compare against spansh's fuel-aware Galaxy (exact) Plotter. Needs the ship
@@ -958,7 +964,7 @@ async function compareGalaxy() {
   const out = () => cmpLine("cmpGalaxy_line");
   if (!loadout) { out().innerHTML = `<span class="bad">Import a ship first (the Galaxy Plotter is fuel-aware).</span>`; return; }
   const { from, to } = lastQuery;
-  $("cmpGalaxy").disabled = true; setBusy(true);
+  $("cmpGalaxy").disabled = true; $("cmpGalaxy").classList.add("querying"); setBusy(true);
   out().innerHTML = `<span class="tiny">Querying spansh Galaxy Plotter… (can take ~1 min)</span>`;
   try {
     const res = await fetch("/spansh/galaxy-route", {
@@ -977,7 +983,7 @@ async function compareGalaxy() {
     out().innerHTML = `<b>spansh Galaxy&nbsp;Plotter:</b> ${fmt(s.total_jumps)} jumps${dur}`
       + cmpVerdict(s.total_jumps) + cmpTime(s.duration_s) + link;
   } catch (e) { out().innerHTML = `<span class="bad">${escapeHtml(e.message || String(e))}</span>`; }
-  finally { updateCompareButton(); setBusy(false); }
+  finally { $("cmpGalaxy").classList.remove("querying"); updateCompareButton(); setBusy(false); }
 }
 
 async function plot() {

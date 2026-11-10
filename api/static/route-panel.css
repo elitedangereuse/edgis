@@ -98,6 +98,8 @@
 #panel-route button#go.warming .go-logo { animation:gospin 2.6s linear infinite; transform-origin:47% 38%; }
 @keyframes gospin { to { transform:rotate(-360deg); } }
 #panel-route .cmp-logo { width:16px; height:16px; border-radius:50%; }
+/* Spin the spansh logo while a compare query is in flight, so it is obvious. */
+#panel-route #cmpGalaxy.querying .cmp-logo { animation:gospin 0.8s linear infinite; }
 
 #panel-route .keyrow { margin-top:12px; font-size:12px; color:var(--muted); }
 #panel-route .keyrow summary { cursor:pointer; color:var(--accent); text-transform:uppercase; letter-spacing:.5px; font-size:11px; }
