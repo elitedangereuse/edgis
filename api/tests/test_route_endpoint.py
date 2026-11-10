@@ -331,9 +331,12 @@ def _capture_solve(monkeypatch, captured):
     def fake_solve(src, dst, jump_range, beam_width, boost_mult=4.0,
                    companion_max_ls=0.0, inject_mult=1.0, tank_jumps=0,
                    scoop_max_ls=0.0, reach_by_r=None):
-        captured["tank_jumps"] = tank_jumps
-        captured["scoop_max_ls"] = scoop_max_ls
-        captured["reach_by_r"] = reach_by_r
+        # setdefault: capture the FIRST solve's args. A range-growth request whose
+        # fake route reads as over-range triggers the B2 safety guard's B1 re-solve
+        # (reach_by_r=None); we want the original B2 call's values here.
+        captured.setdefault("tank_jumps", tank_jumps)
+        captured.setdefault("scoop_max_ls", scoop_max_ls)
+        captured.setdefault("reach_by_r", reach_by_r)
         return {
             "jump_range": jump_range, "boost_range": 4 * jump_range,
             "straight_line_ly": 80.0, "total_jumps": 1, "neutron_jumps": 0,

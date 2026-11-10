@@ -1458,9 +1458,12 @@ def _realize_graph(
 
 
 # Radius (ly) around the B1 coarse path for the B2 flown-direction thin corridor.
-# The neutron highway is dense, so even this modest radius yields a large (but far
-# smaller than the full 700 ly corridor) candidate set the range search can chew.
-_B2_THIN_CORRIDOR_LY = 300.0
+# Measured sweep on Colonia->Sol: 120 ly keeps most of the range-growth win (114 ->
+# 110) while the flown search is only ~17s (vs 103s at 300 ly), so two-phase lands
+# ~30s with wide margin under the time cap. Wider radii can realize a couple fewer
+# jumps but are slower and -- more importantly -- were observed to sometimes yield
+# an over-range route; the caller's fuel-safety guard falls back to B1 in that case.
+_B2_THIN_CORRIDOR_LY = 120.0
 
 
 def _thin_corridor(index: NeutronIndex, seq_ids: list[int],

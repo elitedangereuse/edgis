@@ -3818,6 +3818,25 @@ async def plot_route_post(
             _enforce_fuel_sync, result, params, req.fuel_safe, req.supercharge,
             req.scoop_max_ls,
         )
+        # B2 SAFETY GUARD: the range-growth geometry plans longer hops against a
+        # conservative fuel model, but the refuel points it assumes can diverge
+        # from what the enforcer actually simulates, occasionally yielding an
+        # over-range (unsafe) route. B1 (enforced) is always fuel-safe, so if a
+        # range-growth solve comes back unsafe, re-solve + re-enforce without it
+        # and keep the proven B1 route. B2 thus never ships an unsafe route.
+        if (reach_by_r is not None and req.fuel_safe
+                and not (result.get("fuel") or {}).get("safe", True)):
+            b1 = await _solve_route_cached(
+                req.from_, req.to, req.jump_range, req.beam_width, req.supercharge,
+                access.get("via"), companion_max_ls=req.companion_max_ls,
+                inject_mult=req.inject_mult,
+                tank_jumps=tank_jumps, scoop_max_ls=req.scoop_max_ls,
+                reach_by_r=None,
+            )
+            result = await _run_db_task(
+                _enforce_fuel_sync, b1, params, req.fuel_safe, req.supercharge,
+                req.scoop_max_ls,
+            )
         # Parameters block for the spansh-exact export (ship build + fuel model).
         result["spansh_params"] = fsd.spansh_params(
             params, req.supercharge, req.inject_mult)
