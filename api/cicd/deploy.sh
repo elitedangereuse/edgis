@@ -38,6 +38,11 @@ TMP_CHANGED_FILE_LIST=$(mktemp)
 {
     echo systems.py
     echo routing.py
+    # NOTE: the native Rust kernel (edgis_route.abi3.so) is intentionally NOT
+    # auto-shipped. It must be built ON the prod platform (rust/build.sh) and
+    # enabled deliberately after a live validation pass; routing.py falls back to
+    # Python when it is absent. Shipping a cross-built .so silently flips the
+    # routing engine, so keep it a manual step.
     echo fsd.py
     echo entitlements.py
     echo patreon_auth.py
@@ -47,6 +52,7 @@ TMP_CHANGED_FILE_LIST=$(mktemp)
     echo static/route-panel.css
     echo static/route-panel.js
     echo static/index.html
+    echo static/admin.html
     echo static/galaxymap.html
     echo static/neutron-cloud.html
     echo static/neutron-cloud-worker.js

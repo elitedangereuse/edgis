@@ -33,6 +33,20 @@ from typing import Callable, Iterable, Optional
 import numpy as np
 from scipy.spatial import cKDTree
 
+# Optional native (Rust/PyO3) range-growth A* kernel. When present it replaces the
+# pure-Python _graph_search_range hot loop (same min-jumps result, ~3x faster on
+# the full Colonia corridor); absent, the Python path runs unchanged. Disable with
+# EDGIS_NATIVE_ROUTE=0.
+import os as _os
+
+_native_route = None
+if _os.environ.get("EDGIS_NATIVE_ROUTE", "1") != "0":
+    try:
+        import edgis_route as _native_route  # type: ignore
+    except Exception:  # pragma: no cover - absence is the normal fallback
+        _native_route = None
+_native_route_warned = False
+
 NeutronRow = tuple[float, float, float, int, str]
 StarRow = tuple  # (x, y, z, name[, mainstar])
 FetchNeutrons = Callable[[], Iterable[NeutronRow]]
@@ -970,6 +984,51 @@ def _graph_search_fuel(
     return seq
 
 
+def _native_graph_search_range(
+    index: NeutronIndex,
+    cand: np.ndarray,
+    cc: np.ndarray,
+    sv: np.ndarray,
+    dv: np.ndarray,
+    jump_range: float,
+    entry_r: float,
+    gap_k: int,
+    blacklist: set[tuple[int, int]],
+    badzones: list[tuple[np.ndarray, float]],
+    deadline: float,
+    reach_by_r: np.ndarray,
+    scoop_max_ls: float,
+    boost_mult: float,
+) -> Optional[list[int]]:
+    """Marshal the B2 inputs and run the native range-growth A* kernel. Returns
+    the GLOBAL-id neutron sequence, or ``None`` (timeout / no route) exactly like
+    the Python implementation. ``cc`` is the already-sliced candidate coord block.
+    Kept byte-compatible with _graph_search_range: same scoopable predicate, same
+    blacklist sentinels, same per-resource reach, same gap/tail edge rules."""
+    sls = getattr(index, "scoop_ls", None)
+    scoopable = (
+        (np.asarray(sls)[cand] <= scoop_max_ls)
+        if (sls is not None and len(cand)) else np.zeros(len(cand), dtype=bool)
+    )
+    budget = max(0.0, float(deadline) - time.perf_counter())
+    bz = [(float(c[0]), float(c[1]), float(c[2]), float(r)) for c, r in badzones]
+    return _native_route.graph_search_range(
+        np.ascontiguousarray(cc, dtype=np.float64),
+        np.ascontiguousarray(scoopable).astype(np.uint8),
+        np.ascontiguousarray(cand, dtype=np.int64),
+        np.ascontiguousarray(sv, dtype=np.float64),
+        np.ascontiguousarray(dv, dtype=np.float64),
+        float(jump_range),
+        float(entry_r),
+        int(gap_k),
+        [float(x) for x in reach_by_r],
+        float(boost_mult),
+        float(budget),
+        [(int(a), int(b)) for (a, b) in blacklist],
+        bz,
+    )
+
+
 def _graph_search_range(
     index: NeutronIndex,
     cand: np.ndarray,
@@ -1015,6 +1074,25 @@ def _graph_search_range(
     straight = float(np.linalg.norm(dv - sv))
     n = len(cand)
     cc = index.coords[cand] if n else np.zeros((0, 3))
+
+    # Native kernel: identical min-jumps result, ~3x faster. Pure (no shared state),
+    # so on any marshalling error we warn once and fall through to the Python loop.
+    if _native_route is not None:
+        try:
+            return _native_graph_search_range(
+                index, cand, cc, sv, dv, J, entry_r, gap_k, blacklist, badzones,
+                deadline, reach_by_r, scoop_max_ls, boost_mult,
+            )
+        except Exception:  # pragma: no cover
+            global _native_route_warned
+            if not _native_route_warned:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "native edgis_route kernel failed; using Python fallback",
+                    exc_info=True,
+                )
+                _native_route_warned = True
+
     lt = cKDTree(cc) if n else None
     dd_dst = np.linalg.norm(cc - dv, axis=1) if n else np.zeros(0)
     hv = np.ceil(dd_dst / reach_max).astype(np.int64) if n else np.zeros(0, np.int64)

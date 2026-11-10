@@ -18,6 +18,15 @@ AGENTS.md
 /api/.venv/
 /api/static/index-staging.html
 
+# Managed access keys (admin key manager): runtime secret store, never committed.
+/api/entitlement_keys.json
+
+# Rust native route kernel: commit the crate source, not build artifacts. The
+# compiled extension is platform/glibc-specific and built per target (rust/build.sh);
+# deploy.sh rsyncs the .so from the working tree.
+/rust/edgis_route/target/
+/api/edgis_route.abi3.so
+
 # Local planning/handoff notes have carried prod secrets; keep them out of the
 # public repo.
 /docs/
