@@ -1725,6 +1725,66 @@ def test_run_admin_action_dispatches_spansh_refresh(monkeypatch):
     }
 
 
+def _reset_key_store(monkeypatch, tmp_path):
+    """Point the managed-key store at a temp file and clear its read cache."""
+    key_file = str(tmp_path / "keys.json")
+    monkeypatch.setattr(systems.entitlements, "_KEYS_FILE", key_file)
+    systems.entitlements._KEYS_CACHE["mtime"] = None
+    systems.entitlements._KEYS_CACHE["records"] = []
+    return key_file
+
+
+def test_admin_keys_requires_token(monkeypatch):
+    monkeypatch.delenv("ADMIN_TOKEN", raising=False)
+    assert client.get("/admin/keys").status_code == 503
+
+
+def test_admin_keys_create_list_revoke(monkeypatch, tmp_path):
+    monkeypatch.setenv("ADMIN_TOKEN", "secret-token")
+    _reset_key_store(monkeypatch, tmp_path)
+    headers = {"x-admin-token": "secret-token"}
+
+    # Starts empty.
+    response = client.get("/admin/keys", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["keys"] == []
+
+    # Create with a generated value: returned in full exactly once.
+    response = client.post("/admin/keys", headers=headers, json={"label": "alice"})
+    assert response.status_code == 200
+    record = response.json()["key"]
+    full_key = record["key"]
+    assert full_key and record["label"] == "alice" and record["id"]
+
+    # The generated key immediately unlocks gated features.
+    assert full_key in systems.entitlements._configured_keys()
+
+    # Listing masks the value and never leaks the full key.
+    keys = client.get("/admin/keys", headers=headers).json()["keys"]
+    assert len(keys) == 1
+    assert keys[0]["label"] == "alice"
+    assert "key" not in keys[0]
+    assert full_key not in keys[0]["preview"]
+
+    # Custom value accepted; a duplicate is rejected.
+    response = client.post(
+        "/admin/keys", headers=headers, json={"label": "bob", "key": "k-custom-123456"}
+    )
+    assert response.status_code == 200
+    response = client.post(
+        "/admin/keys", headers=headers, json={"key": "k-custom-123456"}
+    )
+    assert response.status_code == 409
+
+    # Revoke by id; a second revoke of the same id is a 404.
+    alice_id = keys[0]["id"]
+    assert client.delete(f"/admin/keys/{alice_id}", headers=headers).status_code == 200
+    assert client.delete(f"/admin/keys/{alice_id}", headers=headers).status_code == 404
+    remaining = client.get("/admin/keys", headers=headers).json()["keys"]
+    assert [k["label"] for k in remaining] == ["bob"]
+    assert full_key not in systems.entitlements._configured_keys()
+
+
 def test_favicon_and_index_routes(tmp_path, monkeypatch):
     # ensure static dir accessible
     static_dir = tmp_path / "static"

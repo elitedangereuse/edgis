@@ -279,6 +279,12 @@ class AdminActionRequest(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
+class AdminKeyRequest(BaseModel):
+    label: str = Field("", max_length=120)
+    # Optional custom value; blank -> the server generates a strong key.
+    key: str = Field("", max_length=200)
+
+
 def _get_admin_token() -> str:
     return (os.getenv("ADMIN_TOKEN") or "").strip()
 
@@ -2642,6 +2648,37 @@ async def run_admin_action(
         "action": action_id,
         "result": await handler(payload.params),
     }
+
+
+@app.get("/admin/keys", include_in_schema=False)
+def list_admin_keys(request: Request):
+    """Managed access keys (masked). Env-configured keys are not listed here;
+    they stay in the deploy environment."""
+    _require_admin_token(request)
+    return {"keys": entitlements.list_managed_keys()}
+
+
+@app.post("/admin/keys", include_in_schema=False)
+def create_admin_key(payload: AdminKeyRequest, request: Request):
+    """Create a managed access key. The full key value is returned ONCE here so
+    the admin can copy it; afterwards only a masked preview is available."""
+    _require_admin_token(request)
+    try:
+        record = entitlements.add_managed_key(
+            label=payload.label, key=payload.key or None
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"key": record}
+
+
+@app.delete("/admin/keys/{key_id}", include_in_schema=False)
+def delete_admin_key(key_id: str, request: Request):
+    """Revoke a managed access key by id."""
+    _require_admin_token(request)
+    if not entitlements.revoke_managed_key(key_id):
+        raise HTTPException(status_code=404, detail="Unknown key id")
+    return {"revoked": key_id}
 
 
 @app.get("/edsm/bodies", include_in_schema=False)

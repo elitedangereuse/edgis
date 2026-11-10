@@ -19,8 +19,11 @@ need no change when that lands.
 from __future__ import annotations
 
 import hmac
+import json
 import logging
 import os
+import secrets
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
@@ -83,18 +86,18 @@ HUNTER_MIN_SUBMISSIONS = int(os.getenv("ROUTE_HUNTER_MIN_SUBMISSIONS") or "5")
 FEATURES: dict[str, Feature] = {
     "route": Feature(
         key="route",
-        public_after=_parse_cutover(os.getenv("ROUTE_PUBLIC_AFTER", "2026-12-04")),
+        public_after=_parse_cutover(os.getenv("ROUTE_PUBLIC_AFTER", "2026-12-06")),
         min_tier=os.getenv("ROUTE_MIN_TIER", "supporter"),
         waves=(
             # Paid patrons (tier 1 and up). Key-only access runs until this date.
             ("supporter", _parse_cutover(
-                os.getenv("ROUTE_WAVE_SUPPORTER", "2026-11-11"))),
+                os.getenv("ROUTE_WAVE_SUPPORTER", "2026-11-13"))),
             # Free Patreon followers.
             ("follower", _parse_cutover(
-                os.getenv("ROUTE_WAVE_FOLLOWER", "2026-11-17"))),
+                os.getenv("ROUTE_WAVE_FOLLOWER", "2026-11-19"))),
             # Galactic Hunters with >= HUNTER_MIN_SUBMISSIONS confirmed targets.
             ("hunter", _parse_cutover(
-                os.getenv("ROUTE_WAVE_HUNTER", "2026-11-17"))),
+                os.getenv("ROUTE_WAVE_HUNTER", "2026-11-19"))),
         ),
     ),
 }
@@ -141,11 +144,129 @@ def is_public(feature: Feature, *, now: Optional[datetime] = None) -> bool:
     )
 
 
+# ---------------------------------------------------------------------------
+# Managed access keys (admin-editable, persisted to a small JSON file).
+#
+# Env keys (ENTITLEMENT_KEYS / ROUTE_ACCESS_KEYS) stay the immutable baseline;
+# the key manager on the admin page adds/revokes keys at runtime WITHOUT a
+# deploy or restart. Keys are stored in plaintext (they must be compared
+# verbatim, like the env keys) in a file outside the repo. A broken/missing file
+# never locks anyone out: it degrades to the env keys.
+# ---------------------------------------------------------------------------
+_KEYS_FILE = (
+    os.getenv("ENTITLEMENT_KEYS_FILE")
+    or os.path.join(os.path.dirname(__file__), "entitlement_keys.json")
+).strip()
+_KEYS_LOCK = threading.Lock()
+_KEYS_CACHE: dict = {"mtime": None, "records": []}
+
+
+def _read_keys_file() -> list[dict]:
+    """Managed-key records from disk, cached by file mtime. Returns the last-good
+    (or empty) list if the file is absent or unreadable."""
+    try:
+        mtime = os.stat(_KEYS_FILE).st_mtime
+    except OSError:
+        return []
+    if _KEYS_CACHE["mtime"] == mtime:
+        return _KEYS_CACHE["records"]
+    try:
+        with open(_KEYS_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        records = data.get("keys") if isinstance(data, dict) else None
+        if not isinstance(records, list):
+            records = []
+    except (OSError, ValueError) as exc:
+        logger.warning("entitlement key store unreadable (%s): %s", _KEYS_FILE, exc)
+        return _KEYS_CACHE["records"]
+    _KEYS_CACHE["mtime"] = mtime
+    _KEYS_CACHE["records"] = records
+    return records
+
+
+def _write_keys_file(records: list[dict]) -> None:
+    """Atomically persist records, then invalidate the read cache."""
+    tmp = _KEYS_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump({"keys": records}, fh, indent=2)
+    os.replace(tmp, _KEYS_FILE)
+    _KEYS_CACHE["mtime"] = None
+
+
+def _managed_key_values() -> list[str]:
+    return [
+        r["key"]
+        for r in _read_keys_file()
+        if isinstance(r, dict) and r.get("key")
+    ]
+
+
+def _mask_key(key: str) -> str:
+    if not key:
+        return ""
+    if len(key) <= 10:
+        return key[:2] + "..."
+    return f"{key[:6]}...{key[-4:]}"
+
+
+def list_managed_keys() -> list[dict]:
+    """Admin-facing view: masked previews only, never the full key value."""
+    out: list[dict] = []
+    for r in _read_keys_file():
+        if not isinstance(r, dict):
+            continue
+        out.append(
+            {
+                "id": r.get("id"),
+                "label": r.get("label", ""),
+                "preview": _mask_key(r.get("key", "")),
+                "created_at": r.get("created_at"),
+            }
+        )
+    return out
+
+
+def add_managed_key(label: str = "", key: Optional[str] = None) -> dict:
+    """Create a managed key (generating a strong value when none is supplied).
+
+    Returns the full record INCLUDING the plaintext ``key`` so the caller can
+    show it to the admin once; it is never returned again by ``list_managed_keys``.
+    Raises ``ValueError`` if the supplied key already exists."""
+    label = (label or "").strip()
+    key = (key or "").strip() or f"edgis_{secrets.token_urlsafe(24)}"
+    with _KEYS_LOCK:
+        records = [dict(r) for r in _read_keys_file() if isinstance(r, dict)]
+        if any(r.get("key") == key for r in records):
+            raise ValueError("key already exists")
+        record = {
+            "id": secrets.token_hex(8),
+            "label": label,
+            "key": key,
+            "created_at": _now().isoformat(),
+        }
+        records.append(record)
+        _write_keys_file(records)
+    return record
+
+
+def revoke_managed_key(key_id: str) -> bool:
+    """Delete a managed key by id. Returns True if one was removed."""
+    key_id = (key_id or "").strip()
+    with _KEYS_LOCK:
+        records = [dict(r) for r in _read_keys_file() if isinstance(r, dict)]
+        remaining = [r for r in records if r.get("id") != key_id]
+        if len(remaining) == len(records):
+            return False
+        _write_keys_file(remaining)
+    return True
+
+
 def _configured_keys() -> list[str]:
     """Access keys that unlock gated features (comma-separated).
 
     ``ENTITLEMENT_KEYS`` applies to all features; ``ROUTE_ACCESS_KEYS`` is an
-    alias kept for the route feature. The admin token always works too.
+    alias kept for the route feature. Managed keys from the admin key manager and
+    the admin token always work too.
     """
 
     raw = ",".join(
@@ -157,6 +278,7 @@ def _configured_keys() -> list[str]:
         if v
     )
     keys = [k.strip() for k in raw.split(",") if k.strip()]
+    keys.extend(_managed_key_values())
     admin = (os.getenv("ADMIN_TOKEN") or "").strip()
     if admin:
         keys.append(admin)
