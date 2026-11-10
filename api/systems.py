@@ -3126,9 +3126,33 @@ def _fetch_neutron_rows_sync():
             cursor.close()
 
 
+def _load_permit_ids_sync() -> int:
+    """Load the exact permit-locked id64 set from the ``permit_systems`` table into
+    permit_zones (a union on top of the static name/sector rules). Best-effort: if
+    the table is absent (dev/test/no-DB), leave the set empty so only the static
+    rules apply, unchanged."""
+    with _db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT to_regclass('permit_systems')")
+            if cursor.fetchone()[0] is None:
+                return 0
+            cursor.execute("SELECT id64 FROM permit_systems")
+            ids = [row[0] for row in cursor.fetchall()]
+        finally:
+            cursor.close()
+    permit_zones.set_permit_id64s(ids)
+    return len(ids)
+
+
 def _build_neutron_index() -> None:
     global _neutron_index, _neutron_index_error, _neutron_index_building
     try:
+        try:
+            n_permit = _load_permit_ids_sync()
+            logger.info("Permit id64 set loaded: %d systems", n_permit)
+        except Exception:  # pragma: no cover - non-fatal; name rules still apply
+            logger.exception("Permit id64 load failed; using name/sector rules only")
         index = routing.NeutronIndex.build(_fetch_neutron_rows_sync)
         _neutron_index = index
         _neutron_index_error = None

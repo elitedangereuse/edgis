@@ -303,7 +303,7 @@ def test_graph_route_excludes_permit_locked_neutrons():
     pts = [(0.0, 0.0, float(40 + 180 * k)) for k in range(11)]
     index = make_index(pts)  # names are "N0".."N10"
 
-    def is_locked(name):
+    def is_locked(name, id64=None):
         return name == "N5"
 
     result = routing.graph_route(
@@ -314,6 +314,27 @@ def test_graph_route_excludes_permit_locked_neutrons():
     assert_legal(result, 50.0)
     for leg in result["jumps"]:
         assert leg.get("system") != "N5", f"boarded a permit-locked neutron: {leg}"
+
+
+def test_graph_route_excludes_permit_locked_by_id64():
+    # Same chain, but the locked neutron is identified by id64 (the dump-sourced
+    # path) rather than name -- the realizer must not board it.
+    pts = [(0.0, 0.0, float(40 + 180 * k)) for k in range(11)]
+    index = make_index(pts)
+    locked_id = index.id64[5]
+    locked_name = index.names[5]
+
+    def is_locked(name, id64=None):
+        return id64 == locked_id
+
+    result = routing.graph_route(
+        index, (0.0, 0.0, 0.0), (0.0, 0.0, 2000.0), 50.0, grid_stars(),
+        is_locked=is_locked,
+    )
+    assert result is not None
+    assert_legal(result, 50.0)
+    for leg in result["jumps"]:
+        assert leg.get("system") != locked_name, f"boarded by-id64 locked: {leg}"
 
 
 def test_graph_route_caspian_boost_reaches_further():

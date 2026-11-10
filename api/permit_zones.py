@@ -154,8 +154,31 @@ def _sector_of(name):
     return m.group(1) if m else None
 
 
-def is_locked(name) -> bool:
-    """Whether a system name is permit-locked (sector prefix or exact name)."""
+# Exact permit-locked systems by id64, loaded at startup from the DB
+# ``permit_systems`` table (seeded from spansh's ``needsPermit`` dump). This is the
+# authoritative per-system set (named + commander-visited), a UNION on top of the
+# static name/sector rules above -- so it only ADDS coverage, never removes it.
+# Empty until ``set_permit_id64s`` is called, so tests and the no-DB path are
+# unchanged. See [[permit-coverage]].
+_PERMIT_ID64: frozenset[int] = frozenset()
+
+
+def set_permit_id64s(ids) -> None:
+    """Install the id64 set of permit-locked systems (called once at startup)."""
+    global _PERMIT_ID64
+    _PERMIT_ID64 = frozenset(int(i) for i in ids)
+
+
+def permit_id64_count() -> int:
+    return len(_PERMIT_ID64)
+
+
+def is_locked(name=None, id64=None) -> bool:
+    """Whether a system is permit-locked: by exact id64 (the DB set), then by
+    exact name or procedural sector prefix. ``id64`` is optional so existing
+    name-only callers keep working unchanged."""
+    if id64 is not None and int(id64) in _PERMIT_ID64:
+        return True
     if not name:
         return False
     low = name.strip().lower()
