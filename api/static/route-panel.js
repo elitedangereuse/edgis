@@ -965,7 +965,10 @@ async function compareGalaxy() {
   if (!loadout) { out().innerHTML = `<span class="bad">Import a ship first (the Galaxy Plotter is fuel-aware).</span>`; return; }
   const { from, to } = lastQuery;
   $("cmpGalaxy").disabled = true; $("cmpGalaxy").classList.add("querying"); setBusy(true);
-  out().innerHTML = `<span class="tiny">Querying spansh Galaxy Plotter… (can take ~1 min)</span>`;
+  // Blue 60 s progress line: the exact plotter typically takes up to a minute, so
+  // give visible feedback. Pure CSS fill (0->100% over 60s); the result replaces it.
+  out().innerHTML = `<span class="tiny">Querying spansh Galaxy Plotter… (can take ~1 min)</span>`
+    + `<div class="spansh-bar" title="spansh exact plotter can take up to ~60 s"><div class="spansh-bar-fill"></div></div>`;
   try {
     const res = await fetch("/spansh/galaxy-route", {
       method: "POST", credentials: "include",
