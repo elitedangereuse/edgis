@@ -165,3 +165,20 @@ def test_public_after_cutover_open_to_all(monkeypatch):
     resp = _guarded_app().get("/guarded")
     assert resp.status_code == 200
     assert resp.json()["via"] == "public"
+
+
+def test_resolve_key_label(monkeypatch, tmp_path):
+    monkeypatch.setenv("ENTITLEMENT_KEYS", "env-secret")
+    monkeypatch.setenv("ADMIN_TOKEN", "admintok")
+    monkeypatch.setattr(entitlements, "_KEYS_FILE", str(tmp_path / "k.json"))
+    entitlements._KEYS_CACHE["mtime"] = None
+    entitlements._KEYS_CACHE["records"] = []
+    entitlements.add_managed_key("tester-bob", key="managed-123")
+    entitlements.add_managed_key("", key="managed-nolabel")
+    assert entitlements.resolve_key_label("managed-123") == "tester-bob"
+    assert entitlements.resolve_key_label("managed-nolabel") == "(unlabeled key)"
+    assert entitlements.resolve_key_label("admintok") == "admin"
+    assert entitlements.resolve_key_label("env-secret") == "env-key"
+    assert entitlements.resolve_key_label("nope") is None
+    assert entitlements.resolve_key_label("") is None
+    assert entitlements.resolve_key_label(None) is None

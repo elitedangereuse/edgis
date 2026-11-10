@@ -305,6 +305,22 @@ def _key_is_valid(provided: str) -> bool:
     )
 
 
+def resolve_key_label(provided: Optional[str]) -> Optional[str]:
+    """Human label for a provided access key, for request tracing: a managed
+    key's label, ``"admin"`` for the admin token, or ``"env-key"`` for an
+    env-configured key. ``None`` when it matches nothing. Internal use (logging)."""
+    provided = (provided or "").strip()
+    if not provided:
+        return None
+    for r in _read_keys_file():
+        if isinstance(r, dict) and r.get("key") == provided:
+            return (r.get("label") or "").strip() or "(unlabeled key)"
+    admin = (os.getenv("ADMIN_TOKEN") or "").strip()
+    if admin and hmac.compare_digest(provided, admin):
+        return "admin"
+    return "env-key" if _key_is_valid(provided) else None
+
+
 def entitlement_status(feature_key: str) -> dict:
     """Public-facing status for a feature (safe to expose to the frontend)."""
 
@@ -370,11 +386,16 @@ def require_entitlement(feature_key: str):
 
     async def dependency(request: Request) -> dict:
         feature = FEATURES[feature_key]
+        provided = _extract_key(request)
         if is_public(feature):
-            return {"via": "public", "feature": feature_key}
+            # After public, auth isn't required; still label a provided key so
+            # the trace can attribute the request when one is sent.
+            return {"via": "public", "feature": feature_key,
+                    "caller": resolve_key_label(provided)}
         # Local key check first (no network); then the patron identity call.
-        if _key_is_valid(_extract_key(request)):
-            return {"via": "key", "feature": feature_key}
+        if _key_is_valid(provided):
+            return {"via": "key", "feature": feature_key,
+                    "caller": resolve_key_label(provided)}
         patron = await _resolve_patron(request)
         your_wave: Optional[datetime] = None
         if patron:
@@ -389,12 +410,14 @@ def require_entitlement(feature_key: str):
                         "via": "patron",
                         "feature": feature_key,
                         "tier": patron.get("tier"),
+                        "caller": patron.get("name"),
                     }
             elif patron.get("entitled"):  # legacy: no wave schedule
                 return {
                     "via": "patron",
                     "feature": feature_key,
                     "tier": patron.get("tier"),
+                    "caller": patron.get("name"),
                 }
         detail = {
             "error": "patron_only",

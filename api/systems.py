@@ -3611,6 +3611,7 @@ async def _solve_route_cached(
     beam_width: Optional[int],
     supercharge: float,
     access_via: Optional[str],
+    caller: Optional[str] = None,
     companion_max_ls: float = 0.0,
     inject_mult: float = 1.0,
     tank_jumps: int = 0,
@@ -3630,7 +3631,8 @@ async def _solve_route_cached(
     if _neutron_index is None:
         _kick_neutron_index_build()
         _log_route_trace(
-            "route", frm=from_, to=to, range=jump_range, status="warming"
+            "route", frm=from_, to=to, range=jump_range, status="warming",
+            access=access_via, caller=caller,
         )
         raise HTTPException(
             status_code=503,
@@ -3663,7 +3665,7 @@ async def _solve_route_cached(
         _log_route_trace(
             "route", frm=cached.get("source"), to=cached.get("destination"),
             range=jump_range, status="ok", total_jumps=cached.get("total_jumps"),
-            cached=True, access=access_via, engine=cached.get("engine"),
+            cached=True, access=access_via, caller=caller, engine=cached.get("engine"),
         )
         return cached
 
@@ -3679,7 +3681,7 @@ async def _solve_route_cached(
         _log_route_trace(
             "route", frm=out.get("source"), to=out.get("destination"),
             range=jump_range, status="ok", total_jumps=out.get("total_jumps"),
-            coalesced=True, access=access_via, engine=out.get("engine"),
+            coalesced=True, access=access_via, caller=caller, engine=out.get("engine"),
         )
         return out
 
@@ -3721,7 +3723,7 @@ async def _solve_route_cached(
                 _log_route_trace(
                     "route", frm=src_name, to=dst_name, range=jump_range,
                     status=exc.status, detail=exc.detail,
-                    access=access_via,
+                    access=access_via, caller=caller,
                 )
                 raise HTTPException(
                     status_code=422,
@@ -3748,7 +3750,7 @@ async def _solve_route_cached(
             "route", frm=src_name, to=dst_name, range=jump_range, status="ok",
             total_jumps=result["total_jumps"], neutron=result["neutron_jumps"],
             bridge=result["bridge_jumps"], eff=round(result["efficiency"], 4),
-            solve_ms=round(result["solve_ms"], 1), access=access_via,
+            solve_ms=round(result["solve_ms"], 1), access=access_via, caller=caller,
             engine=result.get("engine"),
         )
         to_cache = dict(result)
@@ -3795,6 +3797,7 @@ async def plot_route(
     POST the same parameters plus an EDSY/SLEF ``loadout``."""
     return await _solve_route_cached(
         from_, to, jump_range, beam_width, supercharge, access.get("via"),
+        caller=access.get("caller"),
         companion_max_ls=companion_max_ls, inject_mult=inject_mult,
     )
 
@@ -3869,7 +3872,8 @@ async def plot_route_post(
     )
     result = await _solve_route_cached(
         req.from_, req.to, req.jump_range, req.beam_width, req.supercharge,
-        access.get("via"), companion_max_ls=req.companion_max_ls,
+        access.get("via"), caller=access.get("caller"),
+        companion_max_ls=req.companion_max_ls,
         inject_mult=req.inject_mult,
         tank_jumps=tank_jumps, scoop_max_ls=req.scoop_max_ls,
         reach_by_r=reach_by_r,
@@ -3917,7 +3921,7 @@ async def plot_route_post(
         safe=_fuel.get("safe"),
         scoop_stops=_fuel.get("scoop_stops"),
         enforced=_fuel.get("enforced"),
-        access=access.get("via"),
+        access=access.get("via"), caller=access.get("caller"),
     )
     return result
 
