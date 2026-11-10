@@ -3757,6 +3757,10 @@ class RouteRequest(BaseModel):
     # How far in-system to supercruise to a companion scoopable for an
     # in-highway refuel (no divert jump). Fuel-layer only; 0 = always divert.
     scoop_max_ls: float = Field(INFLIGHT_SCOOP_MAX_LS, ge=0.0, le=2000.0)
+    # EXPERIMENTAL opt-in: B2 range-growth planning (reach grows as the tank
+    # empties). Off by default -> B1 fuel-aware geometry. Currently slow and not
+    # yet fuel-safe on long routes; exposed for A/B testing only.
+    range_growth: bool = False
     model_config = {"populate_by_name": True}
 
 
@@ -3797,7 +3801,8 @@ async def plot_route_post(
     # planner chain fewer, longer hops late in a refuel cycle. Derived from the
     # loadout + supercharge; None without a loadout (shared ship-agnostic geometry).
     reach_by_r = (
-        fsd.reach_profile(params, req.supercharge) if params is not None else None
+        fsd.reach_profile(params, req.supercharge)
+        if (params is not None and req.range_growth) else None
     )
     result = await _solve_route_cached(
         req.from_, req.to, req.jump_range, req.beam_width, req.supercharge,
