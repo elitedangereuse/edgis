@@ -1465,6 +1465,17 @@ def _realize_graph(
 # an over-range route; the caller's fuel-safety guard falls back to B1 in that case.
 _B2_THIN_CORRIDOR_LY = 120.0
 
+# Max wall-clock the B2 flown search may consume before giving up and realizing the
+# B1 coarse path instead. Keeps default-on B2 from spending a long/rim route's whole
+# time budget on a flown search that won't finish.
+_B2_TIME_BUDGET = 60.0
+
+# Max straight-line distance (ly) for which B2 range growth engages. Beyond it B1 is
+# slow enough that an unsafe-B2 guard re-solve would risk the time cap, and the win
+# is marginal; such routes use pure B1. Includes the common long routes (Colonia,
+# Sag A*) and excludes the deep rim (Beagle).
+_B2_MAX_LY = 30000.0
+
 
 def _thin_corridor(index: NeutronIndex, seq_ids: list[int],
                    radius: float) -> np.ndarray:
@@ -1546,7 +1557,16 @@ def graph_route(
         if (use_fuel and reach_by_r is not None and len(reach_by_r) >= 1)
         else None
     )
-    use_range = _rbr is not None and float(_rbr.max()) > float(_rbr[0]) + 1e-9
+    # Gate B2 by distance: on long/rim routes B1 is already slow, the range-growth
+    # win is modest, and an unsafe B2 route would trigger the caller's guard into a
+    # costly second (B1) solve that could blow the time cap. Below the cap, B2's
+    # two-phase fits comfortably. Colonia<->Sol (~22 kly) stays in; Beagle (~65 kly)
+    # falls back to pure B1.
+    use_range = (
+        _rbr is not None
+        and float(_rbr.max()) > float(_rbr[0]) + 1e-9
+        and straight < _B2_MAX_LY
+    )
     _sls_arr = np.asarray(_sls) if _sls is not None else None
 
     cand = _corridor_candidates(index, sv, dv, corridor_ly, entry_r)
@@ -1566,14 +1586,18 @@ def graph_route(
     cand = _filter(cand)
 
     def _solve(flip: bool, cand_set: Optional[np.ndarray] = None,
-               range_search: bool = False) -> Optional[dict]:
+               range_search: bool = False,
+               dl: Optional[float] = None) -> Optional[dict]:
         """Run the A* + realization rounds in one orientation over ``cand_set``
         (default the full corridor). When ``flip`` is set the search runs dst->src
         (toward the denser endpoint, so the A* heuristic is well-informed) and the
         neutron sequence is reversed to realize src->dst. ``range_search`` selects
         the B2 range-growth search + a reach-aware realize; it must run UNFLIPPED
-        (fuel burns in the flown direction)."""
+        (fuel burns in the flown direction). ``dl`` bounds the search below the
+        overall ``deadline`` (B2 gets a sub-budget so a slow flown search can't
+        starve the B1 fallback)."""
         cset = cand if cand_set is None else cand_set
+        d = deadline if dl is None else dl
         ssv, sdv = (dv, sv) if flip else (sv, dv)
         blacklist: set[tuple[int, int]] = set()
         badzones: list[tuple[np.ndarray, float]] = []
@@ -1581,7 +1605,7 @@ def graph_route(
             if range_search:
                 seq = _graph_search_range(
                     index, cset, ssv, sdv, J, entry_r, gap_k, blacklist,
-                    badzones, deadline, _rbr, float(scoop_max_ls),
+                    badzones, d, _rbr, float(scoop_max_ls),
                     boost_mult=boost_mult,
                 )
             elif use_fuel:
@@ -1589,18 +1613,18 @@ def graph_route(
                 # to the ship-agnostic min-jumps search so we never regress.
                 seq = _graph_search_fuel(
                     index, cset, ssv, sdv, J, entry_r, gap_k, blacklist,
-                    badzones, deadline, int(tank_jumps), float(scoop_max_ls),
+                    badzones, d, int(tank_jumps), float(scoop_max_ls),
                     boost_mult=boost_mult,
                 )
                 if seq is None:
                     seq = _graph_search(
                         index, cset, ssv, sdv, J, entry_r, gap_k, blacklist,
-                        badzones, deadline, boost_mult=boost_mult,
+                        badzones, d, boost_mult=boost_mult,
                     )
             else:
                 seq = _graph_search(
                     index, cset, ssv, sdv, J, entry_r, gap_k, blacklist,
-                    badzones, deadline, boost_mult=boost_mult,
+                    badzones, d, boost_mult=boost_mult,
                 )
             if seq is None:
                 return None
@@ -1634,7 +1658,7 @@ def graph_route(
             badzones.append(
                 (mid, min(max(2.0 * J, 0.75 * seg_d), _ZONE_RADIUS_CAP))
             )
-            if time.perf_counter() > deadline:
+            if time.perf_counter() > d:
                 return None
         return None
 
@@ -1673,9 +1697,24 @@ def graph_route(
             b1seq = list(reversed(coarse)) if flip else coarse
             tc = _filter(_thin_corridor(index, b1seq, _B2_THIN_CORRIDOR_LY))
             if len(tc):
-                res = _solve(False, cand_set=tc, range_search=True)
+                # Bound the flown search so a slow one (long/dense route) can't
+                # eat the whole deadline and starve the fallback below.
+                b2_dl = min(deadline, time.perf_counter() + _B2_TIME_BUDGET)
+                res = _solve(False, cand_set=tc, range_search=True, dl=b2_dl)
                 if res is not None:
                     return res
+            # B2 missed (timeout / unrealizable): realize the coarse B1 path we
+            # already have directly -- no second B1 search -- so default-on B2
+            # never regresses below B1 and never wastes a full extra solve.
+            legs, _f = _realize_graph(
+                index, src, dst, J, b1seq, fetch_stars_within,
+                fetch_stars_near_segment, fetch_stars_toward, is_locked=is_locked,
+                boost_mult=boost_mult, inject_mult=inject_mult,
+            )
+            if legs is not None:
+                return _finalize(
+                    legs, src, dst, J, boost, straight, 0, start_time
+                )
 
     result = _solve(flip)
     if result is None and flip:

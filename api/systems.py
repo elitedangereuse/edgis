@@ -3757,10 +3757,12 @@ class RouteRequest(BaseModel):
     # How far in-system to supercruise to a companion scoopable for an
     # in-highway refuel (no divert jump). Fuel-layer only; 0 = always divert.
     scoop_max_ls: float = Field(INFLIGHT_SCOOP_MAX_LS, ge=0.0, le=2000.0)
-    # EXPERIMENTAL opt-in: B2 range-growth planning (reach grows as the tank
-    # empties). Off by default -> B1 fuel-aware geometry. Currently slow and not
-    # yet fuel-safe on long routes; exposed for A/B testing only.
-    range_growth: bool = False
+    # B2 range-growth planning (reach grows as the tank empties -> fewer, longer
+    # hops). ON by default (opt-out: set false for the B1 fixed-reach geometry).
+    # Safe by construction: the two-phase search is time-bounded and falls back to
+    # the B1 coarse path, and the fuel-safety guard below re-solves without range
+    # growth whenever a range-growth route reads as unsafe.
+    range_growth: bool = True
     model_config = {"populate_by_name": True}
 
 

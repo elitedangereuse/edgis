@@ -389,9 +389,8 @@ def test_route_post_with_loadout_plans_fuel_aware(monkeypatch):
     assert rbr[-1] > rbr[0]
 
 
-def test_route_b2_off_by_default(monkeypatch):
-    # Without range_growth the loadout still drives B1 (tank_jumps) but NOT B2:
-    # reach_by_r stays None (the default fuel-aware geometry).
+def test_route_b2_on_by_default(monkeypatch):
+    # B2 is opt-out: a loadout route runs range growth by default (reach_by_r set).
     _gate_future(monkeypatch)
     monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
     _clear_route_cache()
@@ -404,8 +403,27 @@ def test_route_b2_off_by_default(monkeypatch):
         headers={"x-route-key": "k"},
     )
     assert resp.status_code == 200, resp.text
-    assert captured["tank_jumps"] == 10        # B1 still engages
-    assert captured["reach_by_r"] is None      # B2 does not
+    assert captured["tank_jumps"] == 10
+    assert captured["reach_by_r"] is not None   # B2 on by default
+
+
+def test_route_b2_opt_out(monkeypatch):
+    # range_growth=false reverts to the B1 fixed-reach geometry (reach_by_r None).
+    _gate_future(monkeypatch)
+    monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
+    _clear_route_cache()
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
+    captured: dict = {}
+    _capture_solve(monkeypatch, captured)
+    resp = client.post(
+        "/route",
+        json={"from": "Sol", "to": "Near", "range": 50, "loadout": COBRA_SLEF,
+              "range_growth": False},
+        headers={"x-route-key": "k"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert captured["tank_jumps"] == 10
+    assert captured["reach_by_r"] is None
 
 
 def test_route_without_loadout_stays_ship_agnostic(monkeypatch):
