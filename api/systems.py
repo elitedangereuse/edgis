@@ -4135,6 +4135,9 @@ async def plot_route_post(
         "route-fuel",
         frm=result.get("source"), to=result.get("destination"),
         range=req.jump_range,
+        # Final jump count AFTER fuel-safety enforcement (the route the caller
+        # actually gets); the geometry `route` line logs the pre-enforcement total.
+        total_jumps=result.get("total_jumps"),
         has_ship=params is not None,
         fuel_safe=req.fuel_safe if params is not None else None,
         cargo=(req.cargo or None),
