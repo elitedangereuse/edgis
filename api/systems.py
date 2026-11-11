@@ -3872,8 +3872,11 @@ async def _solve_route_cached(
     if cached is not None:
         cached["access"] = access_via
         _log_route_trace(
-            "route", frm=cached.get("source"), to=cached.get("destination"),
+            "route", tool="edgis", frm=cached.get("source"),
+            to=cached.get("destination"),
             range=jump_range, status="ok", total_jumps=cached.get("total_jumps"),
+            duration_s=(round(cached["solve_ms"] / 1000, 3)
+                        if cached.get("solve_ms") is not None else None),
             cached=True, access=access_via, caller=caller, engine=cached.get("engine"),
         )
         return cached
@@ -3888,8 +3891,11 @@ async def _solve_route_cached(
         out = dict(shared)
         out["access"] = access_via
         _log_route_trace(
-            "route", frm=out.get("source"), to=out.get("destination"),
+            "route", tool="edgis", frm=out.get("source"),
+            to=out.get("destination"),
             range=jump_range, status="ok", total_jumps=out.get("total_jumps"),
+            duration_s=(round(out["solve_ms"] / 1000, 3)
+                        if out.get("solve_ms") is not None else None),
             coalesced=True, access=access_via, caller=caller, engine=out.get("engine"),
         )
         return out
@@ -3957,10 +3963,13 @@ async def _solve_route_cached(
         result["source_id64"] = src_id64
         result["access"] = access_via
         _log_route_trace(
-            "route", frm=src_name, to=dst_name, range=jump_range, status="ok",
+            "route", tool="edgis", frm=src_name, to=dst_name, range=jump_range,
+            status="ok",
             total_jumps=result["total_jumps"], neutron=result["neutron_jumps"],
             bridge=result["bridge_jumps"], eff=round(result["efficiency"], 4),
-            solve_ms=round(result["solve_ms"], 1), access=access_via, caller=caller,
+            solve_ms=round(result["solve_ms"], 1),
+            duration_s=round(result["solve_ms"] / 1000, 3),
+            access=access_via, caller=caller,
             engine=result.get("engine"), **({"prof": prof} if prof else {}),
         )
         to_cache = dict(result)
