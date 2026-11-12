@@ -778,6 +778,11 @@ a:hover {
     flex: none;
 }
 
+/* After the icon rule above (same specificity): a hidden item stays hidden. */
+.tool-menu__item[hidden] {
+    display: none;
+}
+
 .tool-menu__item.active {
     background: rgba(18, 148, 214, 0.4);
 }

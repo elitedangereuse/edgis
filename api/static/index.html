@@ -143,7 +143,8 @@
               <button type="button" class="tool-menu__item" data-tool="advanced" role="menuitem">Explorer tools</button>
               <button type="button" class="tool-menu__item" data-tool="route" role="menuitem">Route plotting</button>
               <a class="tool-menu__item" href="https://elitedangereuse.fr/galactic-hunt.php" target="_blank" rel="noopener" role="menuitem">Galactic Hunt ↗</a>
-              <a class="tool-menu__item" href="https://elitedangereuse.fr/auth-redirect.php?redirect=https%3A%2F%2Fedgis.elitedangereuse.fr%2F" role="menuitem" title="via elitedangereuse.fr" aria-label="Log in via elitedangereuse.fr"><img class="tool-menu__icon" src="/static/assets/logo_o.svg" alt="" aria-hidden="true">Log in</a>
+              <a id="menuLogin" class="tool-menu__item" href="https://elitedangereuse.fr/auth-redirect.php?redirect=https%3A%2F%2Fedgis.elitedangereuse.fr%2F" role="menuitem" title="via elitedangereuse.fr" aria-label="Log in via elitedangereuse.fr">Log in<img class="tool-menu__icon" src="/static/assets/logo_o.svg" alt="" aria-hidden="true"></a>
+              <a id="menuLogout" class="tool-menu__item" href="https://elitedangereuse.fr/logout.php?redirect=https%3A%2F%2Fedgis.elitedangereuse.fr%2F" role="menuitem" title="via elitedangereuse.fr" aria-label="Log out via elitedangereuse.fr" hidden>Log out<img class="tool-menu__icon" src="/static/assets/logo_o.svg" alt="" aria-hidden="true"></a>
             </div>
           </div>
         </div>
@@ -975,6 +976,9 @@
          if (!me || !me.authenticated || !me.name) return;
          document.getElementById('cmdrChipName').textContent = me.name;
          document.getElementById('cmdrChip').hidden = false;
+         // Logged in: the menu offers Log out instead of Log in.
+         document.getElementById('menuLogin').hidden = true;
+         document.getElementById('menuLogout').hidden = false;
        })
        .catch(() => {});
 

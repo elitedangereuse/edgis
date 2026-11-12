@@ -8,6 +8,7 @@ import base64
 import json
 import re
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from queue import Empty, LifoQueue
 from threading import Lock, Thread
 import httpx
@@ -3660,7 +3661,9 @@ if not _route_trace_logger.handlers:
         _rt_handler = RotatingFileHandler(
             _rt_path, maxBytes=5_000_000, backupCount=3
         )
-        _rt_handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+        # Bare JSON: the timestamp is the line's `ts` field, so every line
+        # parses as JSON (jq, pandas.read_json(lines=True)...).
+        _rt_handler.setFormatter(logging.Formatter("%(message)s"))
         _route_trace_logger.addHandler(_rt_handler)
     except Exception:  # pragma: no cover - tracing must never break startup
         pass
@@ -3669,10 +3672,11 @@ if not _route_trace_logger.handlers:
 def _log_route_trace(kind: str, **fields: Any) -> None:
     """One structured JSON line per plot/compare, for side-by-side comparison
     and failure triage. Written to ROUTE_TRACE_FILE (default
-    api/route_trace.jsonl, rotated at 5 MB x3)."""
+    api/route_trace.jsonl, rotated at 5 MB x3). ``ts`` is ISO 8601 UTC."""
 
     try:
-        _route_trace_logger.info(json.dumps({"kind": kind, **fields}))
+        ts = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        _route_trace_logger.info(json.dumps({"ts": ts, "kind": kind, **fields}))
     except Exception:  # pragma: no cover - logging must never break a request
         pass
 

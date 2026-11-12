@@ -790,3 +790,29 @@ def test_spansh_route_is_gated(monkeypatch):
     resp = client.get("/spansh/route", params={"from": "Sol", "to": "Colonia"})
     assert resp.status_code == 403
     assert resp.json()["detail"]["error"] == "patron_only"
+
+
+def test_route_trace_lines_are_json_with_a_utc_timestamp():
+    import io
+    import json
+    import logging
+
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    systems._route_trace_logger.addHandler(handler)
+    try:
+        systems._log_route_trace("route", frm="Sol", to="Colonia", status="ok")
+    finally:
+        systems._route_trace_logger.removeHandler(handler)
+
+    line = json.loads(buf.getvalue().strip())
+    assert list(line)[:2] == ["ts", "kind"]
+    assert line["ts"].endswith("+00:00") and line["kind"] == "route"
+    assert line["frm"] == "Sol"
+    # The file handler writes the bare JSON too (no "asctime" prefix).
+    from logging.handlers import RotatingFileHandler
+
+    files = [h for h in systems._route_trace_logger.handlers
+             if isinstance(h, RotatingFileHandler)]
+    assert files and all(h.formatter._fmt == "%(message)s" for h in files)
