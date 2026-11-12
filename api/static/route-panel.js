@@ -967,11 +967,13 @@ function sourceRow(r, compact) {
 }
 
 function renderRoute(r) {
-  // A re-render of the SAME route (e.g. the compact/all-jumps toggle) must keep
-  // any spansh comparison already shown in #cmpOut; only a NEW plot (a different
-  // result object) clears it, since it would be stale.
-  const keepCmp = (r === lastOurs)
-    ? (document.getElementById("cmpOut")?.innerHTML || "") : "";
+  // Keep the spansh comparison lines that belong to this plot: all of them on a
+  // re-render of the SAME route (compact toggle), and on a fresh result the ones
+  // started while it was plotting ("vs spansh" is usable meanwhile). The nodes
+  // are moved, not re-created, so a running progress bar doesn't restart.
+  const oldHost = document.getElementById("cmpOut");
+  const keepCmp = oldHost ? [...oldHost.children].filter(
+    (e) => r === lastOurs || e.dataset.plot === String(plotSeq)) : [];
   lastOurs = r;
   loadDone();
   let header, rows;
@@ -1017,7 +1019,7 @@ function renderRoute(r) {
       <div class="statrow" data-cmp>${statCells({
         jumps: r.total_jumps, neutron: r.neutron_jumps, regular: r.bridge_jumps,
         ly: r.total_distance_ly, eff: r.efficiency, solve: r.solve_ms })}</div>
-      <div id="cmpOut">${keepCmp}</div>
+      <div id="cmpOut"></div>
     </div>
     ${r.fuel ? `<div class="fuelbar">${fuelVerdict(r.fuel)}</div>` : ""}
     ${injectSummary(r)}
@@ -1041,7 +1043,11 @@ function renderRoute(r) {
       <tbody>${rows}</tbody></table>
     </div>`;
   updateCompareButton();  // enable + set exact/neutron tooltip for the plotted route
-  highlightBest();  // our row was re-rendered: re-mark the winners vs any kept spansh rows
+  keepCmp.forEach((e) => $("cmpOut").appendChild(e));
+  // A spansh row that landed before our result had no straight line for its
+  // efficiency: redraw it now; this also re-marks the winners vs our new row.
+  keepCmp.forEach((e) => { if (e._spansh) showSpanshRow(e, e._spansh.title, e._spansh.s); });
+  highlightBest();
   // Trigger the neighbors-style refresh glow on the freshly rendered table.
   const tbl = $("out").querySelector(".tablewrap.result-table");
   if (tbl) {
@@ -1054,11 +1060,17 @@ function renderRoute(r) {
 
 // A dedicated line per spansh tool inside #cmpOut, so the Neutron and Galaxy
 // comparisons can show at once without overwriting each other.
-function cmpLine(id) {
+// `seq` is the plot the comparison was started for: once a newer plot has
+// started, its writes go to a detached element, so a late spansh answer never
+// lands next to a different route.
+let plotSeq = 0;
+function cmpLine(id, seq) {
+  if (seq !== plotSeq) return document.createElement("div");
   let host = document.getElementById("cmpOut");
   if (!host) { host = document.createElement("div"); host.id = "cmpOut"; $("out").appendChild(host); }
   let el = document.getElementById(id);
   if (!el) { el = document.createElement("div"); el.id = id; host.appendChild(el); }
+  el.dataset.plot = String(seq);
   return el;
 }
 
@@ -1105,6 +1117,7 @@ function showSpanshRow(el, title, s) {
   const neutron = s.neutron_jumps != null ? s.neutron_jumps : null;
   const straight = lastOurs ? lastOurs.straight_line_ly : null;
   const link = s.results_url ? ` · <a href="${escapeHtml(s.results_url)}" target="_blank" rel="noopener">open in spansh ↗</a>` : "";
+  el._spansh = { title, s };
   el.setAttribute("data-cmp", "");
   el.className = "statrow small";
   el.innerHTML = `<div class="cmp-head">${title}${link}</div>` + statCells({
@@ -1117,6 +1130,7 @@ function showSpanshRow(el, title, s) {
 }
 // Progress / error text on a spansh line: spans the grid, not a stats row.
 function showSpanshMsg(el, html) {
+  el._spansh = null;
   el.removeAttribute("data-cmp");
   el.className = "statrow";
   el.innerHTML = `<div class="cmp-head">${html}</div>`;
@@ -1142,7 +1156,8 @@ async function compareSpansh() {
   if (!lastQuery) return;
   const { from, to, range, supercharge } = lastQuery;
   $("cmpGalaxy").disabled = true; $("cmpGalaxy").classList.add("querying"); setBusy(true);
-  const out = () => cmpLine("cmpNeutron");
+  const seq = plotSeq;
+  const out = () => cmpLine("cmpNeutron", seq);
   showSpanshMsg(out(), `<span class="tiny">Querying spansh Neutron Plotter… (can take ~10-30 s)</span>`);
   try {
     const res = await fetch(`/spansh/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}&efficiency=60&supercharge=${encodeURIComponent(supercharge || 4)}`, { headers: headers(), credentials: "include" });
@@ -1160,7 +1175,8 @@ async function compareSpansh() {
 async function compareGalaxy() {
   if (!lastQuery) return;
   const loadout = shipInfo ? ($("loadout").value || "").trim() : "";
-  const out = () => cmpLine("cmpGalaxy_line");
+  const seq = plotSeq;
+  const out = () => cmpLine("cmpGalaxy_line", seq);
   if (!loadout) { showSpanshMsg(out(), `<span class="bad">Import a ship first (the Galaxy Plotter is fuel-aware).</span>`); return; }
   const { from, to } = lastQuery;
   $("cmpGalaxy").disabled = true; $("cmpGalaxy").classList.add("querying"); setBusy(true);
@@ -1194,6 +1210,7 @@ async function plot() {
   // Fuel-aware plotting (POST with the loadout) kicks in once a ship is imported.
   const loadout = shipInfo ? ($("loadout").value || "").trim() : "";
   lastQuery = { from, to, range, supercharge, companionLs, inject: injectMult() };
+  plotSeq++;  // comparisons started from now on belong to this plot
   lastOurs = null;  // so a post-failure spansh compare doesn't show a stale "ours"
   $("go").disabled = true; setBusy(true); $("out").innerHTML = `<div class="msg">Plotting…</div>`;
   try {
