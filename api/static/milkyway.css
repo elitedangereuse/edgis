@@ -634,6 +634,40 @@ a:hover {
     }
 }
 
+/* Logged-in CMDR, by the tool menu (shown on every tool). */
+.cmdr-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 12rem;
+    padding: 0.3rem 0.75rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(0, 0, 0, 0.25);
+    color: #f8f8ff;
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    cursor: default;
+}
+.cmdr-chip[hidden] {
+    display: none;
+}
+.cmdr-chip #cmdrChipName {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.cmdr-chip__dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #53d08a;
+    flex: none;
+}
+
 .tool-menu {
     margin-top: 0;
     display: flex;

@@ -29,11 +29,6 @@
 
 #panel-route .banner { border:1px solid var(--line); border-radius:10px; padding:10px 14px;
           margin-bottom:16px; background:var(--panel); font-size:13px; }
-/* Thin "current access" indicator (temporary, removed at full public release). */
-#panel-route .access-ind { display:flex; align-items:center; justify-content:flex-end; gap:5px;
-              font-size:11px; color:var(--muted); letter-spacing:.3px; margin:0 2px 8px; }
-#panel-route .access-ind .dot { width:7px; height:7px; border-radius:50%; background:var(--ok); flex:none; }
-#panel-route .access-ind b { color:var(--text); font-weight:600; }
 #panel-route .bannerkey { margin-top:10px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
 #panel-route .bannerkey label { font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--accent); font-weight:600; }
 /* Buttons using the EDGIS index .tool-action styling (same colors). */

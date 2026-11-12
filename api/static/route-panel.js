@@ -548,18 +548,14 @@ function accessMethod() {
   }
   return null;
 }
+// The CMDR chip (index header) shows who is logged in; during early access its
+// tooltip also says what grants the route plotter.
 function renderAccessIndicator() {
+  const chip = $("cmdrChip");
+  if (!chip) return;
   const m = accessMethod();
-  const ind = $("accessIndicator");
-  if (!ind) return;
-  const me = lastAccess.me;
-  // Logged-in CMDR name (from the elitedangereuse.fr session), shown in italics
-  // next to the access method.
-  const who = (me && me.authenticated && me.name)
-    ? ` <i class="cmdr-name">${escapeHtml(me.name)}</i>` : "";
-  if (m) { ind.innerHTML = `<span class="dot"></span>access via <b>${escapeHtml(m)}</b>${who}`; ind.hidden = false; }
-  else if (who) { ind.innerHTML = `<span class="dot"></span>${who.trim()}`; ind.hidden = false; }
-  else { ind.hidden = true; }
+  chip.title = "Logged in on elitedangereuse.fr"
+    + (m ? `\nRoute access: ${m === "key" ? "early-access key" : m}` : "");
 }
 
 // Plot button "warming up" state while the route index builds: spin the logo,
