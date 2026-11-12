@@ -798,6 +798,37 @@ function accessSchedule(obj) {
   return bits.join(" · ");
 }
 
+// Live countdown to the caller's access-open instant (UTC ISO from /auth/me).
+// Ticks every second; at zero it re-checks status so access flips automatically.
+let accessCountdownTimer = null;
+function startAccessCountdown(iso) {
+  clearInterval(accessCountdownTimer);
+  const target = Date.parse(iso);
+  if (isNaN(target)) return;
+  const tick = () => {
+    const el = $("accessCountdown");
+    if (!el) { clearInterval(accessCountdownTimer); accessCountdownTimer = null; return; }
+    const ms = target - Date.now();
+    if (ms <= 0) {
+      clearInterval(accessCountdownTimer); accessCountdownTimer = null;
+      el.textContent = "now";
+      loadStatus();  // the wave just opened; re-check and unlock
+      return;
+    }
+    const s = Math.floor(ms / 1000);
+    const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600),
+          m = Math.floor((s % 3600) / 60), sec = s % 60;
+    const seg = [];
+    if (d) seg.push(d + "d");
+    if (d || h) seg.push(h + "h");
+    if (d || h || m) seg.push(m + "m");
+    seg.push(sec + "s");
+    el.textContent = seg.join(" ");
+  };
+  tick();
+  accessCountdownTimer = setInterval(tick, 1000);
+}
+
 async function loadStatus() {
   try {
     const [st, me] = await Promise.all([
@@ -817,13 +848,22 @@ async function loadStatus() {
       else { pill.textContent = "early access"; pill.className = "pill warn"; }
     }
     const parts = [];
+    const opensAt = me && me.route_opens_at;
+    const opensFuture = !!opensAt && Date.parse(opensAt) > Date.now();
     if (!st.public) {
       parts.push(`<b>Early access, rolling out in waves:</b> ${accessSchedule(st)}. All dates are Universal Galactic Time (UGT), i.e. midnight UTC.`);
-      if (!(me && me.patron)) parts.push(`Become a patron on <a href="${st.patreon}" target="_blank" rel="noopener">Patreon</a>, or use the access key below.`);
-      else parts.push(`Signed in as <b>${escapeHtml(me.name || "patron")}</b>.`);
+      if (me && me.authenticated) {
+        parts.push(`Signed in as <b>${escapeHtml(me.name || "patron")}</b>.`
+          + (opensFuture ? ` Your access opens in <b><span id="accessCountdown">…</span></b>.` : ""));
+      } else {
+        parts.push(`Become a patron on <a href="${st.patreon}" target="_blank" rel="noopener">Patreon</a>, or use the access key below.`);
+      }
     }
     if (!st.index_ready) parts.push(`<span class="pill warn">index warming up…</span>`);
     $("bannerMsg").innerHTML = parts.join(" ");
+    // Per-profile live countdown to this caller's wave (patron -> their wave).
+    if (!st.public && opensFuture) startAccessCountdown(opensAt);
+    else { clearInterval(accessCountdownTimer); accessCountdownTimer = null; }
     // Collapse the banner (with its key field) once a key is set or it's public.
     const hasKey = !!($("key").value || "").trim();
     $("banner").hidden = parts.length === 0 || hasKey;

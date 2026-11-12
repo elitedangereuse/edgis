@@ -167,6 +167,31 @@ def test_public_after_cutover_open_to_all(monkeypatch):
     assert resp.json()["via"] == "public"
 
 
+def test_access_opens_at_per_profile(monkeypatch):
+    monkeypatch.setitem(entitlements.FEATURES, "route", _waved_feature())
+    future_iso = datetime(2999, 1, 1, tzinfo=timezone.utc).isoformat()
+    # Supporter wave is already open -> no countdown.
+    assert entitlements.access_opens_at(
+        "route", {"entitled": True, "tier": "supporter"}
+    ) is None
+    # Free follower -> counts down to their (future) follower wave.
+    assert entitlements.access_opens_at(
+        "route", {"tier": "follower", "follower": True}
+    ) == future_iso
+    # Guest -> counts down to the open-to-all date.
+    assert entitlements.access_opens_at("route", None) == future_iso
+
+
+def test_access_opens_at_public_feature(monkeypatch):
+    monkeypatch.setitem(
+        entitlements.FEATURES, "route",
+        _feature(datetime(2000, 1, 1, tzinfo=timezone.utc)),
+    )
+    # Feature is public -> nobody has a countdown.
+    assert entitlements.access_opens_at("route", {"tier": "supporter"}) is None
+    assert entitlements.access_opens_at("route", None) is None
+
+
 def test_resolve_key_label(monkeypatch, tmp_path):
     monkeypatch.setenv("ENTITLEMENT_KEYS", "env-secret")
     monkeypatch.setenv("ADMIN_TOKEN", "admintok")

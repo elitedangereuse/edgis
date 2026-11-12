@@ -3777,6 +3777,9 @@ async def auth_me(request: Request):
         "patron": bool(patron.get("entitled")),
         "name": patron.get("name"),
         "tier": patron.get("tier"),
+        # When this caller's route access opens (UTC ISO), for the UI countdown;
+        # null once they're already in.
+        "route_opens_at": entitlements.access_opens_at("route", patron),
     }
 
 

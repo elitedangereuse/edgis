@@ -144,6 +144,24 @@ def is_public(feature: Feature, *, now: Optional[datetime] = None) -> bool:
     )
 
 
+def access_opens_at(feature_key: str, patron: Optional[dict]) -> Optional[str]:
+    """When ``patron`` (``None`` for a guest) gains access to ``feature_key``, as a
+    UTC ISO-8601 instant, or ``None`` if they already have access, the feature is
+    public, or there's no scheduled wave for them. Drives the UI's per-profile
+    countdown: a paid patron counts down to their wave, a guest to the open-to-all
+    date."""
+
+    feature = FEATURES.get(feature_key)
+    if feature is None or is_public(feature):
+        return None
+    wave = _earliest_wave_unlock(feature, _caller_levels(patron or {}))
+    # No earlier qualifying wave -> fall back to the open-to-all date.
+    target = wave if wave is not None else feature.public_after
+    if target is not None and _now() < target:
+        return target.astimezone(timezone.utc).isoformat()
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Managed access keys (admin-editable, persisted to a small JSON file).
 #
