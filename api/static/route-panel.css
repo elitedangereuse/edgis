@@ -224,10 +224,11 @@
 #panel-route .route-opts { display:flex; flex-wrap:wrap; gap:16px 24px; align-items:flex-start; }
 #panel-route .opts-short { display:flex; flex-direction:column; gap:12px; flex:1 1 220px; min-width:200px; }
 #panel-route .opt-field { display:flex; flex-direction:column; gap:6px; }
-#panel-route .opts-inject { flex:1 1 220px; min-width:200px; }
+#panel-route .opts-inject { display:flex; flex-direction:column; gap:12px; flex:1 1 220px; min-width:200px; }
+#panel-route .opt-label { display:inline-flex; align-items:center; gap:6px; }
+#panel-route .fuelsafe-switch { align-self:flex-start; padding:4px 0; }
 /* Fuel-safe toggle + an (i) info bubble; the long explainer lives in its hover/
    focus tooltip instead of a wall of text under the row. */
-#panel-route .fuelsafe-row { display:flex; align-items:center; gap:8px; margin-top:14px; }
 #panel-route .opt-field[hidden] { display:none; }
 #panel-route .help-tip { position:relative; display:inline-flex; align-items:center; justify-content:center;
   width:16px; height:16px; border-radius:50%; border:1px solid var(--accent); color:var(--accent);
@@ -294,3 +295,7 @@
 #panel-route .stat.best b { color:var(--neutron); }
 #panel-route .stat b .unit { font-size:.6em; font-weight:400; color:var(--muted); }
 @media (max-width:560px) { #panel-route .statgrid { grid-template-columns:repeat(3, auto); } }
+
+/* Jump range set by the selected ship: read-only, readable, marked as derived. */
+#panel-route .range-note { margin-left:6px; font-size:11px; font-weight:400; color:var(--muted); text-transform:none; }
+#panel-route input#range:read-only { border-style:dashed; color:var(--accent-white); cursor:default; }

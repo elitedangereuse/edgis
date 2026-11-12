@@ -294,7 +294,7 @@
               <div id="toHint" class="sys-hint tiny" hidden></div>
             </div>
             <div class="flex flex-wrap gap-3">
-              <div class="flex-1 flex flex-col gap-2" style="min-width:180px"><label for="range" class="text-sm font-semibold">Jump range (LY)</label><input id="range" type="number" min="1" max="200" step="0.1" value="50" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" /></div>
+              <div class="flex-1 flex flex-col gap-2" style="min-width:180px"><label for="range" class="text-sm font-semibold">Jump range (LY) <span id="rangeNote" class="range-note" hidden>set by your ship</span></label><input id="range" type="number" min="1" max="200" step="0.1" value="50" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" /></div>
             </div>
             <datalist id="sysopts"></datalist>
             <details class="shiprow">
@@ -323,14 +323,6 @@
                   </div>
                 </div>
                 <div id="shipInfo" class="tiny ship-msg"></div>
-                <div class="fuelsafe-row" style="margin-top:14px">
-                  <label class="switch" title="Simulate the tank along the route and refuel before you could strand.">
-                    <input type="checkbox" id="fuelSafe" checked />
-                    <span class="track"></span><span>fuel-safe</span>
-                  </label>
-                  <span id="fuelSafeNote" class="tiny" hidden>needs a ship</span>
-                  <span class="help-tip" tabindex="0" role="note" aria-label="What fuel-safe does">i<span class="tip"><b>Fuel-safe</b> (on): EDGIS keeps at least one jump of fuel in reserve so you can always reach a scoopable star, never stranded. When a refuel is needed it uses an in-system companion scoop at a neutron waypoint (no extra jumps) where possible, otherwise a short detour to the nearest scoopable star (+2 jumps). <b>Off</b>: the route is left as-is and fuel risk is only flagged. Ships and options are stored in this browser only.</span></span>
-                </div>
                 <div class="route-opts" style="margin-top:12px">
                   <div class="opts-short">
                     <!-- Hidden while a ship is active: the ship sets it (shown on its card). -->
@@ -350,12 +342,22 @@
                       <input id="cargo" type="number" min="0" step="1" value="0" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
                     </div>
                   </div>
-                  <div class="opt-field opts-inject"><span class="text-sm font-semibold" id="injectLabel">FSD injection</span>
-                    <div class="inject-radios" role="radiogroup" aria-labelledby="injectLabel" title="Allow FSD synthesis injection, used only when required to cross a gap a normal jump can't reach. The route uses the least grade that works per gap and lists what to synthesise. This sets the highest grade allowed. Off by default.">
-                      <label class="inj-opt"><input type="radio" name="injectMult" value="1" checked /><img src="/static/assets/synthesis/off.svg" alt="" /><span class="inj-txt">Off</span></label>
-                      <label class="inj-opt"><input type="radio" name="injectMult" value="1.25" /><img src="/static/assets/synthesis/basic.svg" alt="" /><span class="inj-txt">Basic <small>+25%</small></span></label>
-                      <label class="inj-opt"><input type="radio" name="injectMult" value="1.5" /><img src="/static/assets/synthesis/standard.svg" alt="" /><span class="inj-txt">Standard <small>+50%</small></span></label>
-                      <label class="inj-opt"><input type="radio" name="injectMult" value="2" /><img src="/static/assets/synthesis/premium.svg" alt="" /><span class="inj-txt">Premium <small>+100%</small></span></label>
+                  <div class="opts-inject">
+                    <div class="opt-field">
+                      <span class="text-sm font-semibold opt-label">Fuel-safe <span class="help-tip" tabindex="0" role="note" aria-label="What fuel-safe does">i<span class="tip"><b>Fuel-safe</b> (on): EDGIS keeps at least one jump of fuel in reserve so you can always reach a scoopable star, never stranded. When a refuel is needed it uses an in-system companion scoop at a neutron waypoint (no extra jumps) where possible, otherwise a short detour to the nearest scoopable star (+2 jumps). <b>Off</b>: the route is left as-is and fuel risk is only flagged. Ships and options are stored in this browser only.</span></span></span>
+                      <label class="switch fuelsafe-switch" title="Simulate the tank along the route and refuel before you could strand.">
+                        <input type="checkbox" id="fuelSafe" checked />
+                        <span class="track"></span><span>never run dry</span>
+                        <span id="fuelSafeNote" class="tiny" hidden>(needs a ship)</span>
+                      </label>
+                    </div>
+                    <div class="opt-field"><span class="text-sm font-semibold" id="injectLabel">FSD injection</span>
+                      <div class="inject-radios" role="radiogroup" aria-labelledby="injectLabel" title="Allow FSD synthesis injection, used only when required to cross a gap a normal jump can't reach. The route uses the least grade that works per gap and lists what to synthesise. This sets the highest grade allowed. Off by default.">
+                        <label class="inj-opt"><input type="radio" name="injectMult" value="1" checked /><img src="/static/assets/synthesis/off.svg" alt="" /><span class="inj-txt">Off</span></label>
+                        <label class="inj-opt"><input type="radio" name="injectMult" value="1.25" /><img src="/static/assets/synthesis/basic.svg" alt="" /><span class="inj-txt">Basic <small>+25%</small></span></label>
+                        <label class="inj-opt"><input type="radio" name="injectMult" value="1.5" /><img src="/static/assets/synthesis/standard.svg" alt="" /><span class="inj-txt">Standard <small>+50%</small></span></label>
+                        <label class="inj-opt"><input type="radio" name="injectMult" value="2" /><img src="/static/assets/synthesis/premium.svg" alt="" /><span class="inj-txt">Premium <small>+100%</small></span></label>
+                      </div>
                     </div>
                   </div>
                 </div>

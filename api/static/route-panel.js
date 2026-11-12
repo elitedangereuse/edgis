@@ -343,6 +343,14 @@ function renderShips() {
   const hasShip = activeShip() >= 0;
   $("superchargeField").hidden = hasShip;
   $("fuelSafeNote").hidden = hasShip;
+  // The route geometry plots at this range, so with a usable ship it is the
+  // ship's full-tank range: read-only (still readable), changed through Cargo.
+  const shipRange = hasShip && !shipError;
+  $("range").readOnly = shipRange;
+  $("rangeNote").hidden = !shipRange;
+  $("range").title = shipRange
+    ? "Your ship's full-tank range (cargo included). Change Cargo, or plot without a ship to set it by hand."
+    : "";
 }
 
 // /route/ship for a loadout: { info } or { error } (never throws).
@@ -1520,13 +1528,14 @@ window.edgisInitRoutePanel = function () {
   if (activeLoadout()) { importShip(); }
   loadStatus();
   // A shared link (from + to both present) plots straight away, once the stored
-  // ship (if any) is imported. That import sets range/supercharge from the
-  // loadout when it lands: put the link's back first, so the link reproduces
-  // the route it was shared for.
+  // ship (if any) is imported. With a usable ship, the ship sets range and
+  // supercharge (it is what you fly); without one, the link's values apply.
   if (from && to) {
     shipImport.finally(() => {
-      if (range) $("range").value = range;
-      if (supercharge) $("ship").value = supercharge;
+      if (!shipInfo) {
+        if (range) $("range").value = range;
+        if (supercharge) $("ship").value = supercharge;
+      }
       plot();
     });
   }
