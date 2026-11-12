@@ -254,7 +254,15 @@ function setShipSummary() {
   }
 }
 
-async function importShip() {
+// The import in flight (or last finished): plot() waits for it, so a plot
+// right after page load (shared link, quick click) uses the stored ship
+// instead of silently plotting ship-less while /route/ship is still answering.
+let shipImport = Promise.resolve();
+function importShip() {
+  shipImport = importShipNow();
+  return shipImport;
+}
+async function importShipNow() {
   const loadout = ($("loadout").value || "").trim();
   if (!loadout) { shipInfo = null; localStorage.removeItem(SLEF_LS); $("shipInfo").textContent = ""; setShipSummary(); updateCompareButton(); return; }
   $("importShip").disabled = true;
@@ -1077,14 +1085,16 @@ function cmpLine(id, seq) {
 // Route stats, shared by our summary and the spansh comparison rows (same
 // columns, smaller), so the two read side by side. `better` is the direction
 // that wins: the best value of each column is marked in blue on every row.
-// Neutron jumps has none: more boosts is not better in itself.
+// Neutron jumps has none: more boosts is not better in itself. Labels name the
+// quantity; a unit sits with its number, smaller (`unit`), "%" tight to it.
+const unit = (u) => `<span class="unit">${u}</span>`;
 const STAT_COLS = [
   { k: "jumps", label: "jumps", better: "min", show: (v) => fmt(v) },
   { k: "neutron", label: "neutron jumps", better: null, show: (v) => fmt(v) },
   { k: "regular", label: "regular jumps", better: "min", show: (v) => fmt(v) },
-  { k: "ly", label: "LY flown", better: "min", show: (v) => fmt(v), round: 1 },
-  { k: "eff", label: "efficiency", better: "max", show: (v) => `${fmt(v * 100, 1)}%`, round: 3 },
-  { k: "solve", label: "solve", better: "min", show: (v) => v >= 1000 ? `${fmt(v / 1000, 1)} s` : `${fmt(v, 0)} ms` },
+  { k: "ly", label: "distance", better: "min", show: (v) => `${fmt(v)} ${unit("LY")}`, round: 1 },
+  { k: "eff", label: "efficiency", better: "max", show: (v) => `${fmt(v * 100, 1)}${unit("%")}`, round: 3 },
+  { k: "solve", label: "solve time", better: "min", show: (v) => v >= 1000 ? `${fmt(v / 1000, 1)} ${unit("s")}` : `${fmt(v, 0)} ${unit("ms")}` },
 ];
 function statCells(v) {
   return STAT_COLS.map((c) => {
@@ -1202,6 +1212,7 @@ async function compareGalaxy() {
 }
 
 async function plot() {
+  await shipImport;
   const from = $("from").value.trim(), to = $("to").value.trim();
   if (!from || !to) { $("out").innerHTML = `<div class="msg warn">Enter both a start and destination system.</div>`; return; }
   const range = $("range").value || "50";
@@ -1371,10 +1382,17 @@ window.edgisInitRoutePanel = function () {
   if (inj != null && inj !== "") { setInjectMult(inj); localStorage.setItem(INJECT_MULT, String(injectMult())); }
   if ($("loadout").value.trim()) { importShip(); }
   loadStatus();
-  // A shared link (from + to both present) plots straight away, at the shared
-  // range. Deferred to the next tick so the synchronous field prefill is fully
-  // applied before plot() reads it.
-  if (from && to) setTimeout(plot, 0);
+  // A shared link (from + to both present) plots straight away, once the stored
+  // ship (if any) is imported. That import sets range/supercharge from the
+  // loadout when it lands: put the link's back first, so the link reproduces
+  // the route it was shared for.
+  if (from && to) {
+    shipImport.finally(() => {
+      if (range) $("range").value = range;
+      if (supercharge) $("ship").value = supercharge;
+      plot();
+    });
+  }
 };
 
 // The index's init is a deferred module that runs BEFORE this (deferred) script,

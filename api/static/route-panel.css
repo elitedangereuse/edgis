@@ -262,4 +262,5 @@
 #panel-route .statrow.small .stat b { font-size:14px; }
 #panel-route .statrow.small .stat span { font-size:10px; }
 #panel-route .stat.best b { color:var(--neutron); }
+#panel-route .stat b .unit { font-size:.6em; font-weight:400; color:var(--muted); }
 @media (max-width:560px) { #panel-route .statgrid { grid-template-columns:repeat(3, auto); } }
