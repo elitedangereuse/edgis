@@ -432,7 +432,8 @@ def require_entitlement(feature_key: str):
             detail["your_access_after"] = your_wave.date().isoformat()
             detail["message"] = (
                 "You're in early access. Your access opens on "
-                f"{your_wave.date().isoformat()}."
+                f"{your_wave.date().isoformat()} at 00:00 Universal "
+                "Galactic Time (UGT)."
             )
         raise HTTPException(status_code=403, detail=detail)
 

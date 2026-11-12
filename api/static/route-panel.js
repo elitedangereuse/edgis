@@ -818,7 +818,7 @@ async function loadStatus() {
     }
     const parts = [];
     if (!st.public) {
-      parts.push(`<b>Early access, rolling out in waves:</b> ${accessSchedule(st)}.`);
+      parts.push(`<b>Early access, rolling out in waves:</b> ${accessSchedule(st)}. All dates are Universal Galactic Time (UGT), i.e. midnight UTC.`);
       if (!(me && me.patron)) parts.push(`Become a patron on <a href="${st.patreon}" target="_blank" rel="noopener">Patreon</a>, or use the access key below.`);
       else parts.push(`Signed in as <b>${escapeHtml(me.name || "patron")}</b>.`);
     }
@@ -1429,8 +1429,8 @@ async function plot() {
       // If the backend recognises the caller and their wave just hasn't opened
       // yet, it returns a personalized date; otherwise show the full schedule.
       const schedule = d.your_access_after
-        ? `Your access opens on <b>${fmtWaveDate(d.your_access_after)}</b>.`
-        : `Rolling out in waves: ${accessSchedule(d)}.`;
+        ? ""  // d.message already states the personalized opens-on date in UGT
+        : `Rolling out in waves: ${accessSchedule(d)}. All dates are Universal Galactic Time (UGT), i.e. midnight UTC.`;
       $("out").innerHTML = `<div class="msg warn"><b>Early access.</b> ${escapeHtml(d.message || "")} ${schedule} ${d.patreon ? `Join on <a href="${d.patreon}" target="_blank" rel="noopener">Patreon</a>` : ""} or add an access key above.</div>`;
       return;
     }
