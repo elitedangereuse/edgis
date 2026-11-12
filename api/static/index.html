@@ -278,11 +278,19 @@
             <div id="accessIndicator" class="access-ind" hidden></div>
             <div class="flex flex-col gap-2">
               <label for="from" class="text-sm font-semibold flex items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" style="color:#1294d6" viewBox="0 0 2.6461 2.1167"><g transform="translate(-130.97 -85.46)" fill-rule="evenodd" stroke-width=".26458"><path d="m131.23 86.519a0.13229 0.13229 0 0 1 0.1323-0.13229h1.7973l-0.56806-0.5678a0.13246 0.13246 0 1 1 0.18732-0.18732l0.79375 0.79375a0.13229 0.13229 0 0 1 0 0.18732l-0.79375 0.79375a0.13246 0.13246 0 0 1-0.18732-0.18732l0.56806-0.5678h-1.7973a0.13229 0.13229 0 0 1-0.1323-0.13229"/><path d="m131.1 85.46a0.13229 0.13229 0 0 1 0.13229 0.13229v1.8521a0.1323 0.1323 0 0 1-0.26459 0v-1.8521a0.13229 0.13229 0 0 1 0.1323-0.13229"/></g></svg> From</label>
-              <input id="from" list="sysopts" placeholder="Sol" autocomplete="off" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+              <div class="sys-field">
+                <input id="from" list="sysopts" placeholder="Sol, or x, y, z" autocomplete="off" aria-describedby="fromHint" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+                <span id="fromBadge" class="sys-badge" hidden></span>
+              </div>
+              <div id="fromHint" class="sys-hint tiny" hidden></div>
             </div>
             <div class="flex flex-col gap-2">
               <label for="to" class="text-sm font-semibold flex items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" style="color:#1294d6" viewBox="0 0 2.6461 2.1167"><g fill-rule="evenodd" stroke-width=".26458"><path d="m-0.0023 1.0583a0.13229 0.13229 0 0 1 0.13229-0.13229h1.7973l-0.56806-0.5678a0.13246 0.13246 0 1 1 0.18732-0.18732l0.79375 0.79375a0.13229 0.13229 0 0 1 0 0.18732l-0.79375 0.79375a0.13246 0.13246 0 0 1-0.18732-0.18732l0.56806-0.5678h-1.7973a0.13229 0.13229 0 0 1-0.13229-0.13229"/><path d="m2.5112 6.6e-6a0.13229 0.13229 0 0 1 0.13229 0.13229v1.8521a0.13229 0.13229 0 0 1-0.26458 0v-1.8521a0.13229 0.13229 0 0 1 0.13229-0.13229"/></g></svg> To</label>
-              <input id="to" list="sysopts" placeholder="Colonia" autocomplete="off" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+              <div class="sys-field">
+                <input id="to" list="sysopts" placeholder="Colonia, or x, y, z" autocomplete="off" aria-describedby="toHint" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+                <span id="toBadge" class="sys-badge" hidden></span>
+              </div>
+              <div id="toHint" class="sys-hint tiny" hidden></div>
             </div>
             <div class="flex flex-wrap gap-3">
               <div class="flex-1 flex flex-col gap-2" style="min-width:180px"><label for="range" class="text-sm font-semibold">Jump range (LY)</label><input id="range" type="number" min="1" max="200" step="0.1" value="50" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" /></div>
@@ -296,6 +304,7 @@
                 <textarea id="loadout" spellcheck="false" placeholder="Paste a ship loadout (SLEF / Journal JSON from EDSY &quot;Export&quot;, Coriolis, or the game) and Add ship to plot fuel-aware…" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" style="min-height:120px;resize:vertical;font-family:var(--mono)"></textarea>
                 <div class="shipline">
                   <button id="importShip" class="tool-action" type="button">Add ship</button>
+                  <button id="importCurrentShip" class="tool-action" type="button" hidden title="Read your current ship from Frontier (your latest in-game Loadout, via elitedangereuse.fr)">Import current ship</button>
                   <button id="clearShip" class="ghost" type="button" title="Deselect the active ship and plot without fuel awareness (keeps it in the list)">Clear active</button>
                   <button id="clearAllShips" class="ghost" type="button" title="Remove every stored ship">Clear all</button>
                   <span id="shipInfo" class="tiny"></span>

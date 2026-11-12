@@ -657,6 +657,52 @@ def test_resolve_endpoint_handles_edts_vector_with_buggy_bool(monkeypatch):
     assert id64 == 7654321
 
 
+def test_parse_coords_query_accepts_common_separators():
+    assert systems._parse_coords_query("1, -2.5, 3") == (1.0, -2.5, 3.0)
+    assert systems._parse_coords_query("[1;2;3]") == (1.0, 2.0, 3.0)
+    assert systems._parse_coords_query(" -10 20 30.25 ") == (-10.0, 20.0, 30.25)
+    assert systems._parse_coords_query("Sol") is None
+    assert systems._parse_coords_query("HIP 12345") is None
+    assert systems._parse_coords_query("1, 2") is None
+
+
+def test_route_resolve_reports_coords_known_and_predicted(monkeypatch):
+    class _Predicted:
+        position = (1975.0, -305.0, -225.0)
+        name = "Col 173 Sector CK-Q d5-54"
+        mainstar = None
+        id64 = None
+        uncertainty = 40.0
+
+    async def fake_db(value):
+        if value == "Sol":
+            return {"name": "Sol", "coords": {"x": 0.0, "y": 0.0, "z": 0.0},
+                    "mainstar": "G", "id64": 10477373803}
+        return None
+
+    monkeypatch.setattr(systems, "fetch_system_from_db", fake_db)
+    monkeypatch.setattr(
+        systems.system, "from_name",
+        lambda name, *a, **k: _Predicted() if name.startswith("Col 173") else None,
+    )
+
+    coords = client.get("/route/resolve", params={"q": "100.5, -20, 3000"}).json()
+    assert coords["kind"] == "coords"
+    assert coords["name"] == "100.5, -20, 3000"
+    assert coords["coords"] == {"x": 100.5, "y": -20.0, "z": 3000.0}
+
+    known = client.get("/route/resolve", params={"q": "Sol"}).json()
+    assert known["kind"] == "known" and known["id64"] == 10477373803
+
+    predicted = client.get("/route/resolve", params={"q": "Col 173 Sector CK-Q d5-54"}).json()
+    assert predicted["kind"] == "predicted"
+    assert predicted["coords"] == {"x": 1975.0, "y": -305.0, "z": -225.0}
+    assert predicted["uncertainty"] == 40.0
+
+    assert client.get("/route/resolve", params={"q": "Nowhere Land"}).status_code == 404
+    assert client.get("/route/resolve", params={"q": "0, 0, 99999"}).status_code == 404
+
+
 def test_route_patron_access(monkeypatch):
     _gate_future(monkeypatch)
     monkeypatch.delenv("ENTITLEMENT_KEYS", raising=False)

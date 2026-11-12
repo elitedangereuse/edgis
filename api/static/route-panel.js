@@ -574,6 +574,9 @@ async function loadStatus() {
     ]);
     lastAccess = { st, me };
     renderAccessIndicator();
+    const loggedIn = !!(me && me.authenticated);
+    $("importCurrentShip").hidden = !loggedIn;
+    if (loggedIn) prefillFromCapi();
     setPlotWarming(!st.index_ready);
     const pill = $("accessPill");   // removed from the UI; guard if absent
     if (pill) {
@@ -611,6 +614,111 @@ async function autocomplete(ev) {
 }
 $("from").addEventListener("input", autocomplete);
 $("to").addEventListener("input", autocomplete);
+
+// From/To resolution: a system we don't have is placed by EDTS from its
+// procedural name (or a hand-authored id64), and "x, y, z" plots to a raw
+// position. Flag both in the field and echo the position on the line below so
+// the CMDR can check the guess before plotting. Known systems show nothing.
+const hintSeq = { from: 0, to: 0 };
+const hintTimers = {};
+const xyzText = (c) => [c.x, c.y, c.z].map(v => String(Number(v.toFixed(2)))).join(", ");
+function setSysHint(id, badge, html) {
+  const el = $(id), b = $(id + "Badge"), h = $(id + "Hint");
+  const labels = { estimated: "estimated", coords: "coordinates", unknown: "not found" };
+  el.classList.toggle("sys-estimated", badge === "estimated");
+  el.classList.toggle("has-badge", !!badge);
+  b.hidden = !badge;
+  b.className = "sys-badge" + (badge ? " " + badge : "");
+  b.textContent = badge ? labels[badge] : "";
+  h.hidden = !html;
+  h.innerHTML = html || "";
+}
+// `final`: the field was committed (change/blur/prefill). While typing, a name
+// that doesn't resolve yet is just incomplete, so "not found" waits for this.
+async function resolveField(id, { final = false, note = "" } = {}) {
+  clearTimeout(hintTimers[id]);
+  const v = $(id).value.trim();
+  const seq = ++hintSeq[id];
+  if (!v) { setSysHint(id, null, ""); return; }
+  try {
+    const r = await fetch("/route/resolve?q=" + encodeURIComponent(v));
+    if (seq !== hintSeq[id]) return;  // the field changed meanwhile
+    if (r.status === 404) {
+      if (final) setSysHint(id, "unknown", "Not in EDGIS and not a procedural name we can place. Check the spelling, or type its x, y, z coordinates.");
+      else setSysHint(id, null, "");
+      return;
+    }
+    if (!r.ok) { setSysHint(id, null, ""); return; }
+    const d = await r.json();
+    const xyz = `<span class="xyz">${escapeHtml(xyzText(d.coords))}</span>`;
+    if (d.kind === "predicted") {
+      setSysHint(id, "estimated", `Unknown to EDGIS: position estimated from its name at ${xyz}`
+        + (d.uncertainty ? ` (± ${fmt(d.uncertainty, 0)} LY per axis)` : "")
+        + `. Check it against the in-game galaxy map.`);
+    } else if (d.kind === "coords") {
+      setSysHint(id, "coords", id === "to"
+        ? `Destination position ${xyz}. The route ends at this point, so target the nearest star in the in-game galaxy map.`
+        : `Starting position ${xyz}.`);
+    } else {
+      setSysHint(id, null, note);
+    }
+  } catch (e) {
+    if (seq === hintSeq[id]) setSysHint(id, null, "");
+  }
+}
+["from", "to"].forEach((id) => {
+  $(id).addEventListener("input", () => {
+    clearTimeout(hintTimers[id]);
+    hintTimers[id] = setTimeout(() => resolveField(id), 600);
+  });
+  $(id).addEventListener("change", () => resolveField(id, { final: true }));
+});
+
+// Logged-in CMDRs (elitedangereuse.fr session): the site reads the Frontier
+// CAPI for us -- current system to prefill the start, and on demand the current
+// ship's journal Loadout (cf. elitedangereuselight outils/edgis-capi.php).
+const SITE_CAPI = "https://elitedangereuse.fr/outils/edgis-capi.php";
+let capiPrefilled = false;
+async function prefillFromCapi() {
+  if (capiPrefilled) return;
+  capiPrefilled = true;
+  try {
+    const d = await fetch(SITE_CAPI, { credentials: "include" }).then(r => r.json());
+    // Never overwrite what the CMDR typed (or a shared link's start).
+    if (d && d.system && !$("from").value.trim()) {
+      $("from").value = d.system;
+      resolveField("from", { final: true, note: "Your current system, from Frontier." });
+    }
+  } catch (e) {}
+}
+const CAPI_ERRORS = {
+  not_logged_in: "Log in on elitedangereuse.fr (menu) to import your ship.",
+  capi_unauthorized: "Your Frontier access has expired: log in again on elitedangereuse.fr.",
+  profile_unavailable: "Frontier's API did not answer. Try again in a few minutes.",
+  no_recent_loadout: "No loadout for your current ship in your last 7 days of journal. Launch the game (or visit outfitting), then try again in a few minutes: Frontier's journal lags behind live play.",
+};
+async function importCurrentShip() {
+  const btn = $("importCurrentShip");
+  btn.disabled = true;
+  $("shipInfo").innerHTML = `<span class="tiny">Reading your ship from Frontier…</span>`;
+  try {
+    const d = await fetch(`${SITE_CAPI}?ship=1&refresh=1`, { credentials: "include" })
+      .then(r => r.json()).catch(() => ({}));
+    if (d.system && !$("from").value.trim()) {
+      $("from").value = d.system;
+      resolveField("from", { final: true, note: "Your current system, from Frontier." });
+    }
+    const loadout = d.ship && d.ship.loadout;
+    if (!loadout) {
+      $("shipInfo").innerHTML = `<span class="bad">${escapeHtml(CAPI_ERRORS[d.error] || CAPI_ERRORS.profile_unavailable)}</span>`;
+      return;
+    }
+    $("loadout").value = JSON.stringify(loadout);
+    await importShip();
+  } finally {
+    btn.disabled = false;
+  }
+}
 
 function fuelVerdict(f) {
   const tank = `tank ≈ ${f.tank_jumps} jumps`;
@@ -1107,6 +1215,7 @@ $("out").addEventListener("change", (e) => {
 $("go").addEventListener("click", plot);
 $("cmpGalaxy").addEventListener("click", compareVsSpansh);
 $("importShip").addEventListener("click", importShip);
+$("importCurrentShip").addEventListener("click", importCurrentShip);
 $("clearShip").addEventListener("click", clearShip);
 $("clearAllShips").addEventListener("click", clearAllShips);
 // Switch to or remove a stored ship (buttons are rendered dynamically).
@@ -1131,6 +1240,7 @@ $("swapFromTo").addEventListener("click", () => {
   const f = $("from").value;
   $("from").value = $("to").value;
   $("to").value = f;
+  resolveField("from", { final: true }); resolveField("to", { final: true });
   if ($("from").value.trim() && $("to").value.trim()) plot();
 });
 [$("from"), $("to"), $("range")].forEach(el => el.addEventListener("keydown", e => { if (e.key === "Enter") plot(); }));
@@ -1145,6 +1255,8 @@ window.edgisInitRoutePanel = function () {
   const q = new URLSearchParams(location.search);
   const from = q.get("from"); if (from) $("from").value = from;
   const to = q.get("to"); if (to) $("to").value = to;
+  if (from) resolveField("from", { final: true });
+  if (to) resolveField("to", { final: true });
   const range = q.get("range"); if (range) $("range").value = range;
   const supercharge = q.get("supercharge");
   if (supercharge) { $("ship").value = supercharge; localStorage.setItem(SHIP_LS, supercharge); }

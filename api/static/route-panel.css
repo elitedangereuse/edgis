@@ -235,3 +235,17 @@
 #panel-route .msg { margin-top:16px; padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:var(--panel); }
 #panel-route .msg.err { border-color:#7a2f33; } #panel-route .msg.warn { border-color:#7a5f27; }
 #panel-route .tiny { color:var(--muted); font-size:12px; }
+
+/* From/To resolution: a badge inside the field (estimated / coordinates) and the
+   position on the line below, so the CMDR can check an EDTS guess before plotting. */
+#panel-route .sys-field { position:relative; }
+#panel-route .sys-field input.sys-estimated { border-color:#7a5f27; }
+#panel-route .sys-field input.has-badge { padding-right:7.5rem; }
+#panel-route .sys-badge { position:absolute; right:8px; top:50%; transform:translateY(-50%); pointer-events:none;
+        padding:1px 8px; border-radius:999px; font-size:10px; line-height:1.4; text-transform:uppercase;
+        letter-spacing:.5px; border:1px solid var(--dim); color:var(--muted); background:rgba(0,0,0,.35); }
+#panel-route .sys-badge.estimated { color:var(--warn); border-color:#7a5f27; }
+#panel-route .sys-badge.coords { color:var(--accent); }
+#panel-route .sys-badge.unknown { color:var(--err); border-color:#7a2f33; }
+#panel-route .sys-hint { margin:2px 2px 0; }
+#panel-route .sys-hint .xyz { font-family:var(--mono); color:var(--text); }
