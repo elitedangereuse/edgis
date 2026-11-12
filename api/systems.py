@@ -3181,7 +3181,61 @@ def _kick_neutron_index_build() -> bool:
     return True
 
 
+def _profiled(prof: dict, fetch: Callable[..., Any]) -> Callable[..., Any]:
+    """Wrap a solver DB fetch to accumulate its calls, rows and time in ``prof``."""
+
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        t0 = time.perf_counter()
+        try:
+            rows = fetch(*args, **kwargs)
+        finally:
+            prof["db_ms"] += (time.perf_counter() - t0) * 1000.0
+            prof["db_calls"] += 1
+        prof["db_rows"] += len(rows) if rows is not None else 0
+        return rows
+
+    return wrapper
+
+
 def _solve_route_sync(
+    src: tuple[float, float, float],
+    dst: tuple[float, float, float],
+    jump_range: float,
+    beam_width: int | None,
+    boost_mult: float = 4.0,
+    companion_max_ls: float = 0.0,
+    inject_mult: float = 1.0,
+    tank_jumps: int = 0,
+    scoop_max_ls: float = 0.0,
+    reach_by_r: list | None = None,
+):
+    """Solve a route and attach a time breakdown as ``result["_prof"]`` (logged
+    to the route trace, never returned): wall and thread CPU time, plus the
+    solver's DB calls/rows/time. wall - cpu - db is mostly time spent waiting
+    for the GIL, i.e. contention with other solves and requests."""
+
+    prof = {"db_ms": 0.0, "db_calls": 0, "db_rows": 0}
+    wall0, cpu0 = time.perf_counter(), time.thread_time()
+    result = _solve_route_core(
+        prof, src, dst, jump_range, beam_width, boost_mult, companion_max_ls,
+        inject_mult, tank_jumps, scoop_max_ls, reach_by_r,
+    )
+    if result is not None:
+        wall = (time.perf_counter() - wall0) * 1000.0
+        cpu = (time.thread_time() - cpu0) * 1000.0
+        result["_prof"] = {
+            "wall_ms": round(wall, 1),
+            "cpu_ms": round(cpu, 1),
+            "db_ms": round(prof["db_ms"], 1),
+            "db_calls": prof["db_calls"],
+            "db_rows": prof["db_rows"],
+            "wait_ms": round(max(0.0, wall - cpu - prof["db_ms"]), 1),
+        }
+    return result
+
+
+def _solve_route_core(
+    prof: dict,
     src: tuple[float, float, float],
     dst: tuple[float, float, float],
     jump_range: float,
@@ -3262,6 +3316,10 @@ def _solve_route_sync(
                 return cursor.fetchall()
             finally:
                 cursor.close()
+
+        fetch_stars_within = _profiled(prof, fetch_stars_within)
+        fetch_stars_near_segment = _profiled(prof, fetch_stars_near_segment)
+        fetch_stars_toward = _profiled(prof, fetch_stars_toward)
 
         # Corridor graph A* is the primary engine: min-jumps by construction,
         # measured to match or beat the beam on every benchmarked route. The
@@ -3818,6 +3876,7 @@ async def _solve_route_cached(
             if last.get("id64") is None:
                 last["id64"] = dst_id64
 
+        prof = result.pop("_prof", None)  # trace-only: never cached or returned
         result["source"] = src_name
         result["destination"] = dst_name
         result["source_coords"] = {"x": src[0], "y": src[1], "z": src[2]}
@@ -3828,7 +3887,7 @@ async def _solve_route_cached(
             total_jumps=result["total_jumps"], neutron=result["neutron_jumps"],
             bridge=result["bridge_jumps"], eff=round(result["efficiency"], 4),
             solve_ms=round(result["solve_ms"], 1), access=access_via, caller=caller,
-            engine=result.get("engine"),
+            engine=result.get("engine"), **({"prof": prof} if prof else {}),
         )
         to_cache = dict(result)
         to_cache.pop("access", None)

@@ -816,3 +816,74 @@ def test_route_trace_lines_are_json_with_a_utc_timestamp():
     files = [h for h in systems._route_trace_logger.handlers
              if isinstance(h, RotatingFileHandler)]
     assert files and all(h.formatter._fmt == "%(message)s" for h in files)
+
+
+def test_profiled_fetch_accumulates_calls_rows_and_time():
+    prof = {"db_ms": 0.0, "db_calls": 0, "db_rows": 0}
+    fetch = systems._profiled(prof, lambda pos, r: [(1,), (2,), (3,)])
+    fetch((0, 0, 0), 10)
+    fetch((0, 0, 0), 20)
+    assert prof["db_calls"] == 2 and prof["db_rows"] == 6 and prof["db_ms"] >= 0.0
+
+    failing = systems._profiled(prof, lambda: (_ for _ in ()).throw(RuntimeError("db down")))
+    with pytest.raises(RuntimeError):
+        failing()
+    assert prof["db_calls"] == 3  # a failed query still counts its time
+
+
+def test_solve_route_sync_attaches_a_time_breakdown(monkeypatch):
+    def fake_core(prof, *args):
+        fetch = systems._profiled(prof, lambda: [(1,), (2,)])
+        fetch()
+        return {"total_jumps": 1}
+
+    monkeypatch.setattr(systems, "_solve_route_core", fake_core)
+    result = systems._solve_route_sync((0, 0, 0), (0, 0, 1), 50.0, None)
+    prof = result["_prof"]
+    assert set(prof) == {"wall_ms", "cpu_ms", "db_ms", "db_calls", "db_rows", "wait_ms"}
+    assert prof["db_calls"] == 1 and prof["db_rows"] == 2
+
+
+def test_route_prof_goes_to_the_trace_not_the_response(monkeypatch):
+    import io
+    import json
+    import logging
+
+    _gate_future(monkeypatch)
+    monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
+    _clear_route_cache()
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
+
+    async def fake_resolve(value):
+        return {"P": (0.0, 0.0, 0.0), "Q": (0.0, 0.0, 10.0)}[value], value, None, None
+
+    monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
+
+    def fake_solve(*args, **kwargs):
+        return {
+            "jump_range": 50.0, "boost_range": 200.0, "straight_line_ly": 10.0,
+            "total_jumps": 1, "neutron_jumps": 0, "bridge_jumps": 1,
+            "total_distance_ly": 10.0, "efficiency": 1.0, "beam_width": 3,
+            "solve_ms": 5.0, "engine": "graph",
+            "jumps": [{"system": None, "id64": None, "x": 0.0, "y": 0.0, "z": 10.0,
+                       "type": "regular", "neutron_star": False,
+                       "distance_jumped": 10.0, "distance_left": 0.0}],
+            "_prof": {"wall_ms": 5.0, "cpu_ms": 3.0, "db_ms": 1.5, "db_calls": 2,
+                      "db_rows": 40, "wait_ms": 0.5},
+        }
+
+    monkeypatch.setattr(systems, "_solve_route_sync", fake_solve)
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    systems._route_trace_logger.addHandler(handler)
+    try:
+        resp = client.get("/route", params={"from": "P", "to": "Q", "range": 50},
+                          headers={"x-route-key": "k"})
+    finally:
+        systems._route_trace_logger.removeHandler(handler)
+
+    assert resp.status_code == 200, resp.text
+    assert "_prof" not in resp.json() and "prof" not in resp.json()
+    lines = [json.loads(line) for line in buf.getvalue().splitlines()]
+    ok = [line for line in lines if line.get("kind") == "route" and line.get("status") == "ok"]
+    assert ok and ok[-1]["prof"]["db_calls"] == 2
