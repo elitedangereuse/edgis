@@ -35,57 +35,106 @@ $("range").addEventListener("change", () => {
   if (v) { localStorage.setItem(RANGE_LS, v); }
 });
 
-// Ship loadout (EDSY/SLEF) enables fuel-aware plotting. Stored in this browser.
-const SLEF_LS = "edgis_route_loadout";
+// Ship loadouts (EDSY/SLEF or a journal Loadout) enable fuel-aware plotting.
+// The stored ships and the active index are the single source of truth: the
+// textarea is only the paste box. Stored in this browser.
+const SLEF_LS = "edgis_route_loadout";  // legacy single loadout, migrated on load
 const FUELSAFE_LS = "edgis_route_fuelsafe";
-let shipInfo = null;  // parsed ship summary, or null when no ship is imported
-$("loadout").value = localStorage.getItem(SLEF_LS) || "";
+let shipInfo = null;   // /route/ship summary of the active ship, or null
+let shipError = "";    // why the active ship could not be read, if it couldn't
 
-// Ship library: multiple stored SLEF loadouts the commander can switch between.
-// Each entry is { name, loadout }; the active one's loadout also lives in
-// SLEF_LS (the textarea) for the single-ship import flow.
+// Each entry is { name, auto, renamed, loadout, range }: `auto` is the label
+// derived from the loadout, `range` the last plotting range read for it.
 const SHIPS_LS = "edgis_route_ships";
 const ACTIVE_SHIP_LS = "edgis_route_active_ship";
 function loadShips() { try { return JSON.parse(localStorage.getItem(SHIPS_LS)) || []; } catch (e) { return []; } }
 function saveShips(a) { localStorage.setItem(SHIPS_LS, JSON.stringify(a)); }
-function activeShip() { const i = Number(localStorage.getItem(ACTIVE_SHIP_LS)); return Number.isInteger(i) ? i : -1; }
+function activeShip() {
+  const i = Number(localStorage.getItem(ACTIVE_SHIP_LS) ?? -1);
+  return Number.isInteger(i) && i >= 0 && i < loadShips().length ? i : -1;
+}
 function setActiveShip(i) { localStorage.setItem(ACTIVE_SHIP_LS, String(i)); }
-// Upsert a loadout (by label or identical text), make it active, return index.
-function rememberShip(loadout) {
+function activeLoadout() { const s = loadShips()[activeShip()]; return s ? s.loadout : ""; }
+
+// Same ship? The in-game ShipID when the loadout has one (journal / game
+// import: stable across refits), else the derived label (EDSY exports).
+function shipKey(loadout) {
+  const d = parseLoadout(loadout);
+  if (d && d.ShipID != null) return `id:${d.ShipID}`;
+  return `label:${shipLabel(loadout)}`;
+}
+// Upsert a loadout and make it active. A renamed ship keeps its name.
+function rememberShip(loadout, range) {
   const ships = loadShips();
-  const name = shipLabel(loadout);
-  let i = ships.findIndex(s => s.loadout === loadout || s.name === name);
-  if (i < 0) { ships.push({ name, loadout }); i = ships.length - 1; }
-  else { ships[i] = { name, loadout }; }
-  saveShips(ships); setActiveShip(i); renderShipLibrary();
+  const label = shipLabel(loadout), key = shipKey(loadout);
+  let i = ships.findIndex(s => s.loadout === loadout || shipKey(s.loadout) === key);
+  if (i < 0) { ships.push({ name: label, auto: label, loadout, range }); i = ships.length - 1; }
+  else { ships[i] = { ...ships[i], auto: label, loadout, range, name: ships[i].renamed ? ships[i].name : label }; }
+  saveShips(ships); setActiveShip(i);
   return i;
 }
 function renderShipLibrary() {
   const el = $("shipLibrary"); if (!el) return;
   const ships = loadShips(); const active = activeShip();
-  if (!ships.length) { el.hidden = true; el.innerHTML = ""; return; }
-  el.hidden = false;
+  $("shipCount").textContent = ships.length ? `(${ships.length})` : "";
+  $("clearAllShips").hidden = !ships.length;
+  if (!ships.length) { el.innerHTML = `<li class="ship-empty tiny">No stored ships yet.</li>`; return; }
   el.innerHTML = ships.map((s, i) => {
-    // The active chip's tooltip carries the fuel details (range/tank/scoop) that
-    // used to clutter the #shipInfo line below.
-    const tip = (i === active && shipInfo && shipInfo.detail) ? shipInfo.detail : "Switch to this ship";
-    return `<span class="ship-item ${i === active ? "active" : ""}">`
-      + `<button type="button" class="ship-pick" data-i="${i}" title="${escapeHtml(tip)}">${escapeHtml(s.name)}</button>`
-      + `<button type="button" class="ship-del" data-i="${i}" title="Remove this ship">&times;</button>`
-      + `</span>`;
+    const d = parseLoadout(s.loadout) || {};
+    const type = shipTypeName(d.Ship);
+    const sub = [type, s.range ? `${fmt(s.range, 1)} LY` : ""].filter(Boolean).join(" · ");
+    const tip = i === active ? "Active ship: click to plot without it" : "Use this ship";
+    return `<li class="ship-row ${i === active ? "active" : ""}">`
+      + `<button type="button" class="ship-pick" data-i="${i}" title="${tip}" aria-pressed="${i === active}">`
+      + `<span class="ship-row__name">${escapeHtml(shipDisplayName(s))}</span><span class="ship-row__sub">${escapeHtml(sub)}</span></button>`
+      + `<button type="button" class="ship-ren" data-i="${i}" title="Rename this ship" aria-label="Rename ${escapeHtml(s.name)}">✎</button>`
+      + `<button type="button" class="ship-del" data-i="${i}" title="Remove this ship" aria-label="Remove ${escapeHtml(s.name)}">&times;</button>`
+      + `</li>`;
   }).join("");
+}
+// Inline rename: the row's name becomes a field. Enter or leaving the field
+// saves, Escape cancels; an empty name goes back to the automatic label.
+function renameShip(i) {
+  const ships = loadShips();
+  const pick = $("shipLibrary").querySelector(`.ship-pick[data-i="${i}"]`);
+  if (!ships[i] || !pick) return;
+  const input = document.createElement("input");
+  input.className = "ship-name-input";
+  input.value = shipDisplayName(ships[i]);
+  input.maxLength = 60;
+  input.setAttribute("aria-label", "Ship name");
+  pick.replaceWith(input);
+  input.focus(); input.select();
+  let done = false;
+  const finish = (save) => {
+    if (done) return;
+    done = true;
+    if (save) {
+      const all = loadShips(), s = all[i];
+      const name = input.value.trim();
+      if (s && name !== shipDisplayName(s)) {
+        s.name = name || s.auto || shipLabel(s.loadout);
+        s.renamed = !!name && name !== (s.auto || shipLabel(s.loadout));
+        saveShips(all);
+      }
+    }
+    renderShips();
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); finish(true); }
+    else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+  });
+  input.addEventListener("blur", () => finish(true));
 }
 // Remove every stored ship and return to fuel-agnostic plotting. Confirms first
 // since it wipes the whole library and can't be undone.
 function clearAllShips() {
   const n = loadShips().length;
-  if (!n) return;  // nothing to clear
+  if (!n) return;
   if (!confirm(`Remove all ${n} stored ship${n > 1 ? "s" : ""}? This cannot be undone.`)) return;
-  saveShips([]); setActiveShip(-1); clearShip();
+  saveShips([]); clearShip();
 }
 
-setShipSummary();  // reflect a restored (saved, not-yet-imported) loadout at once
-renderShipLibrary();
 $("fuelSafe").checked = (localStorage.getItem(FUELSAFE_LS) ?? "1") === "1";
 $("fuelSafe").addEventListener("change", () =>
   localStorage.setItem(FUELSAFE_LS, $("fuelSafe").checked ? "1" : "0"));
@@ -192,95 +241,243 @@ function shipLabel(loadout) {
     return name || type || "ship";
   } catch (e) { return "ship"; }
 }
-// The Ship & fuel section is collapsed by default, so its summary is the only
-// always-visible signal. Make it state-explicit: a saved loadout that hasn't
-// been imported (e.g. just after a page reload, before the auto-import lands)
-// must not look the same as an active fuel-aware ship.
-function setShipSummary() {
-  const el = $("shipSummary");
-  const hasText = !!($("loadout").value || "").trim();
-  if (shipInfo) {
-    el.innerHTML = `Ship &amp; options <span class="good">✓</span> · `
-      + `${escapeHtml(shipLabel($("loadout").value))} · ${fmt(shipInfo.jump_range, 2)} LY`;
-  } else if (hasText) {
-    el.innerHTML = `Ship &amp; options · ${escapeHtml(shipLabel($("loadout").value))} `
-      + `<span class="tiny">(saved, not added)</span>`;
-  } else {
-    el.textContent = "Ship & options";
-  }
+function parseLoadout(text) {
+  try {
+    let d = typeof text === "string" ? JSON.parse(text) : text;
+    if (Array.isArray(d)) d = d[0];
+    return (d && d.data) || d || null;
+  } catch (e) { return null; }
+}
+function shipTypeName(symbol) {
+  const k = String(symbol || "").toLowerCase();
+  return SHIP_TYPES[k] || k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+// FSD line for the card: "5A", "5A SCO", "8A SCO Mk II", from the module symbol
+// (int_hyperdrive[_overcharge|_overchargebooster_mkii]_sizeN_classM; class 5 = A).
+function fsdLabel(item) {
+  const it = String(item || "").toLowerCase();
+  const m = /size(\d)_class(\d)/.exec(it);
+  if (!m) return "";
+  const grade = `${m[1]}${"EDCBA"[Number(m[2]) - 1] || "?"}`;
+  if (it.includes("mkii")) return `${grade} SCO Mk II`;
+  return it.includes("overcharge") ? `${grade} SCO` : grade;
+}
+const FSD_BLUEPRINTS = { fsd_longrange: "Increased Range", fsd_fastboot: "Faster Boot Sequence", fsd_shielded: "Shielded" };
+function fsdEngineering(mod) {
+  const e = mod && mod.Engineering;
+  if (!e) return "";
+  const bp = FSD_BLUEPRINTS[String(e.BlueprintName || "").toLowerCase()]
+    || String(e.BlueprintName || "").replace(/^FSD_/i, "").replace(/([a-z])([A-Z])/g, "$1 $2");
+  const fx = e.ExperimentalEffect_Localised
+    || String(e.ExperimentalEffect || "").replace(/^special_fsd_/i, "").replace(/_/g, " ");
+  return [bp && `${bp}${e.Level ? ` G${e.Level}` : ""}`, fx].filter(Boolean).join(" · ");
 }
 
-async function importShip() {
-  const loadout = ($("loadout").value || "").trim();
-  if (!loadout) { shipInfo = null; localStorage.removeItem(SLEF_LS); $("shipInfo").textContent = ""; setShipSummary(); updateCompareButton(); return; }
-  $("importShip").disabled = true;
-  $("shipInfo").innerHTML = `<span class="tiny">Reading loadout…</span>`;
-  $("shipSummary").innerHTML = `Ship &amp; options · <span class="tiny">reading loadout…</span>`;
+// Left: what matters for jumping, for the active ship -- or "No ship selected".
+function renderShipCard() {
+  const el = $("shipCard"); if (!el) return;
+  const s = loadShips()[activeShip()];
+  if (!s) {
+    el.innerHTML = `<div class="ship-card__name">No ship selected</div>`
+      + `<p class="tiny">Routes plot at the jump range above, without fuel awareness. `
+      + `Pick a stored ship, or add one: import the ship you fly in game, or paste a loadout.</p>`;
+    return;
+  }
+  const d = parseLoadout(s.loadout) || {};
+  const ident = d.ShipIdent ? ` <span class="ship-card__ident">${escapeHtml(d.ShipIdent)}</span>` : "";
+  const head = `<div class="ship-card__head"><div class="ship-card__name">${escapeHtml(shipDisplayName(s))}</div>`
+    + `<div class="ship-card__type">${escapeHtml(shipTypeName(d.Ship))}${ident}</div></div>`;
+  if (!shipInfo) {
+    const why = shipError ? `<span class="bad">${escapeHtml(shipError)}</span>` : "Reading loadout…";
+    el.innerHTML = head + `<p class="tiny">${why}</p>`;
+    return;
+  }
+  const fsd = (d.Modules || []).find(m => m.Slot === "FrameShiftDrive");
+  const eng = fsdEngineering(fsd);
+  const sc = detectSupercharge(s.loadout);
+  const fuel = d.FuelCapacity || {};
+  const upTo = shipInfo.max_range_light > shipInfo.jump_range + 0.1
+    ? `<br><span class="tiny">up to ${fmt(shipInfo.max_range_light, 1)} LY as fuel burns</span>` : "";
+  const rows = [
+    ["Jump range", `<b>${fmt(shipInfo.jump_range, 2)} LY</b> <span class="tiny">full tank</span>${upTo}`],
+    ["FSD", `${escapeHtml(fsdLabel(fsd && fsd.Item) || "?")} · ${sc}x supercharge`
+      + (eng ? `<br><span class="tiny">${escapeHtml(eng)}</span>` : "")],
+    shipInfo.range_boost ? ["Guardian booster", `+${fmt(shipInfo.range_boost, 2)} LY`] : null,
+    ["Fuel", `${fmt(fuel.Main || shipInfo.tank_size, 1)} t`
+      + (fuel.Reserve ? ` <span class="tiny">+ ${fmt(fuel.Reserve, 2)} t reserve</span>` : "")
+      + ` · ≈ ${fmt(shipInfo.tank_jumps)} jumps per tank`],
+    ["Fuel scoop", shipInfo.has_scoop ? "fitted" : `<span class="bad">none: you can't refuel en route</span>`],
+    ["Mass", `${fmt(d.UnladenMass, 1)} t unladen`
+      + (d.CargoCapacity ? ` · cargo ${fmt(cargoTons())} / ${fmt(d.CargoCapacity)} t` : "")],
+  ].filter(Boolean);
+  el.innerHTML = head
+    + `<dl class="ship-specs">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>`
+    + `<button type="button" class="linkbtn" id="deselectShip">Plot without a ship</button>`;
+}
+// The Ship & options section is collapsed by default, so its summary is the
+// only always-visible signal: say which ship plots, or that none does.
+function setShipSummary() {
+  const el = $("shipSummary");
+  const s = loadShips()[activeShip()];
+  if (s && shipInfo) {
+    el.innerHTML = `Ship &amp; options <span class="good">✓</span> · `
+      + `${escapeHtml(shipDisplayName(s))} · ${fmt(shipInfo.jump_range, 2)} LY`;
+  } else if (s) {
+    el.innerHTML = `Ship &amp; options · ${escapeHtml(shipDisplayName(s))} `
+      + `<span class="tiny">(${shipError ? "not usable" : "reading…"})</span>`;
+  } else {
+    el.innerHTML = `Ship &amp; options · <span class="tiny">no ship</span>`;
+  }
+}
+// Display name: the type has its own line now, so drop the " (Type)" suffix of
+// automatic labels (kept in storage: re-imports match on it).
+function shipDisplayName(s) {
+  const type = shipTypeName((parseLoadout(s.loadout) || {}).Ship);
+  const suffix = ` (${type})`;
+  return type && s.name.endsWith(suffix) && s.name !== suffix ? s.name.slice(0, -suffix.length) : s.name;
+}
+function renderShips() {
+  renderShipLibrary(); renderShipCard(); setShipSummary();
+  // With a ship, its loadout sets the supercharge (on the card) and fuel-safe
+  // applies; without one, the supercharge is picked by hand and fuel-safe idles.
+  const hasShip = activeShip() >= 0;
+  $("superchargeField").hidden = hasShip;
+  $("fuelSafeNote").hidden = hasShip;
+  // The route geometry plots at this range, so with a usable ship it is the
+  // ship's full-tank range: read-only (still readable), changed through Cargo.
+  // Cargo can't exceed the hold (also bounds the wheel stepping below).
+  const hold = hasShip ? Number((parseLoadout(activeLoadout()) || {}).CargoCapacity) : 0;
+  $("cargo").max = hold > 0 ? String(hold) : "";
+  const shipRange = hasShip && !shipError;
+  $("range").readOnly = shipRange;
+  $("rangeNote").hidden = !shipRange;
+  $("range").title = shipRange
+    ? "Your ship's full-tank range (cargo included). Change Cargo, or plot without a ship to set it by hand."
+    : "";
+}
+
+// /route/ship for a loadout: { info } or { error } (never throws).
+async function fetchShipSummary(loadout) {
   try {
     const res = await fetch("/route/ship", {
       method: "POST", credentials: "include",
       headers: { ...headers(), "Content-Type": "application/json" },
       body: JSON.stringify({ loadout, cargo: cargoTons() }),
     });
-    if (!res.ok) {
-      shipInfo = null;
-      const d = (await res.json().catch(() => ({}))).detail;
-      // detail can be a string (our 422), a dict (the early-access 403), or a
-      // list (request validation) -- never render an object raw.
-      let msg;
-      if (res.status === 403) {
-        msg = `${(d && d.message) || "This feature is in early access."} Add an access key below, or sign in as a patron.`;
-      } else {
-        msg = (typeof d === "string" ? d : (d && d.message)) || `Could not read that loadout (HTTP ${res.status}).`;
-      }
-      $("shipInfo").innerHTML = `<span class="bad">${escapeHtml(msg)}</span>`;
-      return;
+    if (res.ok) return { info: await res.json() };
+    // detail can be a string (our 422), a dict (the early-access 403), or a
+    // list (request validation) -- never render an object raw.
+    const d = (await res.json().catch(() => ({}))).detail;
+    if (res.status === 403) {
+      return { error: `${(d && d.message) || "This feature is in early access."} Add an access key above, or sign in as a patron.` };
     }
-    shipInfo = await res.json();
-    localStorage.setItem(SLEF_LS, loadout);
-    rememberShip(loadout);  // add/update this ship in the library + make it active
-    $("range").value = shipInfo.jump_range;
-    localStorage.setItem(RANGE_LS, String(shipInfo.jump_range));
-    // Auto-set the neutron supercharge for the imported ship (6x only on the
-    // Caspian Explorer's Mk II SCO drive, 4x otherwise), so swapping ships does
-    // not silently keep a stale 6x (tester got caught by this with a Mandalay).
-    const sc = detectSupercharge(loadout);
-    $("ship").value = sc;
-    localStorage.setItem(SHIP_LS, sc);
-    // The chip (highlighted) + summary already show the ship name + range, so
-    // keep #shipInfo clean: stash the fuel details on the chip tooltip (via
-    // renderShipLibrary) and surface only the one actionable fact not shown
-    // elsewhere -- a missing fuel scoop.
-    const upTo = (shipInfo.max_range_light && shipInfo.max_range_light > shipInfo.jump_range + 0.1)
-      ? ` (up to ${fmt(shipInfo.max_range_light, 1)} as fuel burns)` : "";
-    shipInfo.detail = `range ${fmt(shipInfo.jump_range, 2)} LY${upTo} · tank ≈ ${shipInfo.tank_jumps} jumps · `
-      + (shipInfo.has_scoop ? "fuel scoop fitted" : "no fuel scoop");
-    $("shipInfo").innerHTML = shipInfo.has_scoop ? "" : `<span class="bad">no fuel scoop</span>`;
-    renderShipLibrary();  // re-render so the active chip tooltip picks up .detail
+    return { error: (typeof d === "string" ? d : (d && d.message)) || `Could not read that loadout (HTTP ${res.status}).` };
   } catch (e) {
-    shipInfo = null;
-    $("shipInfo").innerHTML = `<span class="bad">${escapeHtml(e.message || String(e))}</span>`;
+    return { error: e.message || String(e) };
+  }
+}
+// Make a read ship the plotting ship: range, supercharge (6x only on the
+// Caspian's Mk II SCO drive, so swapping ships never keeps a stale 6x).
+function applyShipInfo(loadout, info) {
+  shipInfo = info; shipError = "";
+  $("range").value = info.jump_range;
+  localStorage.setItem(RANGE_LS, String(info.jump_range));
+  const sc = detectSupercharge(loadout);
+  $("ship").value = sc;
+  localStorage.setItem(SHIP_LS, sc);
+}
+
+// The read in flight (or last finished): plot() waits for it, so a plot right
+// after page load (shared link, quick click) uses the stored ship instead of
+// silently plotting ship-less while /route/ship is still answering.
+let shipImport = Promise.resolve();
+function importShip() {
+  shipImport = loadActiveShip();
+  return shipImport;
+}
+// (Re)read the active ship: on load, on switching ships, when cargo changes.
+async function loadActiveShip() {
+  const i = activeShip();
+  const loadout = activeLoadout();
+  shipInfo = null; shipError = "";
+  renderShips();
+  if (!loadout) { updateCompareButton(); return; }
+  const r = await fetchShipSummary(loadout);
+  if (activeShip() !== i) return;  // switched again meanwhile
+  if (r.info) {
+    applyShipInfo(loadout, r.info);
+    const ships = loadShips();
+    if (ships[i]) { ships[i].range = r.info.jump_range; saveShips(ships); }
+  } else {
+    shipError = r.error;
+    // Open the section so the reason is visible, not hidden when collapsed.
+    const dt = $("shipCard").closest("details"); if (dt) dt.open = true;
+  }
+  renderShips(); updateCompareButton();
+}
+// Add a new loadout (paste or game import): stored only once it reads.
+async function addShip(loadout) {
+  const r = await fetchShipSummary(loadout);
+  if (!r.info) return r.error;
+  rememberShip(loadout, r.info.jump_range);
+  applyShipInfo(loadout, r.info);
+  renderShips(); updateCompareButton();
+  return "";
+}
+function switchShip(i) {
+  setActiveShip(i);
+  return importShip();
+}
+
+// Deselect the active ship: fuel-agnostic plotting, ships stay in the list.
+// Also used by clearAllShips (after the list has been emptied).
+function clearShip() {
+  shipInfo = null; shipError = "";
+  setActiveShip(-1);
+  $("shipInfo").textContent = "";
+  renderShips();
+  updateCompareButton();  // route may still be plotted -> fall back to neutron compare
+}
+
+// Paste box: shown only when adding a loadout by hand.
+function setPasteOpen(open) {
+  $("pastePanel").hidden = !open;
+  $("pasteShip").setAttribute("aria-expanded", String(open));
+  if (open) { $("shipInfo").textContent = ""; $("loadout").focus(); }
+  else { $("loadout").value = ""; }
+}
+async function addPastedShip() {
+  const text = ($("loadout").value || "").trim();
+  if (!text) { $("shipInfo").innerHTML = `<span class="bad">Paste a loadout first.</span>`; return; }
+  $("importShip").disabled = true;
+  $("shipInfo").innerHTML = `<span class="tiny">Reading loadout…</span>`;
+  try {
+    const err = await addShip(text);
+    if (err) { $("shipInfo").innerHTML = `<span class="bad">${escapeHtml(err)}</span>`; return; }
+    $("shipInfo").textContent = "";
+    setPasteOpen(false);
   } finally {
-    $("importShip").disabled = false; setShipSummary(); updateCompareButton();
-    // A non-empty loadout that failed to import (bad JSON, access gate): open
-    // the section so the reason in #shipInfo is visible, not hidden when collapsed.
-    if (!shipInfo) { const dt = $("loadout").closest("details"); if (dt) dt.open = true; }
+    $("importShip").disabled = false;
   }
 }
 
-// Deselect the active ship: clears the loadout textarea and returns to
-// fuel-agnostic plotting, but keeps the ships in the library. Also used by
-// clearAllShips (after the list has been emptied) to reset the active state.
-function clearShip() {
-  shipInfo = null;
-  $("loadout").value = "";
+// Migrate the legacy single stored loadout (pre ship-library) into the list.
+(function migrateLegacyLoadout() {
+  const legacy = (localStorage.getItem(SLEF_LS) || "").trim();
+  if (!legacy) return;
+  const ships = loadShips();
+  const i = ships.findIndex(s => s.loadout === legacy);
+  if (i < 0) {
+    const label = shipLabel(legacy);
+    ships.push({ name: label, auto: label, loadout: legacy });
+    saveShips(ships);
+    if (activeShip() < 0) setActiveShip(ships.length - 1);
+  } else if (activeShip() < 0) {
+    setActiveShip(i);
+  }
   localStorage.removeItem(SLEF_LS);
-  $("shipInfo").textContent = "";
-  setActiveShip(-1);
-  setShipSummary();
-  renderShipLibrary();
-  updateCompareButton();  // route may still be plotted -> fall back to neutron compare
-}
+})();
+renderShips();
 
 // Bootstrap "bi-copy" icon + clipboard helper (matches the main EDGIS app).
 const copyIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/></svg>`;
@@ -496,18 +693,14 @@ function accessMethod() {
   }
   return null;
 }
+// The CMDR chip (index header) shows who is logged in; during early access its
+// tooltip also says what grants the route plotter.
 function renderAccessIndicator() {
+  const chip = $("cmdrChip");
+  if (!chip) return;
   const m = accessMethod();
-  const ind = $("accessIndicator");
-  if (!ind) return;
-  const me = lastAccess.me;
-  // Logged-in CMDR name (from the elitedangereuse.fr session), shown in italics
-  // next to the access method.
-  const who = (me && me.authenticated && me.name)
-    ? ` <i class="cmdr-name">${escapeHtml(me.name)}</i>` : "";
-  if (m) { ind.innerHTML = `<span class="dot"></span>access via <b>${escapeHtml(m)}</b>${who}`; ind.hidden = false; }
-  else if (who) { ind.innerHTML = `<span class="dot"></span>${who.trim()}`; ind.hidden = false; }
-  else { ind.hidden = true; }
+  chip.title = "Logged in on elitedangereuse.fr"
+    + (m ? `\nRoute access: ${m === "key" ? "early-access key" : m}` : "");
 }
 
 // Plot button "warming up" state while the route index builds: spin the logo,
@@ -574,6 +767,9 @@ async function loadStatus() {
     ]);
     lastAccess = { st, me };
     renderAccessIndicator();
+    const loggedIn = !!(me && me.authenticated);
+    $("importCurrentShip").hidden = !loggedIn;
+    if (loggedIn) prefillFromCapi();
     setPlotWarming(!st.index_ready);
     const pill = $("accessPill");   // removed from the UI; guard if absent
     if (pill) {
@@ -611,6 +807,112 @@ async function autocomplete(ev) {
 }
 $("from").addEventListener("input", autocomplete);
 $("to").addEventListener("input", autocomplete);
+
+// From/To resolution: a system we don't have is placed by EDTS from its
+// procedural name (or a hand-authored id64), and "x, y, z" plots to a raw
+// position. Flag both in the field and echo the position on the line below so
+// the CMDR can check the guess before plotting. Known systems show nothing.
+const hintSeq = { from: 0, to: 0 };
+const hintTimers = {};
+const xyzText = (c) => [c.x, c.y, c.z].map(v => String(Number(v.toFixed(2)))).join(", ");
+function setSysHint(id, badge, html, tip = "") {
+  const el = $(id), b = $(id + "Badge"), h = $(id + "Hint");
+  const labels = { estimated: "estimated", coords: "coordinates", unknown: "not found" };
+  el.classList.toggle("sys-estimated", badge === "estimated" || badge === "coords");
+  el.classList.toggle("has-badge", !!badge);
+  b.hidden = !badge;
+  b.className = "sys-badge" + (badge ? " " + badge : "");
+  b.textContent = badge ? labels[badge] : "";
+  h.hidden = !html;
+  h.innerHTML = html || "";
+  h.title = tip;
+}
+// `final`: the field was committed (change/blur/prefill). While typing, a name
+// that doesn't resolve yet is just incomplete, so "not found" waits for this.
+async function resolveField(id, { final = false, note = "" } = {}) {
+  clearTimeout(hintTimers[id]);
+  const v = $(id).value.trim();
+  const seq = ++hintSeq[id];
+  if (!v) { setSysHint(id, null, ""); return; }
+  try {
+    const r = await fetch("/route/resolve?q=" + encodeURIComponent(v));
+    if (seq !== hintSeq[id]) return;  // the field changed meanwhile
+    if (r.status === 404) {
+      if (final) setSysHint(id, "unknown", "Not in EDGIS and not a procedural name we can place. Check the spelling, or type its x, y, z coordinates.");
+      else setSysHint(id, null, "");
+      return;
+    }
+    if (!r.ok) { setSysHint(id, null, ""); return; }
+    const d = await r.json();
+    const xyz = `<span class="xyz">${escapeHtml(xyzText(d.coords))}</span>`;
+    if (d.kind === "predicted") {
+      // Kept to one line; the advice lives in the tooltip.
+      setSysHint(id, "estimated", `Not in EDGIS · estimated at ${xyz}`
+        + (d.uncertainty ? ` ± ${fmt(d.uncertainty, 0)} LY` : ""),
+        "Position guessed from the procedural name (± per axis). Check it against the in-game galaxy map.");
+    } else if (d.kind === "coords") {
+      setSysHint(id, "coords", `${id === "to" ? "Destination" : "Start"} point ${xyz}`,
+        id === "to" ? "The route ends at this point: target the nearest star in the in-game galaxy map." : "");
+    } else {
+      setSysHint(id, null, note);
+    }
+  } catch (e) {
+    if (seq === hintSeq[id]) setSysHint(id, null, "");
+  }
+}
+["from", "to"].forEach((id) => {
+  $(id).addEventListener("input", () => {
+    clearTimeout(hintTimers[id]);
+    hintTimers[id] = setTimeout(() => resolveField(id), 600);
+  });
+  $(id).addEventListener("change", () => resolveField(id, { final: true }));
+});
+
+// Logged-in CMDRs (elitedangereuse.fr session): the site reads the Frontier
+// CAPI for us -- current system to prefill the start, and on demand the current
+// ship's journal Loadout (cf. elitedangereuselight outils/edgis-capi.php).
+const SITE_CAPI = "https://elitedangereuse.fr/outils/edgis-capi.php";
+let capiPrefilled = false;
+async function prefillFromCapi() {
+  if (capiPrefilled) return;
+  capiPrefilled = true;
+  try {
+    const d = await fetch(SITE_CAPI, { credentials: "include" }).then(r => r.json());
+    // Never overwrite what the CMDR typed (or a shared link's start).
+    if (d && d.system && !$("from").value.trim()) {
+      $("from").value = d.system;
+      resolveField("from", { final: true, note: "Your current system, from Frontier." });
+    }
+  } catch (e) {}
+}
+const CAPI_ERRORS = {
+  not_logged_in: "Log in on elitedangereuse.fr (menu) to import your ship.",
+  capi_unauthorized: "Your Frontier access has expired: log in again on elitedangereuse.fr.",
+  profile_unavailable: "Frontier's API did not answer. Try again in a few minutes.",
+  no_recent_loadout: "No loadout for your current ship in your last 7 days of journal. Launch the game (or visit outfitting), then try again in a few minutes: Frontier's journal lags behind live play.",
+};
+async function importCurrentShip() {
+  const btn = $("importCurrentShip");
+  btn.disabled = true;
+  $("shipInfo").innerHTML = `<span class="tiny">Reading your ship from Frontier…</span>`;
+  try {
+    const d = await fetch(`${SITE_CAPI}?ship=1&refresh=1`, { credentials: "include" })
+      .then(r => r.json()).catch(() => ({}));
+    if (d.system && !$("from").value.trim()) {
+      $("from").value = d.system;
+      resolveField("from", { final: true, note: "Your current system, from Frontier." });
+    }
+    const loadout = d.ship && d.ship.loadout;
+    if (!loadout) {
+      $("shipInfo").innerHTML = `<span class="bad">${escapeHtml(CAPI_ERRORS[d.error] || CAPI_ERRORS.profile_unavailable)}</span>`;
+      return;
+    }
+    const err = await addShip(JSON.stringify(loadout));
+    $("shipInfo").innerHTML = err ? `<span class="bad">${escapeHtml(err)}</span>` : "";
+  } finally {
+    btn.disabled = false;
+  }
+}
 
 function fuelVerdict(f) {
   const tank = `tank ≈ ${f.tank_jumps} jumps`;
@@ -706,7 +1008,7 @@ function toSpanshExactRoute(r) {
   const now = new Date().toISOString().slice(0, 19);  // "YYYY-MM-DDTHH:MM:SS"
   const job = (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : "").toUpperCase();
   const scMul = r.boost_range && r.jump_range ? Math.round(r.boost_range / r.jump_range) : 4;
-  const loadout = ($("loadout").value || "").trim();
+  const loadout = activeLoadout();
   const parameters = {
     algorithm: "optimistic", max_time: "60",
     source_system: idStr(r.source_id64) ?? r.source,
@@ -814,11 +1116,13 @@ function sourceRow(r, compact) {
 }
 
 function renderRoute(r) {
-  // A re-render of the SAME route (e.g. the compact/all-jumps toggle) must keep
-  // any spansh comparison already shown in #cmpOut; only a NEW plot (a different
-  // result object) clears it, since it would be stale.
-  const keepCmp = (r === lastOurs)
-    ? (document.getElementById("cmpOut")?.innerHTML || "") : "";
+  // Keep the spansh comparison lines that belong to this plot: all of them on a
+  // re-render of the SAME route (compact toggle), and on a fresh result the ones
+  // started while it was plotting ("vs spansh" is usable meanwhile). The nodes
+  // are moved, not re-created, so a running progress bar doesn't restart.
+  const oldHost = document.getElementById("cmpOut");
+  const keepCmp = oldHost ? [...oldHost.children].filter(
+    (e) => r === lastOurs || e.dataset.plot === String(plotSeq)) : [];
   lastOurs = r;
   loadDone();
   let header, rows;
@@ -860,17 +1164,14 @@ function renderRoute(r) {
     rows = sourceRow(r, false) + rows;
   }
   $("out").innerHTML = `
-    <div class="summary">
-      <div class="stat"><b>${fmt(r.total_jumps)}</b><span>jumps</span></div>
-      <div class="stat"><b>${fmt(r.neutron_jumps)}</b><span>neutron jumps</span></div>
-      <div class="stat"><b>${fmt(r.bridge_jumps)}</b><span>regular jumps</span></div>
-      <div class="stat"><b>${fmt(r.total_distance_ly)}</b><span>LY flown</span></div>
-      <div class="stat"><b>${fmt(r.efficiency * 100, 1)}%</b><span>efficiency</span></div>
-      <div class="stat"><b>${fmt(r.solve_ms, 0)} ms</b><span>solve</span></div>
+    <div class="statgrid">
+      <div class="statrow" data-cmp>${statCells({
+        jumps: r.total_jumps, neutron: r.neutron_jumps, regular: r.bridge_jumps,
+        ly: r.total_distance_ly, eff: r.efficiency, solve: r.solve_ms })}</div>
+      <div id="cmpOut"></div>
     </div>
     ${r.fuel ? `<div class="fuelbar">${fuelVerdict(r.fuel)}</div>` : ""}
     ${injectSummary(r)}
-    <div id="cmpOut">${keepCmp}</div>
     <div class="summary-actions">
       <label class="switch" title="Compact: only the waypoints you plot in-game. Off: every jump.">
         <input type="checkbox" id="compactToggle" ${compactMode ? "checked" : ""} />
@@ -891,6 +1192,11 @@ function renderRoute(r) {
       <tbody>${rows}</tbody></table>
     </div>`;
   updateCompareButton();  // enable + set exact/neutron tooltip for the plotted route
+  keepCmp.forEach((e) => $("cmpOut").appendChild(e));
+  // A spansh row that landed before our result had no straight line for its
+  // efficiency: redraw it now; this also re-marks the winners vs our new row.
+  keepCmp.forEach((e) => { if (e._spansh) showSpanshRow(e, e._spansh.title, e._spansh.s); });
+  highlightBest();
   // Trigger the neighbors-style refresh glow on the freshly rendered table.
   const tbl = $("out").querySelector(".tablewrap.result-table");
   if (tbl) {
@@ -903,28 +1209,83 @@ function renderRoute(r) {
 
 // A dedicated line per spansh tool inside #cmpOut, so the Neutron and Galaxy
 // comparisons can show at once without overwriting each other.
-function cmpLine(id) {
+// `seq` is the plot the comparison was started for: once a newer plot has
+// started, its writes go to a detached element, so a late spansh answer never
+// lands next to a different route.
+let plotSeq = 0;
+function cmpLine(id, seq) {
+  if (seq !== plotSeq) return document.createElement("div");
   let host = document.getElementById("cmpOut");
   if (!host) { host = document.createElement("div"); host.id = "cmpOut"; $("out").appendChild(host); }
   let el = document.getElementById(id);
   if (!el) { el = document.createElement("div"); el.id = id; host.appendChild(el); }
+  el.dataset.plot = String(seq);
   return el;
 }
 
-// Shared bits for a "spansh X: N jumps · ours: M · verdict · ⏱ …" line.
-function cmpVerdict(spJumps) {
-  const ours = lastOurs ? lastOurs.total_jumps : null;
-  if (ours == null) return "";
-  const d = spJumps - ours;
-  const v = d > 0 ? `<span class="good">ours ${d} fewer ✓</span>`
-          : d < 0 ? `<span class="bad">spansh ${-d} fewer</span>` : "tie";
-  return ` · <b>ours:</b> ${fmt(ours)} jumps · ${v}`;
+// Route stats, shared by our summary and the spansh comparison rows (same
+// columns, smaller), so the two read side by side. `better` is the direction
+// that wins: the best value of each column is marked in blue on every row.
+// Neutron jumps has none: more boosts is not better in itself. Labels name the
+// quantity; a unit sits with its number, smaller (`unit`), "%" tight to it.
+const unit = (u) => `<span class="unit">${u}</span>`;
+const STAT_COLS = [
+  { k: "jumps", label: "jumps", better: "min", show: (v) => fmt(v) },
+  { k: "neutron", label: "neutron jumps", better: null, show: (v) => fmt(v) },
+  { k: "regular", label: "regular jumps", better: "min", show: (v) => fmt(v) },
+  { k: "ly", label: "distance", better: "min", show: (v) => `${fmt(v)} ${unit("LY")}`, round: 1 },
+  { k: "eff", label: "efficiency", better: "max", show: (v) => `${fmt(v * 100, 1)}${unit("%")}`, round: 3 },
+  { k: "solve", label: "solve time", better: "min", show: (v) => v >= 1000 ? `${fmt(v / 1000, 1)} ${unit("s")}` : `${fmt(v, 0)} ${unit("ms")}` },
+];
+function statCells(v) {
+  return STAT_COLS.map((c) => {
+    const val = v[c.k];
+    if (val == null || !Number.isFinite(Number(val))) {
+      return `<div class="stat"><b>–</b><span>${c.label}</span></div>`;
+    }
+    const n = c.round != null ? Number(Number(val).toFixed(c.round)) : Number(val);
+    return `<div class="stat" data-k="${c.k}" data-v="${n}"><b>${c.show(val)}</b><span>${c.label}</span></div>`;
+  }).join("");
 }
-function cmpTime(durationS) {
-  if (durationS == null || !lastOurs) return "";
-  const spMs = durationS * 1000, ourMs = lastOurs.solve_ms, dMs = spMs - ourMs;
-  const ft = (ms) => ms >= 1000 ? `${fmt(ms / 1000, 1)} s` : `${fmt(ms)} ms`;
-  return ` · ⏱ ${ft(ourMs)} vs ${ft(spMs)} <span class="${dMs >= 0 ? "good" : "bad"}">(${ft(Math.abs(dMs))} ${dMs >= 0 ? "faster" : "slower"})</span>`;
+function highlightBest() {
+  const rows = [...$("out").querySelectorAll("[data-cmp]")];
+  rows.forEach((r) => r.querySelectorAll(".stat.best").forEach((e) => e.classList.remove("best")));
+  if (rows.length < 2) return;
+  for (const c of STAT_COLS) {
+    if (!c.better) continue;
+    const cells = rows.map((r) => r.querySelector(`.stat[data-k="${c.k}"]`)).filter(Boolean);
+    if (cells.length < 2) continue;
+    const vals = cells.map((e) => Number(e.dataset.v));
+    const best = c.better === "min" ? Math.min(...vals) : Math.max(...vals);
+    if (vals.every((v) => v === best)) continue;  // a tie has no winner
+    cells.forEach((e, i) => e.classList.toggle("best", vals[i] === best));
+  }
+}
+// A spansh result as a row under ours: a title line, then the same stat cells.
+// Efficiency is ours' definition (straight line / LY flown) over the same
+// endpoints; spansh's own "efficiency" is a plotter setting, not a result.
+function showSpanshRow(el, title, s) {
+  const neutron = s.neutron_jumps != null ? s.neutron_jumps : null;
+  const straight = lastOurs ? lastOurs.straight_line_ly : null;
+  const link = s.results_url ? ` · <a href="${escapeHtml(s.results_url)}" target="_blank" rel="noopener">open in spansh ↗</a>` : "";
+  el._spansh = { title, s };
+  el.setAttribute("data-cmp", "");
+  el.className = "statrow small";
+  el.innerHTML = `<div class="cmp-head">${title}${link}</div>` + statCells({
+    jumps: s.total_jumps, neutron, regular: neutron != null ? s.total_jumps - neutron : null,
+    ly: s.total_distance_ly,
+    eff: straight && s.total_distance_ly ? straight / s.total_distance_ly : null,
+    solve: s.duration_s != null ? s.duration_s * 1000 : null,
+  });
+  highlightBest();
+}
+// Progress / error text on a spansh line: spans the grid, not a stats row.
+function showSpanshMsg(el, html) {
+  el._spansh = null;
+  el.removeAttribute("data-cmp");
+  el.className = "statrow";
+  el.innerHTML = `<div class="cmp-head">${html}</div>`;
+  highlightBest();
 }
 
 // The "vs spansh" button adapts: with a ship imported we compare to spansh's
@@ -946,19 +1307,17 @@ async function compareSpansh() {
   if (!lastQuery) return;
   const { from, to, range, supercharge } = lastQuery;
   $("cmpGalaxy").disabled = true; $("cmpGalaxy").classList.add("querying"); setBusy(true);
-  const out = () => cmpLine("cmpNeutron");
-  out().innerHTML = `<span class="tiny">Querying spansh Neutron Plotter… (can take ~10-30 s)</span>`;
+  const seq = plotSeq;
+  const out = () => cmpLine("cmpNeutron", seq);
+  showSpanshMsg(out(), `<span class="tiny">Querying spansh Neutron Plotter… (can take ~10-30 s)</span>`);
   try {
     const res = await fetch(`/spansh/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}&efficiency=60&supercharge=${encodeURIComponent(supercharge || 4)}`, { headers: headers(), credentials: "include" });
-    if (!res.ok) { if (out()) out().innerHTML = `<span class="bad">spansh compare failed (HTTP ${res.status})</span>`; return; }
+    if (!res.ok) { showSpanshMsg(out(), `<span class="bad">spansh compare failed (HTTP ${res.status})</span>`); return; }
     const s = await res.json();
-    const sDur = s.duration_s != null ? `, ${fmt(s.duration_s, 1)} s` : "";
-    const link = s.results_url ? ` · <a href="${escapeHtml(s.results_url)}" target="_blank" rel="noopener">open in spansh ↗</a>` : "";
     const sc = Number(supercharge || 4);
-    const modeTag = sc !== 4 ? `<span class="tiny">supercharge ${sc}x</span> · ` : "";
-    if (out()) out().innerHTML = modeTag + `<b>spansh Neutron&nbsp;Plotter:</b> ${fmt(s.total_jumps)} jumps (eff 60${sDur})`
-      + cmpVerdict(s.total_jumps) + cmpTime(s.duration_s) + link;
-  } catch (e) { if (out()) out().innerHTML = `<span class="bad">${e.message || e}</span>`; }
+    const modeTag = sc !== 4 ? ` · supercharge ${sc}x` : "";
+    showSpanshRow(out(), `<b>spansh Neutron&nbsp;Plotter</b> <span class="tiny">(efficiency setting 60${modeTag})</span>`, s);
+  } catch (e) { showSpanshMsg(out(), `<span class="bad">${escapeHtml(e.message || String(e))}</span>`); }
   finally { $("cmpGalaxy").classList.remove("querying"); updateCompareButton(); setBusy(false); }
 }
 
@@ -966,15 +1325,16 @@ async function compareSpansh() {
 // build, so it's only reached (via compareVsSpansh) once a loadout is imported.
 async function compareGalaxy() {
   if (!lastQuery) return;
-  const loadout = shipInfo ? ($("loadout").value || "").trim() : "";
-  const out = () => cmpLine("cmpGalaxy_line");
-  if (!loadout) { out().innerHTML = `<span class="bad">Import a ship first (the Galaxy Plotter is fuel-aware).</span>`; return; }
+  const loadout = shipInfo ? activeLoadout() : "";
+  const seq = plotSeq;
+  const out = () => cmpLine("cmpGalaxy_line", seq);
+  if (!loadout) { showSpanshMsg(out(), `<span class="bad">Import a ship first (the Galaxy Plotter is fuel-aware).</span>`); return; }
   const { from, to } = lastQuery;
   $("cmpGalaxy").disabled = true; $("cmpGalaxy").classList.add("querying"); setBusy(true);
   // Blue 60 s progress line: the exact plotter typically takes up to a minute, so
   // give visible feedback. Pure CSS fill (0->100% over 60s); the result replaces it.
-  out().innerHTML = `<span class="tiny">Querying spansh Galaxy Plotter… (can take ~1 min)</span>`
-    + `<div class="spansh-bar" title="spansh exact plotter can take up to ~60 s"><div class="spansh-bar-fill"></div></div>`;
+  showSpanshMsg(out(), `<span class="tiny">Querying spansh Galaxy Plotter… (can take ~1 min)</span>`
+    + `<div class="spansh-bar" title="spansh exact plotter can take up to ~60 s"><div class="spansh-bar-fill"></div></div>`);
   try {
     const res = await fetch("/spansh/galaxy-route", {
       method: "POST", credentials: "include",
@@ -983,27 +1343,26 @@ async function compareGalaxy() {
     });
     if (!res.ok) {
       const d = (await res.json().catch(() => ({}))).detail;
-      out().innerHTML = `<span class="bad">Galaxy Plotter failed: ${escapeHtml(typeof d === "string" ? d : ("HTTP " + res.status))}</span>`;
+      showSpanshMsg(out(), `<span class="bad">Galaxy Plotter failed: ${escapeHtml(typeof d === "string" ? d : ("HTTP " + res.status))}</span>`);
       return;
     }
     const s = await res.json();
-    const dur = s.duration_s != null ? ` (${fmt(s.duration_s, 1)} s)` : "";
-    const link = s.results_url ? ` · <a href="${escapeHtml(s.results_url)}" target="_blank" rel="noopener">open in spansh ↗</a>` : "";
-    out().innerHTML = `<b>spansh Galaxy&nbsp;Plotter:</b> ${fmt(s.total_jumps)} jumps${dur}`
-      + cmpVerdict(s.total_jumps) + cmpTime(s.duration_s) + link;
-  } catch (e) { out().innerHTML = `<span class="bad">${escapeHtml(e.message || String(e))}</span>`; }
+    showSpanshRow(out(), `<b>spansh Galaxy&nbsp;Plotter</b>`, s);
+  } catch (e) { showSpanshMsg(out(), `<span class="bad">${escapeHtml(e.message || String(e))}</span>`); }
   finally { $("cmpGalaxy").classList.remove("querying"); updateCompareButton(); setBusy(false); }
 }
 
 async function plot() {
+  await shipImport;
   const from = $("from").value.trim(), to = $("to").value.trim();
   if (!from || !to) { $("out").innerHTML = `<div class="msg warn">Enter both a start and destination system.</div>`; return; }
   const range = $("range").value || "50";
   const supercharge = $("ship").value || "4";
   const companionLs = companionMaxLs();
   // Fuel-aware plotting (POST with the loadout) kicks in once a ship is imported.
-  const loadout = shipInfo ? ($("loadout").value || "").trim() : "";
+  const loadout = shipInfo ? activeLoadout() : "";
   lastQuery = { from, to, range, supercharge, companionLs, inject: injectMult() };
+  plotSeq++;  // comparisons started from now on belong to this plot
   lastOurs = null;  // so a post-failure spansh compare doesn't show a stale "ours"
   $("go").disabled = true; setBusy(true); $("out").innerHTML = `<div class="msg">Plotting…</div>`;
   try {
@@ -1104,25 +1463,59 @@ $("out").addEventListener("change", (e) => {
   }
 });
 
+// Mouse wheel over a number option steps it (Shift: x10), within min/max. Page
+// scroll is only taken over the field itself. The value moves on every notch;
+// "change" (which saves, and re-reads the ship for cargo) fires once the
+// wheel stops, so a fast scroll doesn't send a request per notch.
+["range", "companionLs", "scoopLs", "cargo"].forEach((id) => {
+  const el = $(id);
+  let changeTimer;
+  el.addEventListener("wheel", (e) => {
+    if (el.readOnly || el.disabled) return;
+    const dir = Math.sign(e.deltaY || e.deltaX);  // Shift+wheel scrolls X in some browsers
+    if (!dir) return;
+    e.preventDefault();
+    const step = Number(el.step) || 1;
+    const decimals = (String(el.step).split(".")[1] || "").length;
+    let v = (Number(el.value) || 0) - dir * step * (e.shiftKey ? 10 : 1);
+    if (el.min !== "") v = Math.max(Number(el.min), v);
+    if (el.max !== "") v = Math.min(Number(el.max), v);
+    el.value = v.toFixed(decimals);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    clearTimeout(changeTimer);
+    changeTimer = setTimeout(() => el.dispatchEvent(new Event("change", { bubbles: true })), 350);
+  }, { passive: false });
+});
+
 $("go").addEventListener("click", plot);
 $("cmpGalaxy").addEventListener("click", compareVsSpansh);
-$("importShip").addEventListener("click", importShip);
-$("clearShip").addEventListener("click", clearShip);
+$("importShip").addEventListener("click", addPastedShip);
+$("importCurrentShip").addEventListener("click", importCurrentShip);
+$("pasteShip").addEventListener("click", () => setPasteOpen($("pastePanel").hidden));
+$("cancelPaste").addEventListener("click", () => setPasteOpen(false));
 $("clearAllShips").addEventListener("click", clearAllShips);
-// Switch to or remove a stored ship (buttons are rendered dynamically).
+// The card's "Plot without a ship" (rendered dynamically).
+$("shipCard").addEventListener("click", (ev) => {
+  if (ev.target.closest("#deselectShip")) clearShip();
+});
+// Use, rename or remove a stored ship (rows are rendered dynamically).
+// Clicking the active ship again deselects it.
 $("shipLibrary").addEventListener("click", (ev) => {
   const pick = ev.target.closest(".ship-pick");
   const del = ev.target.closest(".ship-del");
-  const ships = loadShips();
+  const ren = ev.target.closest(".ship-ren");
+  if (ren) { renameShip(Number(ren.dataset.i)); return; }
   if (pick) {
     const i = Number(pick.dataset.i);
-    if (ships[i]) { $("loadout").value = ships[i].loadout; importShip(); }
+    if (i === activeShip()) clearShip(); else switchShip(i);
   } else if (del) {
     const i = Number(del.dataset.i);
-    const wasActive = i === activeShip();
+    const ships = loadShips();
+    const active = activeShip();
     ships.splice(i, 1); saveShips(ships);
-    if (wasActive) { clearShip(); }          // deselect + re-render
-    else { const a = activeShip(); if (a > i) setActiveShip(a - 1); renderShipLibrary(); }
+    if (i === active) { clearShip(); return; }
+    if (active > i) setActiveShip(active - 1);
+    renderShips();
   }
 });
 // Swap departure and arrival, then re-plot if both are set (tester: "to go back
@@ -1131,6 +1524,7 @@ $("swapFromTo").addEventListener("click", () => {
   const f = $("from").value;
   $("from").value = $("to").value;
   $("to").value = f;
+  resolveField("from", { final: true }); resolveField("to", { final: true });
   if ($("from").value.trim() && $("to").value.trim()) plot();
 });
 [$("from"), $("to"), $("range")].forEach(el => el.addEventListener("keydown", e => { if (e.key === "Enter") plot(); }));
@@ -1145,6 +1539,8 @@ window.edgisInitRoutePanel = function () {
   const q = new URLSearchParams(location.search);
   const from = q.get("from"); if (from) $("from").value = from;
   const to = q.get("to"); if (to) $("to").value = to;
+  if (from) resolveField("from", { final: true });
+  if (to) resolveField("to", { final: true });
   const range = q.get("range"); if (range) $("range").value = range;
   const supercharge = q.get("supercharge");
   if (supercharge) { $("ship").value = supercharge; localStorage.setItem(SHIP_LS, supercharge); }
@@ -1156,12 +1552,20 @@ window.edgisInitRoutePanel = function () {
   if (sml != null && sml !== "") { $("scoopLs").value = sml; localStorage.setItem(SCOOP_LS, String(scoopMaxLs())); }
   const inj = q.get("inject_mult");
   if (inj != null && inj !== "") { setInjectMult(inj); localStorage.setItem(INJECT_MULT, String(injectMult())); }
-  if ($("loadout").value.trim()) { importShip(); }
+  if (activeLoadout()) { importShip(); }
   loadStatus();
-  // A shared link (from + to both present) plots straight away, at the shared
-  // range. Deferred to the next tick so the synchronous field prefill is fully
-  // applied before plot() reads it.
-  if (from && to) setTimeout(plot, 0);
+  // A shared link (from + to both present) plots straight away, once the stored
+  // ship (if any) is imported. With a usable ship, the ship sets range and
+  // supercharge (it is what you fly); without one, the link's values apply.
+  if (from && to) {
+    shipImport.finally(() => {
+      if (!shipInfo) {
+        if (range) $("range").value = range;
+        if (supercharge) $("ship").value = supercharge;
+      }
+      plot();
+    });
+  }
 };
 
 // The index's init is a deferred module that runs BEFORE this (deferred) script,

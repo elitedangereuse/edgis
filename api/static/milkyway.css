@@ -59,7 +59,7 @@ body {
 }
 
 a:hover {
-    text-shadow: 0 0 5px #3b505966, 0 0 10px #3b505966, 0 0 15px #80c4e6;
+    text-shadow: 0 0 5px #3b505966, 0 0 10px #3b505966, 0 0 15px #1294d6;
 }
 
 #resultPre, #resultTable, .result-table {
@@ -634,6 +634,40 @@ a:hover {
     }
 }
 
+/* Logged-in CMDR, by the tool menu (shown on every tool). */
+.cmdr-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 12rem;
+    padding: 0.3rem 0.75rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(0, 0, 0, 0.25);
+    color: #f8f8ff;
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    cursor: default;
+}
+.cmdr-chip[hidden] {
+    display: none;
+}
+.cmdr-chip #cmdrChipName {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.cmdr-chip__dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #53d08a;
+    flex: none;
+}
+
 .tool-menu {
     margin-top: 0;
     display: flex;
@@ -732,6 +766,23 @@ a:hover {
     outline: none;
 }
 
+.tool-menu__item:has(.tool-menu__icon) {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.tool-menu__icon {
+    width: 1.1rem;
+    height: 1.1rem;
+    flex: none;
+}
+
+/* After the icon rule above (same specificity): a hidden item stays hidden. */
+.tool-menu__item[hidden] {
+    display: none;
+}
+
 .tool-menu__item.active {
     background: rgba(18, 148, 214, 0.4);
 }
@@ -752,8 +803,48 @@ a:hover {
     }
 }
 
+/* While a route plots, the E·D·G·I·S initials light up blue in turn, each
+   fading back to the text colour (no 100% keyframe: it eases to the normal style). */
+.hero-tagline.is-plotting b {
+    animation: taglineChase 1.25s linear infinite;
+}
+.hero-tagline.is-plotting b:nth-of-type(2) { animation-delay: .25s; }
+.hero-tagline.is-plotting b:nth-of-type(3) { animation-delay: .5s; }
+.hero-tagline.is-plotting b:nth-of-type(4) { animation-delay: .75s; }
+.hero-tagline.is-plotting b:nth-of-type(5) { animation-delay: 1s; }
+
+@keyframes taglineChase {
+    0%, 20% { color: #1294d6; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .hero-tagline.is-plotting b { animation: none; color: #1294d6; }
+}
+
 @media only screen and (max-width: 767px) {
     .quote {
         min-height: 95px !important;
     }
+}
+
+/* Per-row action icons (system map, galaxy map, neighbors) in result tables:
+   light ink, EDGIS blue on hover/focus. The route plotter's table uses the same
+   tokens (route-panel.css .act-btn). */
+:root {
+    --row-act-ink: #f3f4f6;
+    --row-act-hover: #1294d6;
+}
+.row-act {
+    background: none;
+    border: 0;
+    padding: 2px 4px;
+    color: var(--row-act-ink);
+    cursor: pointer;
+    vertical-align: -2px;
+    transition: color 120ms ease;
+}
+.row-act:hover,
+.row-act:focus-visible {
+    color: var(--row-act-hover);
+    outline: none;
 }

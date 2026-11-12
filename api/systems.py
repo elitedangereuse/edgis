@@ -6,7 +6,9 @@ import math
 import hmac
 import base64
 import json
+import re
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from queue import Empty, LifoQueue
 from threading import Lock, Thread
 import httpx
@@ -3179,7 +3181,61 @@ def _kick_neutron_index_build() -> bool:
     return True
 
 
+def _profiled(prof: dict, fetch: Callable[..., Any]) -> Callable[..., Any]:
+    """Wrap a solver DB fetch to accumulate its calls, rows and time in ``prof``."""
+
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        t0 = time.perf_counter()
+        try:
+            rows = fetch(*args, **kwargs)
+        finally:
+            prof["db_ms"] += (time.perf_counter() - t0) * 1000.0
+            prof["db_calls"] += 1
+        prof["db_rows"] += len(rows) if rows is not None else 0
+        return rows
+
+    return wrapper
+
+
 def _solve_route_sync(
+    src: tuple[float, float, float],
+    dst: tuple[float, float, float],
+    jump_range: float,
+    beam_width: int | None,
+    boost_mult: float = 4.0,
+    companion_max_ls: float = 0.0,
+    inject_mult: float = 1.0,
+    tank_jumps: int = 0,
+    scoop_max_ls: float = 0.0,
+    reach_by_r: list | None = None,
+):
+    """Solve a route and attach a time breakdown as ``result["_prof"]`` (logged
+    to the route trace, never returned): wall and thread CPU time, plus the
+    solver's DB calls/rows/time. wall - cpu - db is mostly time spent waiting
+    for the GIL, i.e. contention with other solves and requests."""
+
+    prof = {"db_ms": 0.0, "db_calls": 0, "db_rows": 0}
+    wall0, cpu0 = time.perf_counter(), time.thread_time()
+    result = _solve_route_core(
+        prof, src, dst, jump_range, beam_width, boost_mult, companion_max_ls,
+        inject_mult, tank_jumps, scoop_max_ls, reach_by_r,
+    )
+    if result is not None:
+        wall = (time.perf_counter() - wall0) * 1000.0
+        cpu = (time.thread_time() - cpu0) * 1000.0
+        result["_prof"] = {
+            "wall_ms": round(wall, 1),
+            "cpu_ms": round(cpu, 1),
+            "db_ms": round(prof["db_ms"], 1),
+            "db_calls": prof["db_calls"],
+            "db_rows": prof["db_rows"],
+            "wait_ms": round(max(0.0, wall - cpu - prof["db_ms"]), 1),
+        }
+    return result
+
+
+def _solve_route_core(
+    prof: dict,
     src: tuple[float, float, float],
     dst: tuple[float, float, float],
     jump_range: float,
@@ -3260,6 +3316,10 @@ def _solve_route_sync(
                 return cursor.fetchall()
             finally:
                 cursor.close()
+
+        fetch_stars_within = _profiled(prof, fetch_stars_within)
+        fetch_stars_near_segment = _profiled(prof, fetch_stars_near_segment)
+        fetch_stars_toward = _profiled(prof, fetch_stars_toward)
 
         # Corridor graph A* is the primary engine: min-jumps by construction,
         # measured to match or beat the beam on every benchmarked route. The
@@ -3446,22 +3506,59 @@ def _enforce_fuel_sync(base_result: dict, params, fuel_safe: bool,
     return result
 
 
-async def _resolve_route_endpoint(
-    value: str,
-) -> tuple[tuple[float, float, float], str, Optional[str], Optional[int]]:
-    """Resolve a system name/id64 to coordinates, predicting via EDTS for
-    procedural systems that aren't scanned into the DB yet. Returns
-    ``(coords, name, mainstar, id64)`` (id64 may be None for a prediction)."""
+# "x, y, z" typed in a route field (commas, semicolons or spaces; optional
+# brackets): plot to/from a raw galactic position instead of a system.
+_COORDS_RE = re.compile(
+    r"^\s*[\[(]?\s*(-?\d+(?:\.\d+)?)\s*[,;\s]\s*(-?\d+(?:\.\d+)?)"
+    r"\s*[,;\s]\s*(-?\d+(?:\.\d+)?)\s*[\])]?\s*$"
+)
+# Generous galaxy bounds (ly): outside them a typo is likelier than a target.
+_GALAXY_BOUNDS = ((-50000.0, 50000.0), (-10000.0, 10000.0), (-30000.0, 70000.0))
+
+
+def _parse_coords_query(value: str) -> Optional[tuple[float, float, float]]:
+    match = _COORDS_RE.match(value or "")
+    if not match:
+        return None
+    return tuple(float(v) for v in match.groups())  # type: ignore[return-value]
+
+
+def _fmt_coord(v: float) -> str:
+    return f"{v:.2f}".rstrip("0").rstrip(".")
+
+
+async def _resolve_endpoint_info(value: str) -> dict:
+    """Resolve a route field to a position. ``kind`` says how much to trust it:
+    ``known`` (in our DB), ``predicted`` (EDTS from the procedural name, or the
+    id64 of a hand-authored system -- ``uncertainty`` is the per-axis error in
+    ly) or ``coords`` (the user typed ``x, y, z``). 404 if nothing matches."""
+
+    coords = _parse_coords_query(value)
+    if coords is not None:
+        if not all(lo <= c <= hi for c, (lo, hi) in zip(coords, _GALAXY_BOUNDS)):
+            raise HTTPException(
+                status_code=404, detail=f"Coordinates outside the galaxy: {value}"
+            )
+        return {
+            "kind": "coords",
+            "coords": coords,
+            "name": ", ".join(_fmt_coord(c) for c in coords),
+            "mainstar": None,
+            "id64": None,
+            "uncertainty": 0.0,
+        }
 
     record = await fetch_system_from_db(value)
     if record and record.get("coords"):
-        coords = record["coords"]
-        return (
-            (coords["x"], coords["y"], coords["z"]),
-            record["name"],
-            record.get("mainstar"),
-            record.get("id64"),
-        )
+        c = record["coords"]
+        return {
+            "kind": "known",
+            "coords": (c["x"], c["y"], c["z"]),
+            "name": record["name"],
+            "mainstar": record.get("mainstar"),
+            "id64": record.get("id64"),
+            "uncertainty": 0.0,
+        }
     loop = asyncio.get_event_loop()
     try:
         sys_obj = await loop.run_in_executor(
@@ -3474,13 +3571,25 @@ async def _resolve_route_endpoint(
     # 500 on any procedural system resolved via EDTS rather than the DB.
     position = getattr(sys_obj, "position", None) if sys_obj is not None else None
     if position is not None:
-        return (
-            (float(position[0]), float(position[1]), float(position[2])),
-            getattr(sys_obj, "name", value),
-            getattr(sys_obj, "mainstar", None),
-            getattr(sys_obj, "id64", None),
-        )
+        return {
+            "kind": "predicted",
+            "coords": (float(position[0]), float(position[1]), float(position[2])),
+            "name": getattr(sys_obj, "name", value),
+            "mainstar": getattr(sys_obj, "mainstar", None),
+            "id64": getattr(sys_obj, "id64", None),
+            "uncertainty": float(getattr(sys_obj, "uncertainty", 0.0) or 0.0),
+        }
     raise HTTPException(status_code=404, detail=f"System not found: {value}")
+
+
+async def _resolve_route_endpoint(
+    value: str,
+) -> tuple[tuple[float, float, float], str, Optional[str], Optional[int]]:
+    """``(coords, name, mainstar, id64)`` for a route field (see
+    ``_resolve_endpoint_info``; id64 is None for a prediction or coordinates)."""
+
+    info = await _resolve_endpoint_info(value)
+    return info["coords"], info["name"], info["mainstar"], info["id64"]
 
 
 class RouteJump(BaseModel):
@@ -3542,6 +3651,29 @@ class RouteResponse(BaseModel):
     jumps: list[RouteJump]
 
 
+class RouteEndpointResponse(BaseModel):
+    kind: str  # known | predicted | coords
+    name: str
+    coords: Coords
+    mainstar: Optional[str] = None
+    id64: Optional[int] = None
+    uncertainty: float = 0.0  # per-axis error (ly) of a predicted position
+
+
+@app.get("/route/resolve", response_model=RouteEndpointResponse)
+async def resolve_route_endpoint(q: str = Query(..., min_length=1, max_length=200)):
+    """How a route field resolves, so the UI can flag systems we don't know
+    (an EDTS-estimated position) and echo typed ``x, y, z`` coordinates."""
+
+    info = await _resolve_endpoint_info(q.strip())
+    x, y, z = info["coords"]
+    return RouteEndpointResponse(
+        kind=info["kind"], name=info["name"], coords=Coords(x=x, y=y, z=z),
+        mainstar=info["mainstar"], id64=info["id64"],
+        uncertainty=info["uncertainty"],
+    )
+
+
 @app.get("/route/status", include_in_schema=True)
 def route_status():
     status = entitlements.entitlement_status("route")
@@ -3587,7 +3719,9 @@ if not _route_trace_logger.handlers:
         _rt_handler = RotatingFileHandler(
             _rt_path, maxBytes=5_000_000, backupCount=3
         )
-        _rt_handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+        # Bare JSON: the timestamp is the line's `ts` field, so every line
+        # parses as JSON (jq, pandas.read_json(lines=True)...).
+        _rt_handler.setFormatter(logging.Formatter("%(message)s"))
         _route_trace_logger.addHandler(_rt_handler)
     except Exception:  # pragma: no cover - tracing must never break startup
         pass
@@ -3596,10 +3730,11 @@ if not _route_trace_logger.handlers:
 def _log_route_trace(kind: str, **fields: Any) -> None:
     """One structured JSON line per plot/compare, for side-by-side comparison
     and failure triage. Written to ROUTE_TRACE_FILE (default
-    api/route_trace.jsonl, rotated at 5 MB x3)."""
+    api/route_trace.jsonl, rotated at 5 MB x3). ``ts`` is ISO 8601 UTC."""
 
     try:
-        _route_trace_logger.info(json.dumps({"kind": kind, **fields}))
+        ts = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        _route_trace_logger.info(json.dumps({"ts": ts, "kind": kind, **fields}))
     except Exception:  # pragma: no cover - logging must never break a request
         pass
 
@@ -3741,6 +3876,7 @@ async def _solve_route_cached(
             if last.get("id64") is None:
                 last["id64"] = dst_id64
 
+        prof = result.pop("_prof", None)  # trace-only: never cached or returned
         result["source"] = src_name
         result["destination"] = dst_name
         result["source_coords"] = {"x": src[0], "y": src[1], "z": src[2]}
@@ -3751,7 +3887,7 @@ async def _solve_route_cached(
             total_jumps=result["total_jumps"], neutron=result["neutron_jumps"],
             bridge=result["bridge_jumps"], eff=round(result["efficiency"], 4),
             solve_ms=round(result["solve_ms"], 1), access=access_via, caller=caller,
-            engine=result.get("engine"),
+            engine=result.get("engine"), **({"prof": prof} if prof else {}),
         )
         to_cache = dict(result)
         to_cache.pop("access", None)
@@ -3968,6 +4104,9 @@ async def spansh_route(
                     res = data["result"]
                     legs = res.get("system_jumps", [])
                     total = sum(int(x.get("jumps", 0)) for x in legs)
+                    # Supercharged jumps: one per neutron waypoint you leave
+                    # (the destination is the last waypoint, never left).
+                    neutron = sum(1 for x in legs[:-1] if x.get("neutron_star"))
                     flown = sum(
                         float(x.get("distance_jumped", 0)) for x in legs
                     )
@@ -3998,6 +4137,7 @@ async def spansh_route(
                         "source": res.get("source_system", from_),
                         "destination": res.get("destination_system", to),
                         "total_jumps": total,
+                        "neutron_jumps": neutron,
                         "waypoints": res.get("total_jumps"),
                         "distance_ly": res.get("distance"),
                         "total_distance_ly": flown,
@@ -4113,6 +4253,11 @@ async def spansh_galaxy_route(
                     res = data["result"]
                     legs = res.get("jumps", [])
                     total = max(0, len(legs) - 1)  # first entry is the source
+                    # A jump is supercharged when it leaves a neutron star.
+                    neutron = sum(
+                        1 for x in legs[:-1]
+                        if x.get("has_neutron") or x.get("neutron_star")
+                    )
                     flown = sum(float(x.get("distance", 0) or 0) for x in legs)
                     duration_s = None
                     try:
@@ -4134,6 +4279,7 @@ async def spansh_galaxy_route(
                         "source": src["name"],
                         "destination": dst["name"],
                         "total_jumps": total,
+                        "neutron_jumps": neutron,
                         "waypoints": len(legs),
                         "total_distance_ly": flown,
                         "duration_s": duration_s,

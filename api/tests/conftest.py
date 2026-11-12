@@ -1,5 +1,14 @@
+import os
+import tempfile
+
 import psycopg
 import pytest
+
+# Route traces from tests go to a temp file, not the dev's api/route_trace.jsonl
+# (set before any test module imports systems, which opens the file).
+os.environ["ROUTE_TRACE_FILE"] = os.path.join(
+    tempfile.gettempdir(), "edgis-test-route_trace.jsonl"
+)
 
 
 @pytest.fixture(autouse=True)

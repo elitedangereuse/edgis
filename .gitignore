@@ -17,6 +17,8 @@ AGENTS.md
 /api/.envrc
 /api/.venv/
 /api/static/index-staging.html
+# Route plot traces written by a local dev server (rotated: .1, .2, .3).
+/api/route_trace.jsonl*
 
 # Managed access keys (admin key manager): runtime secret store, never committed.
 /api/entitlement_keys.json

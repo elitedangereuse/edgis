@@ -657,6 +657,52 @@ def test_resolve_endpoint_handles_edts_vector_with_buggy_bool(monkeypatch):
     assert id64 == 7654321
 
 
+def test_parse_coords_query_accepts_common_separators():
+    assert systems._parse_coords_query("1, -2.5, 3") == (1.0, -2.5, 3.0)
+    assert systems._parse_coords_query("[1;2;3]") == (1.0, 2.0, 3.0)
+    assert systems._parse_coords_query(" -10 20 30.25 ") == (-10.0, 20.0, 30.25)
+    assert systems._parse_coords_query("Sol") is None
+    assert systems._parse_coords_query("HIP 12345") is None
+    assert systems._parse_coords_query("1, 2") is None
+
+
+def test_route_resolve_reports_coords_known_and_predicted(monkeypatch):
+    class _Predicted:
+        position = (1975.0, -305.0, -225.0)
+        name = "Col 173 Sector CK-Q d5-54"
+        mainstar = None
+        id64 = None
+        uncertainty = 40.0
+
+    async def fake_db(value):
+        if value == "Sol":
+            return {"name": "Sol", "coords": {"x": 0.0, "y": 0.0, "z": 0.0},
+                    "mainstar": "G", "id64": 10477373803}
+        return None
+
+    monkeypatch.setattr(systems, "fetch_system_from_db", fake_db)
+    monkeypatch.setattr(
+        systems.system, "from_name",
+        lambda name, *a, **k: _Predicted() if name.startswith("Col 173") else None,
+    )
+
+    coords = client.get("/route/resolve", params={"q": "100.5, -20, 3000"}).json()
+    assert coords["kind"] == "coords"
+    assert coords["name"] == "100.5, -20, 3000"
+    assert coords["coords"] == {"x": 100.5, "y": -20.0, "z": 3000.0}
+
+    known = client.get("/route/resolve", params={"q": "Sol"}).json()
+    assert known["kind"] == "known" and known["id64"] == 10477373803
+
+    predicted = client.get("/route/resolve", params={"q": "Col 173 Sector CK-Q d5-54"}).json()
+    assert predicted["kind"] == "predicted"
+    assert predicted["coords"] == {"x": 1975.0, "y": -305.0, "z": -225.0}
+    assert predicted["uncertainty"] == 40.0
+
+    assert client.get("/route/resolve", params={"q": "Nowhere Land"}).status_code == 404
+    assert client.get("/route/resolve", params={"q": "0, 0, 99999"}).status_code == 404
+
+
 def test_route_patron_access(monkeypatch):
     _gate_future(monkeypatch)
     monkeypatch.delenv("ENTITLEMENT_KEYS", raising=False)
@@ -744,3 +790,100 @@ def test_spansh_route_is_gated(monkeypatch):
     resp = client.get("/spansh/route", params={"from": "Sol", "to": "Colonia"})
     assert resp.status_code == 403
     assert resp.json()["detail"]["error"] == "patron_only"
+
+
+def test_route_trace_lines_are_json_with_a_utc_timestamp():
+    import io
+    import json
+    import logging
+
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    systems._route_trace_logger.addHandler(handler)
+    try:
+        systems._log_route_trace("route", frm="Sol", to="Colonia", status="ok")
+    finally:
+        systems._route_trace_logger.removeHandler(handler)
+
+    line = json.loads(buf.getvalue().strip())
+    assert list(line)[:2] == ["ts", "kind"]
+    assert line["ts"].endswith("+00:00") and line["kind"] == "route"
+    assert line["frm"] == "Sol"
+    # The file handler writes the bare JSON too (no "asctime" prefix).
+    from logging.handlers import RotatingFileHandler
+
+    files = [h for h in systems._route_trace_logger.handlers
+             if isinstance(h, RotatingFileHandler)]
+    assert files and all(h.formatter._fmt == "%(message)s" for h in files)
+
+
+def test_profiled_fetch_accumulates_calls_rows_and_time():
+    prof = {"db_ms": 0.0, "db_calls": 0, "db_rows": 0}
+    fetch = systems._profiled(prof, lambda pos, r: [(1,), (2,), (3,)])
+    fetch((0, 0, 0), 10)
+    fetch((0, 0, 0), 20)
+    assert prof["db_calls"] == 2 and prof["db_rows"] == 6 and prof["db_ms"] >= 0.0
+
+    failing = systems._profiled(prof, lambda: (_ for _ in ()).throw(RuntimeError("db down")))
+    with pytest.raises(RuntimeError):
+        failing()
+    assert prof["db_calls"] == 3  # a failed query still counts its time
+
+
+def test_solve_route_sync_attaches_a_time_breakdown(monkeypatch):
+    def fake_core(prof, *args):
+        fetch = systems._profiled(prof, lambda: [(1,), (2,)])
+        fetch()
+        return {"total_jumps": 1}
+
+    monkeypatch.setattr(systems, "_solve_route_core", fake_core)
+    result = systems._solve_route_sync((0, 0, 0), (0, 0, 1), 50.0, None)
+    prof = result["_prof"]
+    assert set(prof) == {"wall_ms", "cpu_ms", "db_ms", "db_calls", "db_rows", "wait_ms"}
+    assert prof["db_calls"] == 1 and prof["db_rows"] == 2
+
+
+def test_route_prof_goes_to_the_trace_not_the_response(monkeypatch):
+    import io
+    import json
+    import logging
+
+    _gate_future(monkeypatch)
+    monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
+    _clear_route_cache()
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
+
+    async def fake_resolve(value):
+        return {"P": (0.0, 0.0, 0.0), "Q": (0.0, 0.0, 10.0)}[value], value, None, None
+
+    monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
+
+    def fake_solve(*args, **kwargs):
+        return {
+            "jump_range": 50.0, "boost_range": 200.0, "straight_line_ly": 10.0,
+            "total_jumps": 1, "neutron_jumps": 0, "bridge_jumps": 1,
+            "total_distance_ly": 10.0, "efficiency": 1.0, "beam_width": 3,
+            "solve_ms": 5.0, "engine": "graph",
+            "jumps": [{"system": None, "id64": None, "x": 0.0, "y": 0.0, "z": 10.0,
+                       "type": "regular", "neutron_star": False,
+                       "distance_jumped": 10.0, "distance_left": 0.0}],
+            "_prof": {"wall_ms": 5.0, "cpu_ms": 3.0, "db_ms": 1.5, "db_calls": 2,
+                      "db_rows": 40, "wait_ms": 0.5},
+        }
+
+    monkeypatch.setattr(systems, "_solve_route_sync", fake_solve)
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    systems._route_trace_logger.addHandler(handler)
+    try:
+        resp = client.get("/route", params={"from": "P", "to": "Q", "range": 50},
+                          headers={"x-route-key": "k"})
+    finally:
+        systems._route_trace_logger.removeHandler(handler)
+
+    assert resp.status_code == 200, resp.text
+    assert "_prof" not in resp.json() and "prof" not in resp.json()
+    lines = [json.loads(line) for line in buf.getvalue().splitlines()]
+    ok = [line for line in lines if line.get("kind") == "route" and line.get("status") == "ok"]
+    assert ok and ok[-1]["prof"]["db_calls"] == 2

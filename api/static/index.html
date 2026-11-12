@@ -128,6 +128,7 @@
               <span>EDGIS</span>
             </button>
           </h1>
+          <span id="cmdrChip" class="cmdr-chip" hidden title="Logged in on elitedangereuse.fr"><span class="cmdr-chip__dot" aria-hidden="true"></span><span id="cmdrChipName"></span></span>
           <div class="tool-menu" aria-label="Tool menu">
             <button id="toolMenuToggle" type="button" class="tool-menu__toggle" aria-label="Choose an EDGIS tool" aria-haspopup="true" aria-expanded="false" aria-controls="toolMenuDropdown" title="Choose a tool">
               <span class="tool-menu__bars" aria-hidden="true">
@@ -141,7 +142,9 @@
               <button type="button" class="tool-menu__item" data-tool="lookup" role="menuitem">System lookup</button>
               <button type="button" class="tool-menu__item" data-tool="advanced" role="menuitem">Explorer tools</button>
               <button type="button" class="tool-menu__item" data-tool="route" role="menuitem">Route plotting</button>
-              <a class="tool-menu__item" href="https://elitedangereuse.fr/login.php" target="_blank" rel="noopener" role="menuitem">Log in on elitedangereuse.fr ↗</a>
+              <a class="tool-menu__item" href="https://elitedangereuse.fr/galactic-hunt.php" target="_blank" rel="noopener" role="menuitem">Galactic Hunt ↗</a>
+              <a id="menuLogin" class="tool-menu__item" href="https://elitedangereuse.fr/auth-redirect.php?redirect=https%3A%2F%2Fedgis.elitedangereuse.fr%2F" role="menuitem" title="via elitedangereuse.fr" aria-label="Log in via elitedangereuse.fr">Log in<img class="tool-menu__icon" src="/static/assets/logo_o.svg" alt="" aria-hidden="true"></a>
+              <a id="menuLogout" class="tool-menu__item" href="https://elitedangereuse.fr/logout.php?redirect=https%3A%2F%2Fedgis.elitedangereuse.fr%2F" role="menuitem" title="via elitedangereuse.fr" aria-label="Log out via elitedangereuse.fr" hidden>Log out<img class="tool-menu__icon" src="/static/assets/logo_o.svg" alt="" aria-hidden="true"></a>
             </div>
           </div>
         </div>
@@ -274,34 +277,56 @@
           </div>
 
           <div class="flex flex-col gap-3">
-            <div id="accessIndicator" class="access-ind" hidden></div>
             <div class="flex flex-col gap-2">
               <label for="from" class="text-sm font-semibold flex items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" style="color:#1294d6" viewBox="0 0 2.6461 2.1167"><g transform="translate(-130.97 -85.46)" fill-rule="evenodd" stroke-width=".26458"><path d="m131.23 86.519a0.13229 0.13229 0 0 1 0.1323-0.13229h1.7973l-0.56806-0.5678a0.13246 0.13246 0 1 1 0.18732-0.18732l0.79375 0.79375a0.13229 0.13229 0 0 1 0 0.18732l-0.79375 0.79375a0.13246 0.13246 0 0 1-0.18732-0.18732l0.56806-0.5678h-1.7973a0.13229 0.13229 0 0 1-0.1323-0.13229"/><path d="m131.1 85.46a0.13229 0.13229 0 0 1 0.13229 0.13229v1.8521a0.1323 0.1323 0 0 1-0.26459 0v-1.8521a0.13229 0.13229 0 0 1 0.1323-0.13229"/></g></svg> From</label>
-              <input id="from" list="sysopts" placeholder="Sol" autocomplete="off" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+              <div class="sys-field">
+                <input id="from" list="sysopts" placeholder="Sol, or x, y, z" autocomplete="off" aria-describedby="fromHint" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+                <span id="fromBadge" class="sys-badge" hidden></span>
+              </div>
+              <div id="fromHint" class="sys-hint tiny" hidden></div>
             </div>
             <div class="flex flex-col gap-2">
               <label for="to" class="text-sm font-semibold flex items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" style="color:#1294d6" viewBox="0 0 2.6461 2.1167"><g fill-rule="evenodd" stroke-width=".26458"><path d="m-0.0023 1.0583a0.13229 0.13229 0 0 1 0.13229-0.13229h1.7973l-0.56806-0.5678a0.13246 0.13246 0 1 1 0.18732-0.18732l0.79375 0.79375a0.13229 0.13229 0 0 1 0 0.18732l-0.79375 0.79375a0.13246 0.13246 0 0 1-0.18732-0.18732l0.56806-0.5678h-1.7973a0.13229 0.13229 0 0 1-0.13229-0.13229"/><path d="m2.5112 6.6e-6a0.13229 0.13229 0 0 1 0.13229 0.13229v1.8521a0.13229 0.13229 0 0 1-0.26458 0v-1.8521a0.13229 0.13229 0 0 1 0.13229-0.13229"/></g></svg> To</label>
-              <input id="to" list="sysopts" placeholder="Colonia" autocomplete="off" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+              <div class="sys-field">
+                <input id="to" list="sysopts" placeholder="Colonia, or x, y, z" autocomplete="off" aria-describedby="toHint" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+                <span id="toBadge" class="sys-badge" hidden></span>
+              </div>
+              <div id="toHint" class="sys-hint tiny" hidden></div>
             </div>
             <div class="flex flex-wrap gap-3">
-              <div class="flex-1 flex flex-col gap-2" style="min-width:180px"><label for="range" class="text-sm font-semibold">Jump range (LY)</label><input id="range" type="number" min="1" max="200" step="0.1" value="50" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" /></div>
+              <div class="flex-1 flex flex-col gap-2" style="min-width:180px"><label for="range" class="text-sm font-semibold">Jump range (LY) <span id="rangeNote" class="range-note" hidden>set by your ship</span></label><input id="range" type="number" min="1" max="200" step="0.1" value="50" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" /></div>
             </div>
             <datalist id="sysopts"></datalist>
             <details class="shiprow">
               <summary id="shipSummary">Ship &amp; options</summary>
               <div class="shipopts" style="margin-top:10px">
-                <!-- Stored ships (SLEF loadouts): switch active, remove one, or clear all. -->
-                <div id="shipLibrary" class="ship-library" hidden></div>
-                <textarea id="loadout" spellcheck="false" placeholder="Paste a ship loadout (SLEF / Journal JSON from EDSY &quot;Export&quot;, Coriolis, or the game) and Add ship to plot fuel-aware…" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" style="min-height:120px;resize:vertical;font-family:var(--mono)"></textarea>
-                <div class="shipline">
-                  <button id="importShip" class="tool-action" type="button">Add ship</button>
-                  <button id="clearShip" class="ghost" type="button" title="Deselect the active ship and plot without fuel awareness (keeps it in the list)">Clear active</button>
-                  <button id="clearAllShips" class="ghost" type="button" title="Remove every stored ship">Clear all</button>
-                  <span id="shipInfo" class="tiny"></span>
+                <!-- Active ship recap (left) and stored ships (right). Ships are stored in this browser. -->
+                <div class="shipbay">
+                  <div id="shipCard" class="ship-card" aria-live="polite"></div>
+                  <div class="ship-fleet">
+                    <div class="ship-fleet__head">
+                      <span>Your ships <span id="shipCount" class="tiny"></span></span>
+                      <button id="clearAllShips" class="linkbtn" type="button" title="Remove every stored ship">Clear all</button>
+                    </div>
+                    <ul id="shipLibrary" class="ship-list" aria-label="Stored ships"></ul>
+                    <div class="ship-add">
+                      <button id="importCurrentShip" class="tool-action" type="button" hidden title="Reads the ship you are flying in game, from your Frontier account via elitedangereuse.fr (its latest journal Loadout)">Import from game</button>
+                      <button id="pasteShip" class="ghost" type="button" aria-expanded="false" aria-controls="pastePanel" title="Paste a loadout exported from EDSY, Coriolis, or the game journal">Paste loadout (SLEF)</button>
+                    </div>
+                  </div>
                 </div>
+                <div id="pastePanel" class="paste-panel" hidden>
+                  <textarea id="loadout" spellcheck="false" placeholder="Paste a ship loadout: SLEF / Journal JSON from EDSY &quot;Export&quot;, Coriolis, or the game" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" style="min-height:120px;resize:vertical;font-family:var(--mono)"></textarea>
+                  <div class="shipline">
+                    <button id="importShip" class="tool-action" type="button">Add ship</button>
+                    <button id="cancelPaste" class="ghost" type="button">Cancel</button>
+                  </div>
+                </div>
+                <div id="shipInfo" class="tiny ship-msg"></div>
                 <div class="route-opts" style="margin-top:12px">
                   <div class="opts-short">
-                    <div class="opt-field"><label for="ship" class="text-sm font-semibold">Supercharge</label>
+                    <!-- Hidden while a ship is active: the ship sets it (shown on its card). -->
+                    <div id="superchargeField" class="opt-field"><label for="ship" class="text-sm font-semibold">Supercharge</label>
                       <select id="ship" title="Neutron supercharge: standard ships 4x, Caspian Explorer Mk II SCO drive 6x" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2">
                         <option value="4">Standard (4x)</option>
                         <option value="6">Caspian SCO (6x)</option>
@@ -317,21 +342,24 @@
                       <input id="cargo" type="number" min="0" step="1" value="0" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
                     </div>
                   </div>
-                  <div class="opt-field opts-inject"><span class="text-sm font-semibold" id="injectLabel">FSD injection</span>
-                    <div class="inject-radios" role="radiogroup" aria-labelledby="injectLabel" title="Allow FSD synthesis injection, used only when required to cross a gap a normal jump can't reach. The route uses the least grade that works per gap and lists what to synthesise. This sets the highest grade allowed. Off by default.">
-                      <label class="inj-opt"><input type="radio" name="injectMult" value="1" checked /><img src="/static/assets/synthesis/off.svg" alt="" /><span class="inj-txt">Off</span></label>
-                      <label class="inj-opt"><input type="radio" name="injectMult" value="1.25" /><img src="/static/assets/synthesis/basic.svg" alt="" /><span class="inj-txt">Basic <small>+25%</small></span></label>
-                      <label class="inj-opt"><input type="radio" name="injectMult" value="1.5" /><img src="/static/assets/synthesis/standard.svg" alt="" /><span class="inj-txt">Standard <small>+50%</small></span></label>
-                      <label class="inj-opt"><input type="radio" name="injectMult" value="2" /><img src="/static/assets/synthesis/premium.svg" alt="" /><span class="inj-txt">Premium <small>+100%</small></span></label>
+                  <div class="opts-inject">
+                    <div class="opt-field">
+                      <span class="text-sm font-semibold opt-label">Fuel-safe <span class="help-tip" tabindex="0" role="note" aria-label="What fuel-safe does">i<span class="tip"><b>Fuel-safe</b> (on): EDGIS keeps at least one jump of fuel in reserve so you can always reach a scoopable star, never stranded. When a refuel is needed it uses an in-system companion scoop at a neutron waypoint (no extra jumps) where possible, otherwise a short detour to the nearest scoopable star (+2 jumps). <b>Off</b>: the route is left as-is and fuel risk is only flagged. Ships and options are stored in this browser only.</span></span></span>
+                      <label class="switch fuelsafe-switch" title="Simulate the tank along the route and refuel before you could strand.">
+                        <input type="checkbox" id="fuelSafe" checked />
+                        <span class="track"></span><span>never run dry</span>
+                        <span id="fuelSafeNote" class="tiny" hidden>(needs a ship)</span>
+                      </label>
+                    </div>
+                    <div class="opt-field"><span class="text-sm font-semibold" id="injectLabel">FSD injection</span>
+                      <div class="inject-radios" role="radiogroup" aria-labelledby="injectLabel" title="Allow FSD synthesis injection, used only when required to cross a gap a normal jump can't reach. The route uses the least grade that works per gap and lists what to synthesise. This sets the highest grade allowed. Off by default.">
+                        <label class="inj-opt"><input type="radio" name="injectMult" value="1" checked /><img src="/static/assets/synthesis/off.svg" alt="" /><span class="inj-txt">Off</span></label>
+                        <label class="inj-opt"><input type="radio" name="injectMult" value="1.25" /><img src="/static/assets/synthesis/basic.svg" alt="" /><span class="inj-txt">Basic <small>+25%</small></span></label>
+                        <label class="inj-opt"><input type="radio" name="injectMult" value="1.5" /><img src="/static/assets/synthesis/standard.svg" alt="" /><span class="inj-txt">Standard <small>+50%</small></span></label>
+                        <label class="inj-opt"><input type="radio" name="injectMult" value="2" /><img src="/static/assets/synthesis/premium.svg" alt="" /><span class="inj-txt">Premium <small>+100%</small></span></label>
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div class="fuelsafe-row" style="margin-top:14px">
-                  <label class="switch" title="Simulate the tank along the route and refuel before you could strand.">
-                    <input type="checkbox" id="fuelSafe" checked />
-                    <span class="track"></span><span>fuel-safe</span>
-                  </label>
-                  <span class="help-tip" tabindex="0" role="note" aria-label="What fuel-safe does">i<span class="tip"><b>Fuel-safe</b> (on): EDGIS keeps at least one jump of fuel in reserve so you can always reach a scoopable star, never stranded. When a refuel is needed it uses an in-system companion scoop at a neutron waypoint (no extra jumps) where possible, otherwise a short detour to the nearest scoopable star (+2 jumps). <b>Off</b>: the route is left as-is and fuel risk is only flagged. Ships and options are stored in this browser only.</span></span>
                 </div>
               </div>
             </details>
@@ -739,6 +767,10 @@
      const statusEl = document.getElementById('status');
      const apiDocsLink = document.getElementById('apiDocsLink');
      const quotePlaceholder = document.getElementById('quotePlaceholder');
+     // Shared result area ownership (see syncSharedResults).
+     let activeTool = 'lookup';
+     let resultsOwner = 'lookup';  // the start page's quote belongs to lookup
+     let resultsPending = false;   // claimed, but this tool's result not in yet
      const systemCard = document.getElementById('systemLookupCard');
      const systemNameDisplay = document.getElementById('systemNameDisplay');
      const systemNameDisplayText = systemNameDisplay?.querySelector('.system-card__title-text') ?? systemNameDisplay;
@@ -822,6 +854,10 @@
 
      function setStatus(txt){
        if (!statusEl) return;
+       // A message outside any request is a direct answer to the user in the
+       // active tool (validation, "Resolving..."): it claims the shared area.
+       // Messages from inside a request belong to whoever started it.
+       if (txt && activeApiRequests === 0) claimSharedResults();
        if (!txt) {
          statusEl.textContent = '';
          statusEl.classList.remove('status--loading');
@@ -909,7 +945,8 @@
          countEl.textContent = `Found ${count} system${count !== 1 ? 's' : ''}.`;
        }
 
-       result.style.display = 'block';
+       resultsPending = false;
+       syncSharedResults();
 
        // --- Update table if visible ---
        const shouldShowTable = Boolean(globalThis.tableVisible && kind !== 'system-lookup');
@@ -957,8 +994,55 @@
        heroLogo.classList.toggle('is-searching', activeApiRequests > 0 || routeToolBusy);
      }
 
-     // Bridge so the Route plotting panel (route-panel.js) can drive the hero logo.
-     window.edgisSetRouteBusy = function (on) { routeToolBusy = !!on; updateHeroLogoSearchingState(); };
+     // Logged-in CMDR (elitedangereuse.fr session) as a chip by the menu, on every
+     // tool. The route panel adds its access method to the chip's tooltip.
+     fetch('/auth/me', { credentials: 'include' })
+       .then((r) => r.json())
+       .then((me) => {
+         if (!me || !me.authenticated || !me.name) return;
+         document.getElementById('cmdrChipName').textContent = me.name;
+         document.getElementById('cmdrChip').hidden = false;
+         // Logged in: the menu offers Log out instead of Log in.
+         document.getElementById('menuLogin').hidden = true;
+         document.getElementById('menuLogout').hidden = false;
+       })
+       .catch(() => {});
+
+     // Bridge so the Route plotting panel (route-panel.js) can drive the hero logo,
+     // and the tagline's E·D·G·I·S initials, lit in turn while a route plots.
+     const heroTagline = document.querySelector('.hero-tagline');
+     window.edgisSetRouteBusy = function (on) {
+       routeToolBusy = !!on;
+       updateHeroLogoSearchingState();
+       if (heroTagline) heroTagline.classList.toggle('is-plotting', routeToolBusy);
+     };
+
+     // The status line, the result count and the #result card are shared by the
+     // lookup and explorer tools. They show ONE tool's output -- the tool whose
+     // query last wrote there (`resultsOwner`) -- and only while that tool is
+     // active: switching away hides them, switching back restores them as they
+     // were, and a query still running when you switch lands hidden. The route
+     // plotter renders inside its own panel and never claims them.
+
+     function syncSharedResults() {
+       const show = resultsOwner === activeTool;
+       if (result) result.hidden = !show || resultsPending;
+       if (statusEl) statusEl.hidden = !show;
+       const countEl = document.getElementById('resultCount');
+       if (countEl) countEl.hidden = !show;
+     }
+
+     // A query starts in the active tool: the shared area is now its. Another
+     // tool's leftovers are cleared rather than shown under it while loading.
+     function claimSharedResults() {
+       if (resultsOwner !== activeTool) {
+         resultsOwner = activeTool;
+         resultsPending = true;
+         const countEl = document.getElementById('resultCount');
+         if (countEl) countEl.textContent = '';
+       }
+       syncSharedResults();
+     }
 
      function beginApiRequest() {
        activeApiRequests += 1;
@@ -973,6 +1057,7 @@
      }
 
      async function callApi(path, kindHint = null){
+       claimSharedResults();
        resetNeighborsPagingState();
        setStatus('Querying API...');
        beginApiRequest();
@@ -988,7 +1073,6 @@
          const kind = kindHint ?? detectResultKind(path);
          showResult(url, json, kind);
          setStatus('OK, response received');
-         result.style.display = 'block';
        }catch(err){
          const kind = kindHint ?? detectResultKind(path);
          showResult(path, {error: String(err.message)}, kind);
@@ -1016,11 +1100,6 @@
      const neutronBtn = document.getElementById('neutronBtn');
      let activeNeutronSearches = 0;
      const neutronModeRadios = Array.from(document.querySelectorAll('input[name="neutronMode"]'));
-     const routeForm = document.getElementById('routeForm');
-     const routeStart = document.getElementById('routeStart');
-     const routeGoal = document.getElementById('routeGoal');
-     const routeRange = document.getElementById('routeRange');
-     const routeStatus = document.getElementById('routeStatus');
      const heroHomeButton = document.getElementById('heroHomeButton');
      const heroLogo = document.getElementById('heroLogo');
      const lookupActions = document.getElementById('systemLookupActions');
@@ -1054,6 +1133,7 @@
      }
 
      async function fetchNeighborsPage(params, cursor = null) {
+       claimSharedResults();
        const url = buildNeighborsPageUrl(params, cursor);
        setStatus('Querying API...');
        beginApiRequest();
@@ -1209,19 +1289,8 @@
          }
        }
 
-       // The system-lookup outputs (search result/count box, the system card and
-       // the system-map embed) render OUTSIDE the lookup panel, so switching tools
-       // used to leave a previously-searched system visible under the route
-       // plotter / explorer tools. Clear them whenever lookup isn't the active
-       // tool; a new search restores them.
-       const lookupActive = resolved === 'lookup';
-       if (result) result.classList.toggle('hidden', !lookupActive);
-       if (!lookupActive) {
-         if (systemCard) systemCard.hidden = true;
-         if (bodiesEmbedContainer) bodiesEmbedContainer.hidden = true;
-         if (bodiesEmbedOpenBtn) bodiesEmbedOpenBtn.hidden = true;
-         if (lookupActions) lookupActions.hidden = true;
-       }
+       activeTool = resolved;
+       syncSharedResults();
        // Initialize the route panel (status/auth/ship fetches) only when it's
        // first opened, not on every index load.
        const routeActive = resolved === 'route';
@@ -1563,7 +1632,8 @@
          const radius = payload.radius ?? '20';
          await startNeighborsSearch({ x, y, z, radius });
        } catch (err) {
-         setStatus(`Unable to search neighbors: ${err.message}`);
+         // Only if the user is still in the tool that asked.
+         if (activeTool === resultsOwner) setStatus(`Unable to search neighbors: ${err.message}`);
        }
      }
 
@@ -1741,116 +1811,6 @@
          if(e.key === 'Enter'){
            e.preventDefault();
            submitNearestNeutron();
-         }
-       });
-     }
-
-     function formatLy(value){
-       return Number.isFinite(value) ? value.toFixed(2) : '-';
-     }
-
-     function computeTotalDistance(route, reported){
-       if (Number.isFinite(reported)) {
-         return reported;
-       }
-       return route.reduce((sum, node, idx) => {
-         if (idx === 0) return sum;
-         const jump = Number(node?.dist ?? 0);
-         return Number.isFinite(jump) ? sum + jump : sum;
-       }, 0);
-     }
-
-     function buildRouteRows(route, totalDistance){
-       if (!Array.isArray(route) || route.length === 0) {
-         return [];
-       }
-
-       const total = computeTotalDistance(route, totalDistance);
-       let traversed = 0;
-
-       return route.map((node, idx) => {
-         const jumpVal = idx === 0 ? 0 : Number(node?.dist ?? 0);
-         if (idx > 0 && Number.isFinite(jumpVal)) {
-           traversed += jumpVal;
-         }
-         const remainingVal = idx === route.length - 1 ? 0 : Math.max(total - traversed, 0);
-         const systemName = node?.name || node?.id64 || `Waypoint ${idx + 1}`;
-
-         const departStar =
-           node?.depart_mainstar ??
-           (idx > 0 ? route[idx - 1]?.mainstar : node?.mainstar);
-         const arrivalStar = node?.mainstar ?? null;
-
-         return {
-           step: idx + 1,
-           system: systemName,
-           depart_mainstar: departStar,
-           arrival_mainstar: arrivalStar,
-           jump_ly: idx === 0 || !Number.isFinite(jumpVal) ? null : Number(jumpVal.toFixed(2)),
-           remaining_ly: Number(remainingVal.toFixed(2))
-         };
-       });
-     }
-
-     if (routeForm) {
-       routeForm.addEventListener('submit', async event => {
-         event.preventDefault();
-         const start = routeStart.value.trim();
-         const goal = routeGoal.value.trim();
-         const jumpRange = Number(routeRange.value) || 70;
-         if (!start || !goal) {
-           routeStatus.textContent = 'Start and goal are required.';
-           return;
-         }
-
-         activateTab('route');
-         globalThis.tableVisible = true;
-         routeStatus.textContent = 'Plotting route...';
-         setStatus('Querying API...');
-
-         const params = new URLSearchParams({
-           start,
-           goal,
-           jump_range: String(jumpRange)
-         });
-         const requestUrl = new URL(`/route/bidirectional?${params.toString()}`, globalThis.location.origin);
-
-         try {
-           const res = await fetch(requestUrl.toString());
-           const data = await res.json();
-           if (!res.ok || data.error) {
-             throw new Error(data.error || `HTTP ${res.status}`);
-           }
-
-           const route = Array.isArray(data.route) ? data.route : [];
-           if (!route.length) {
-             routeStatus.textContent = 'No route found.';
-             showResult(requestUrl.toString(), route, 'route');
-             return;
-           }
-
-           const total = computeTotalDistance(route, data.total_distance);
-           const jumpCount = Math.max(route.length - 1, 0);
-           const avg = jumpCount > 0 ? total / jumpCount : Number.NaN;
-           const tableRows = buildRouteRows(route, total).map(row => ({
-             step: row.step,
-             system: row.system,
-             depart_mainstar: row.depart_mainstar ?? '-',
-             arrival_mainstar: row.arrival_mainstar ?? '-',
-             jump_ly: row.jump_ly ?? '-',
-             remaining_ly: row.remaining_ly
-           }));
-
-           showResult(requestUrl.toString(), tableRows, 'route');
-
-           routeStatus.textContent = `Route ready: ${jumpCount} jumps · ${route.length} systems · total ${formatLy(total)} ly · avg ${formatLy(avg)} ly.`;
-           setStatus('OK, response received');
-           result.style.display = 'block';
-         } catch (err) {
-           console.error(err);
-           showResult(requestUrl.toString(), { error: err.message }, 'route');
-           routeStatus.textContent = `Error: ${err.message}`;
-           setStatus('Error');
          }
        });
      }
@@ -2912,7 +2872,7 @@
          parts.push(`
       <button
         title="View system map"
-        class="opacity-30 hover:opacity-100 group-hover:opacity-100 focus:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+        class="row-act"
         onclick="openSystemMap('${escapeQuotes(displayName)}', this)"
       >
         ${systemMapIconSvg}
@@ -2928,7 +2888,7 @@
       <button
         type="button"
         title="Open galaxy map"
-        class="opacity-30 hover:opacity-100 group-hover:opacity-100 focus:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+        class="row-act"
         onclick="openCoordsMap('${x}','${y}','${z}')"
       >
         ${galaxyMapIconSvg}
@@ -2939,7 +2899,7 @@
       <button
         type="button"
         title="Search neighbors within 20 LY"
-        class="opacity-30 hover:opacity-100 group-hover:opacity-100 focus:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+        class="row-act"
         onclick="fillNeighborsInput('${x}','${y}','${z}'); submitNeighbors();"
       >
         ${neighborsIconSvg}
@@ -2956,7 +2916,7 @@
       <button
         type="button"
         title="Fetch full body details"
-        class="opacity-30 hover:opacity-100 group-hover:opacity-100 focus:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+        class="row-act"
         onclick="fetchBodyDetails('${sysId}','${bodyId}')"
       >
         ${bodyDetailsIconSvg}
