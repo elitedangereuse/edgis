@@ -826,3 +826,25 @@ a:hover {
         min-height: 95px !important;
     }
 }
+
+/* Per-row action icons (system map, galaxy map, neighbors) in result tables:
+   light ink, EDGIS blue on hover/focus. The route plotter's table uses the same
+   tokens (route-panel.css .act-btn). */
+:root {
+    --row-act-ink: #f3f4f6;
+    --row-act-hover: #1294d6;
+}
+.row-act {
+    background: none;
+    border: 0;
+    padding: 2px 4px;
+    color: var(--row-act-ink);
+    cursor: pointer;
+    vertical-align: -2px;
+    transition: color 120ms ease;
+}
+.row-act:hover,
+.row-act:focus-visible {
+    color: var(--row-act-hover);
+    outline: none;
+}

@@ -251,9 +251,9 @@
 /* Trailing per-row actions, same set as the neighbors search results.
    Full brightness (no dimming) -- the icons read too faint otherwise. */
 #panel-route td.acts { white-space:nowrap; text-align:right; }
-#panel-route .act-btn { all:unset; cursor:pointer; color:#f3f4f6; padding:2px 4px; vertical-align:-2px; }
+#panel-route .act-btn { all:unset; cursor:pointer; color:var(--row-act-ink,#f3f4f6); padding:2px 4px; vertical-align:-2px; }
 /* Hover: tint the icon (currentColor) blue, no background change. */
-#panel-route .act-btn:hover { color:var(--neutron); background:transparent; }
+#panel-route .act-btn:hover, #panel-route .act-btn:focus-visible { color:var(--row-act-hover,#1294d6); background:transparent; }
 
 /* Small toggle switch (compact <-> all jumps). */
 #panel-route .switch { display:inline-flex; align-items:center; gap:7px; cursor:pointer; color:var(--muted);

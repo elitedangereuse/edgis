@@ -767,6 +767,10 @@
      const statusEl = document.getElementById('status');
      const apiDocsLink = document.getElementById('apiDocsLink');
      const quotePlaceholder = document.getElementById('quotePlaceholder');
+     // Shared result area ownership (see syncSharedResults).
+     let activeTool = 'lookup';
+     let resultsOwner = 'lookup';  // the start page's quote belongs to lookup
+     let resultsPending = false;   // claimed, but this tool's result not in yet
      const systemCard = document.getElementById('systemLookupCard');
      const systemNameDisplay = document.getElementById('systemNameDisplay');
      const systemNameDisplayText = systemNameDisplay?.querySelector('.system-card__title-text') ?? systemNameDisplay;
@@ -850,6 +854,10 @@
 
      function setStatus(txt){
        if (!statusEl) return;
+       // A message outside any request is a direct answer to the user in the
+       // active tool (validation, "Resolving..."): it claims the shared area.
+       // Messages from inside a request belong to whoever started it.
+       if (txt && activeApiRequests === 0) claimSharedResults();
        if (!txt) {
          statusEl.textContent = '';
          statusEl.classList.remove('status--loading');
@@ -937,7 +945,8 @@
          countEl.textContent = `Found ${count} system${count !== 1 ? 's' : ''}.`;
        }
 
-       result.style.display = 'block';
+       resultsPending = false;
+       syncSharedResults();
 
        // --- Update table if visible ---
        const shouldShowTable = Boolean(globalThis.tableVisible && kind !== 'system-lookup');
@@ -1008,6 +1017,33 @@
        if (heroTagline) heroTagline.classList.toggle('is-plotting', routeToolBusy);
      };
 
+     // The status line, the result count and the #result card are shared by the
+     // lookup and explorer tools. They show ONE tool's output -- the tool whose
+     // query last wrote there (`resultsOwner`) -- and only while that tool is
+     // active: switching away hides them, switching back restores them as they
+     // were, and a query still running when you switch lands hidden. The route
+     // plotter renders inside its own panel and never claims them.
+
+     function syncSharedResults() {
+       const show = resultsOwner === activeTool;
+       if (result) result.hidden = !show || resultsPending;
+       if (statusEl) statusEl.hidden = !show;
+       const countEl = document.getElementById('resultCount');
+       if (countEl) countEl.hidden = !show;
+     }
+
+     // A query starts in the active tool: the shared area is now its. Another
+     // tool's leftovers are cleared rather than shown under it while loading.
+     function claimSharedResults() {
+       if (resultsOwner !== activeTool) {
+         resultsOwner = activeTool;
+         resultsPending = true;
+         const countEl = document.getElementById('resultCount');
+         if (countEl) countEl.textContent = '';
+       }
+       syncSharedResults();
+     }
+
      function beginApiRequest() {
        activeApiRequests += 1;
        updateHeroLogoSearchingState();
@@ -1021,6 +1057,7 @@
      }
 
      async function callApi(path, kindHint = null){
+       claimSharedResults();
        resetNeighborsPagingState();
        setStatus('Querying API...');
        beginApiRequest();
@@ -1036,7 +1073,6 @@
          const kind = kindHint ?? detectResultKind(path);
          showResult(url, json, kind);
          setStatus('OK, response received');
-         result.style.display = 'block';
        }catch(err){
          const kind = kindHint ?? detectResultKind(path);
          showResult(path, {error: String(err.message)}, kind);
@@ -1064,11 +1100,6 @@
      const neutronBtn = document.getElementById('neutronBtn');
      let activeNeutronSearches = 0;
      const neutronModeRadios = Array.from(document.querySelectorAll('input[name="neutronMode"]'));
-     const routeForm = document.getElementById('routeForm');
-     const routeStart = document.getElementById('routeStart');
-     const routeGoal = document.getElementById('routeGoal');
-     const routeRange = document.getElementById('routeRange');
-     const routeStatus = document.getElementById('routeStatus');
      const heroHomeButton = document.getElementById('heroHomeButton');
      const heroLogo = document.getElementById('heroLogo');
      const lookupActions = document.getElementById('systemLookupActions');
@@ -1102,6 +1133,7 @@
      }
 
      async function fetchNeighborsPage(params, cursor = null) {
+       claimSharedResults();
        const url = buildNeighborsPageUrl(params, cursor);
        setStatus('Querying API...');
        beginApiRequest();
@@ -1257,19 +1289,8 @@
          }
        }
 
-       // The system-lookup outputs (search result/count box, the system card and
-       // the system-map embed) render OUTSIDE the lookup panel, so switching tools
-       // used to leave a previously-searched system visible under the route
-       // plotter / explorer tools. Clear them whenever lookup isn't the active
-       // tool; a new search restores them.
-       const lookupActive = resolved === 'lookup';
-       if (result) result.classList.toggle('hidden', !lookupActive);
-       if (!lookupActive) {
-         if (systemCard) systemCard.hidden = true;
-         if (bodiesEmbedContainer) bodiesEmbedContainer.hidden = true;
-         if (bodiesEmbedOpenBtn) bodiesEmbedOpenBtn.hidden = true;
-         if (lookupActions) lookupActions.hidden = true;
-       }
+       activeTool = resolved;
+       syncSharedResults();
        // Initialize the route panel (status/auth/ship fetches) only when it's
        // first opened, not on every index load.
        const routeActive = resolved === 'route';
@@ -1611,7 +1632,8 @@
          const radius = payload.radius ?? '20';
          await startNeighborsSearch({ x, y, z, radius });
        } catch (err) {
-         setStatus(`Unable to search neighbors: ${err.message}`);
+         // Only if the user is still in the tool that asked.
+         if (activeTool === resultsOwner) setStatus(`Unable to search neighbors: ${err.message}`);
        }
      }
 
@@ -1789,116 +1811,6 @@
          if(e.key === 'Enter'){
            e.preventDefault();
            submitNearestNeutron();
-         }
-       });
-     }
-
-     function formatLy(value){
-       return Number.isFinite(value) ? value.toFixed(2) : '-';
-     }
-
-     function computeTotalDistance(route, reported){
-       if (Number.isFinite(reported)) {
-         return reported;
-       }
-       return route.reduce((sum, node, idx) => {
-         if (idx === 0) return sum;
-         const jump = Number(node?.dist ?? 0);
-         return Number.isFinite(jump) ? sum + jump : sum;
-       }, 0);
-     }
-
-     function buildRouteRows(route, totalDistance){
-       if (!Array.isArray(route) || route.length === 0) {
-         return [];
-       }
-
-       const total = computeTotalDistance(route, totalDistance);
-       let traversed = 0;
-
-       return route.map((node, idx) => {
-         const jumpVal = idx === 0 ? 0 : Number(node?.dist ?? 0);
-         if (idx > 0 && Number.isFinite(jumpVal)) {
-           traversed += jumpVal;
-         }
-         const remainingVal = idx === route.length - 1 ? 0 : Math.max(total - traversed, 0);
-         const systemName = node?.name || node?.id64 || `Waypoint ${idx + 1}`;
-
-         const departStar =
-           node?.depart_mainstar ??
-           (idx > 0 ? route[idx - 1]?.mainstar : node?.mainstar);
-         const arrivalStar = node?.mainstar ?? null;
-
-         return {
-           step: idx + 1,
-           system: systemName,
-           depart_mainstar: departStar,
-           arrival_mainstar: arrivalStar,
-           jump_ly: idx === 0 || !Number.isFinite(jumpVal) ? null : Number(jumpVal.toFixed(2)),
-           remaining_ly: Number(remainingVal.toFixed(2))
-         };
-       });
-     }
-
-     if (routeForm) {
-       routeForm.addEventListener('submit', async event => {
-         event.preventDefault();
-         const start = routeStart.value.trim();
-         const goal = routeGoal.value.trim();
-         const jumpRange = Number(routeRange.value) || 70;
-         if (!start || !goal) {
-           routeStatus.textContent = 'Start and goal are required.';
-           return;
-         }
-
-         activateTab('route');
-         globalThis.tableVisible = true;
-         routeStatus.textContent = 'Plotting route...';
-         setStatus('Querying API...');
-
-         const params = new URLSearchParams({
-           start,
-           goal,
-           jump_range: String(jumpRange)
-         });
-         const requestUrl = new URL(`/route/bidirectional?${params.toString()}`, globalThis.location.origin);
-
-         try {
-           const res = await fetch(requestUrl.toString());
-           const data = await res.json();
-           if (!res.ok || data.error) {
-             throw new Error(data.error || `HTTP ${res.status}`);
-           }
-
-           const route = Array.isArray(data.route) ? data.route : [];
-           if (!route.length) {
-             routeStatus.textContent = 'No route found.';
-             showResult(requestUrl.toString(), route, 'route');
-             return;
-           }
-
-           const total = computeTotalDistance(route, data.total_distance);
-           const jumpCount = Math.max(route.length - 1, 0);
-           const avg = jumpCount > 0 ? total / jumpCount : Number.NaN;
-           const tableRows = buildRouteRows(route, total).map(row => ({
-             step: row.step,
-             system: row.system,
-             depart_mainstar: row.depart_mainstar ?? '-',
-             arrival_mainstar: row.arrival_mainstar ?? '-',
-             jump_ly: row.jump_ly ?? '-',
-             remaining_ly: row.remaining_ly
-           }));
-
-           showResult(requestUrl.toString(), tableRows, 'route');
-
-           routeStatus.textContent = `Route ready: ${jumpCount} jumps · ${route.length} systems · total ${formatLy(total)} ly · avg ${formatLy(avg)} ly.`;
-           setStatus('OK, response received');
-           result.style.display = 'block';
-         } catch (err) {
-           console.error(err);
-           showResult(requestUrl.toString(), { error: err.message }, 'route');
-           routeStatus.textContent = `Error: ${err.message}`;
-           setStatus('Error');
          }
        });
      }
@@ -2960,7 +2872,7 @@
          parts.push(`
       <button
         title="View system map"
-        class="opacity-30 hover:opacity-100 group-hover:opacity-100 focus:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+        class="row-act"
         onclick="openSystemMap('${escapeQuotes(displayName)}', this)"
       >
         ${systemMapIconSvg}
@@ -2976,7 +2888,7 @@
       <button
         type="button"
         title="Open galaxy map"
-        class="opacity-30 hover:opacity-100 group-hover:opacity-100 focus:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+        class="row-act"
         onclick="openCoordsMap('${x}','${y}','${z}')"
       >
         ${galaxyMapIconSvg}
@@ -2987,7 +2899,7 @@
       <button
         type="button"
         title="Search neighbors within 20 LY"
-        class="opacity-30 hover:opacity-100 group-hover:opacity-100 focus:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+        class="row-act"
         onclick="fillNeighborsInput('${x}','${y}','${z}'); submitNeighbors();"
       >
         ${neighborsIconSvg}
@@ -3004,7 +2916,7 @@
       <button
         type="button"
         title="Fetch full body details"
-        class="opacity-30 hover:opacity-100 group-hover:opacity-100 focus:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
+        class="row-act"
         onclick="fetchBodyDetails('${sysId}','${bodyId}')"
       >
         ${bodyDetailsIconSvg}
