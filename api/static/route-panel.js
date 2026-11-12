@@ -284,9 +284,9 @@ function renderShipCard() {
     return;
   }
   const d = parseLoadout(s.loadout) || {};
-  const type = [shipTypeName(d.Ship), d.ShipIdent].filter(Boolean).join(" · ");
-  const head = `<div class="ship-card__name">${escapeHtml(shipDisplayName(s))}</div>`
-    + `<div class="ship-card__type tiny">${escapeHtml(type)}</div>`;
+  const ident = d.ShipIdent ? ` <span class="ship-card__ident">${escapeHtml(d.ShipIdent)}</span>` : "";
+  const head = `<div class="ship-card__head"><div class="ship-card__name">${escapeHtml(shipDisplayName(s))}</div>`
+    + `<div class="ship-card__type">${escapeHtml(shipTypeName(d.Ship))}${ident}</div></div>`;
   if (!shipInfo) {
     const why = shipError ? `<span class="bad">${escapeHtml(shipError)}</span>` : "Reading loadout…";
     el.innerHTML = head + `<p class="tiny">${why}</p>`;
@@ -297,7 +297,7 @@ function renderShipCard() {
   const sc = detectSupercharge(s.loadout);
   const fuel = d.FuelCapacity || {};
   const upTo = shipInfo.max_range_light > shipInfo.jump_range + 0.1
-    ? ` <span class="tiny">up to ${fmt(shipInfo.max_range_light, 1)} LY as fuel burns</span>` : "";
+    ? `<br><span class="tiny">up to ${fmt(shipInfo.max_range_light, 1)} LY as fuel burns</span>` : "";
   const rows = [
     ["Jump range", `<b>${fmt(shipInfo.jump_range, 2)} LY</b> <span class="tiny">full tank</span>${upTo}`],
     ["FSD", `${escapeHtml(fsdLabel(fsd && fsd.Item) || "?")} · ${sc}x supercharge`
@@ -336,7 +336,14 @@ function shipDisplayName(s) {
   const suffix = ` (${type})`;
   return type && s.name.endsWith(suffix) && s.name !== suffix ? s.name.slice(0, -suffix.length) : s.name;
 }
-function renderShips() { renderShipLibrary(); renderShipCard(); setShipSummary(); }
+function renderShips() {
+  renderShipLibrary(); renderShipCard(); setShipSummary();
+  // With a ship, its loadout sets the supercharge (on the card) and fuel-safe
+  // applies; without one, the supercharge is picked by hand and fuel-safe idles.
+  const hasShip = activeShip() >= 0;
+  $("superchargeField").hidden = hasShip;
+  $("fuelSafeNote").hidden = hasShip;
+}
 
 // /route/ship for a loadout: { info } or { error } (never throws).
 async function fetchShipSummary(loadout) {

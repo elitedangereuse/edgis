@@ -113,7 +113,11 @@
 #panel-route .shipbay { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); gap:16px; align-items:start; }
 @media (max-width:560px) { #panel-route .shipbay { grid-template-columns:minmax(0,1fr); } }
 #panel-route .ship-card { border:1px solid var(--line); border-radius:10px; padding:12px 14px; background:var(--panel); min-height:100%; }
-#panel-route .ship-card__name { font-weight:600; color:var(--accent-white); }
+#panel-route .ship-card__head { padding-bottom:10px; margin-bottom:2px; border-bottom:1px solid var(--line); }
+#panel-route .ship-card__name { font-size:18px; font-weight:600; line-height:1.25; color:var(--accent-white); overflow-wrap:anywhere; }
+#panel-route .ship-card__type { margin-top:2px; font-size:13px; color:var(--text); }
+#panel-route .ship-card__ident { margin-left:6px; padding:0 6px; border:1px solid var(--line); border-radius:4px;
+        font-family:var(--mono); font-size:11px; color:var(--muted); }
 #panel-route .ship-card p { margin:8px 0 0; }
 #panel-route .ship-specs { display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 14px; margin:12px 0 4px; font-size:13px; }
 #panel-route .ship-specs dt { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.5px; padding-top:2px; }
@@ -223,7 +227,8 @@
 #panel-route .opts-inject { flex:1 1 220px; min-width:200px; }
 /* Fuel-safe toggle + an (i) info bubble; the long explainer lives in its hover/
    focus tooltip instead of a wall of text under the row. */
-#panel-route .fuelsafe-row { display:flex; align-items:center; gap:8px; }
+#panel-route .fuelsafe-row { display:flex; align-items:center; gap:8px; margin-top:14px; }
+#panel-route .opt-field[hidden] { display:none; }
 #panel-route .help-tip { position:relative; display:inline-flex; align-items:center; justify-content:center;
   width:16px; height:16px; border-radius:50%; border:1px solid var(--accent); color:var(--accent);
   font:italic 700 11px/1 Georgia, serif; cursor:help; user-select:none; }

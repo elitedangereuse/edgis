@@ -323,9 +323,18 @@
                   </div>
                 </div>
                 <div id="shipInfo" class="tiny ship-msg"></div>
+                <div class="fuelsafe-row" style="margin-top:14px">
+                  <label class="switch" title="Simulate the tank along the route and refuel before you could strand.">
+                    <input type="checkbox" id="fuelSafe" checked />
+                    <span class="track"></span><span>fuel-safe</span>
+                  </label>
+                  <span id="fuelSafeNote" class="tiny" hidden>needs a ship</span>
+                  <span class="help-tip" tabindex="0" role="note" aria-label="What fuel-safe does">i<span class="tip"><b>Fuel-safe</b> (on): EDGIS keeps at least one jump of fuel in reserve so you can always reach a scoopable star, never stranded. When a refuel is needed it uses an in-system companion scoop at a neutron waypoint (no extra jumps) where possible, otherwise a short detour to the nearest scoopable star (+2 jumps). <b>Off</b>: the route is left as-is and fuel risk is only flagged. Ships and options are stored in this browser only.</span></span>
+                </div>
                 <div class="route-opts" style="margin-top:12px">
                   <div class="opts-short">
-                    <div class="opt-field"><label for="ship" class="text-sm font-semibold">Supercharge</label>
+                    <!-- Hidden while a ship is active: the ship sets it (shown on its card). -->
+                    <div id="superchargeField" class="opt-field"><label for="ship" class="text-sm font-semibold">Supercharge</label>
                       <select id="ship" title="Neutron supercharge: standard ships 4x, Caspian Explorer Mk II SCO drive 6x" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2">
                         <option value="4">Standard (4x)</option>
                         <option value="6">Caspian SCO (6x)</option>
@@ -349,13 +358,6 @@
                       <label class="inj-opt"><input type="radio" name="injectMult" value="2" /><img src="/static/assets/synthesis/premium.svg" alt="" /><span class="inj-txt">Premium <small>+100%</small></span></label>
                     </div>
                   </div>
-                </div>
-                <div class="fuelsafe-row" style="margin-top:14px">
-                  <label class="switch" title="Simulate the tank along the route and refuel before you could strand.">
-                    <input type="checkbox" id="fuelSafe" checked />
-                    <span class="track"></span><span>fuel-safe</span>
-                  </label>
-                  <span class="help-tip" tabindex="0" role="note" aria-label="What fuel-safe does">i<span class="tip"><b>Fuel-safe</b> (on): EDGIS keeps at least one jump of fuel in reserve so you can always reach a scoopable star, never stranded. When a refuel is needed it uses an in-system companion scoop at a neutron waypoint (no extra jumps) where possible, otherwise a short detour to the nearest scoopable star (+2 jumps). <b>Off</b>: the route is left as-is and fuel risk is only flagged. Ships and options are stored in this browser only.</span></span>
                 </div>
               </div>
             </details>
