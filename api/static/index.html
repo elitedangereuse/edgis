@@ -967,8 +967,14 @@
        heroLogo.classList.toggle('is-searching', activeApiRequests > 0 || routeToolBusy);
      }
 
-     // Bridge so the Route plotting panel (route-panel.js) can drive the hero logo.
-     window.edgisSetRouteBusy = function (on) { routeToolBusy = !!on; updateHeroLogoSearchingState(); };
+     // Bridge so the Route plotting panel (route-panel.js) can drive the hero logo,
+     // and the tagline's E·D·G·I·S initials, lit in turn while a route plots.
+     const heroTagline = document.querySelector('.hero-tagline');
+     window.edgisSetRouteBusy = function (on) {
+       routeToolBusy = !!on;
+       updateHeroLogoSearchingState();
+       if (heroTagline) heroTagline.classList.toggle('is-plotting', routeToolBusy);
+     };
 
      function beginApiRequest() {
        activeApiRequests += 1;
