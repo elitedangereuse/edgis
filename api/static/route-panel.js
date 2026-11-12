@@ -345,6 +345,9 @@ function renderShips() {
   $("fuelSafeNote").hidden = hasShip;
   // The route geometry plots at this range, so with a usable ship it is the
   // ship's full-tank range: read-only (still readable), changed through Cargo.
+  // Cargo can't exceed the hold (also bounds the wheel stepping below).
+  const hold = hasShip ? Number((parseLoadout(activeLoadout()) || {}).CargoCapacity) : 0;
+  $("cargo").max = hold > 0 ? String(hold) : "";
   const shipRange = hasShip && !shipError;
   $("range").readOnly = shipRange;
   $("rangeNote").hidden = !shipRange;
@@ -1458,6 +1461,30 @@ $("out").addEventListener("change", (e) => {
     exportFmt = fmt.value === "csv" ? "csv" : "json";
     localStorage.setItem("edgis_route_export_fmt", exportFmt);
   }
+});
+
+// Mouse wheel over a number option steps it (Shift: x10), within min/max. Page
+// scroll is only taken over the field itself. The value moves on every notch;
+// "change" (which saves, and re-reads the ship for cargo) fires once the
+// wheel stops, so a fast scroll doesn't send a request per notch.
+["range", "companionLs", "scoopLs", "cargo"].forEach((id) => {
+  const el = $(id);
+  let changeTimer;
+  el.addEventListener("wheel", (e) => {
+    if (el.readOnly || el.disabled) return;
+    const dir = Math.sign(e.deltaY || e.deltaX);  // Shift+wheel scrolls X in some browsers
+    if (!dir) return;
+    e.preventDefault();
+    const step = Number(el.step) || 1;
+    const decimals = (String(el.step).split(".")[1] || "").length;
+    let v = (Number(el.value) || 0) - dir * step * (e.shiftKey ? 10 : 1);
+    if (el.min !== "") v = Math.max(Number(el.min), v);
+    if (el.max !== "") v = Math.min(Number(el.max), v);
+    el.value = v.toFixed(decimals);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    clearTimeout(changeTimer);
+    changeTimer = setTimeout(() => el.dispatchEvent(new Event("change", { bubbles: true })), 350);
+  }, { passive: false });
 });
 
 $("go").addEventListener("click", plot);
