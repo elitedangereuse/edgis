@@ -59,7 +59,7 @@ body {
 }
 
 a:hover {
-    text-shadow: 0 0 5px #3b505966, 0 0 10px #3b505966, 0 0 15px #80c4e6;
+    text-shadow: 0 0 5px #3b505966, 0 0 10px #3b505966, 0 0 15px #1294d6;
 }
 
 #resultPre, #resultTable, .result-table {

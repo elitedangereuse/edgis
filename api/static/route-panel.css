@@ -3,7 +3,7 @@
    nothing leaks into the index. The results table inherits milkyway's
    .result-table styling (header glow / borders), matching the neighbors table. */
 #panel-route {
-  --accent:#80c4e6; --dim:#3b5059; --dim-a:#3b505966;
+  --accent:#1294d6;  /* EDGIS logo blue, the one blue for text and icons */ --dim:#3b5059; --dim-a:#3b505966;
   /* Match the index/neighbors results palette (milkyway.css). */
   --accent-blue:#3b505966; --accent-white:#f8f8ff; --head-ink:#8fa2ab;
   --text:#e5e7eb; --muted:#8b97a7; --neutron:#1294d6; --ok:#53d08a; --err:#ff6b6b;
@@ -109,18 +109,48 @@
 #panel-route .cargo-field { font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted);
                display:inline-flex; align-items:center; gap:6px; }
 #panel-route #shipInfo { font-family:var(--mono); }
-/* Ship library: chips of stored ships; active one highlighted; x removes one. */
-#panel-route .ship-library { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
-#panel-route .ship-item { display:inline-flex; align-items:stretch; border:1px solid rgba(255,255,255,0.14); border-radius:8px; overflow:hidden; }
-#panel-route .ship-item.active { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
-#panel-route .ship-pick { background:transparent; border:0; color:var(--text); padding:5px 10px; cursor:pointer; font-size:12px; }
-#panel-route .ship-item.active .ship-pick { color:var(--accent); font-weight:600; }
-#panel-route .ship-pick:hover { background:rgba(255,255,255,0.06); }
-#panel-route .ship-del { background:transparent; border:0; border-left:1px solid rgba(255,255,255,0.14); color:var(--muted); padding:0 8px; cursor:pointer; font-size:14px; line-height:1; }
-#panel-route .ship-del:hover { color:var(--bad); background:rgba(255,255,255,0.06); }
-#panel-route .ship-ren { background:transparent; border:0; border-left:1px solid rgba(255,255,255,0.14); color:var(--muted); padding:0 7px; cursor:pointer; font-size:12px; line-height:1; }
-#panel-route .ship-ren:hover { color:var(--text); background:rgba(255,255,255,0.06); }
-#panel-route .ship-name-input { background:rgba(255,255,255,0.06); border:0; color:var(--text); padding:5px 10px; font-size:12px; width:14rem; max-width:50vw; outline:none; }
+/* Ship bay: the active ship's recap (left) and the stored ships (right). */
+#panel-route .shipbay { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); gap:16px; align-items:start; }
+@media (max-width:560px) { #panel-route .shipbay { grid-template-columns:minmax(0,1fr); } }
+#panel-route .ship-card { border:1px solid var(--line); border-radius:10px; padding:12px 14px; background:var(--panel); min-height:100%; }
+#panel-route .ship-card__name { font-weight:600; color:var(--accent-white); }
+#panel-route .ship-card p { margin:8px 0 0; }
+#panel-route .ship-specs { display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 14px; margin:12px 0 4px; font-size:13px; }
+#panel-route .ship-specs dt { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.5px; padding-top:2px; }
+#panel-route .ship-specs dd { margin:0; color:var(--text); }
+#panel-route .ship-specs b { color:var(--accent-white); font-family:var(--mono); }
+/* Text-styled buttons (Clear all, Plot without a ship). */
+#panel-route button.linkbtn { background:none; padding:0; border-radius:0; color:var(--accent); font-size:12px; }
+#panel-route button.linkbtn:hover:not(:disabled) { background:none; color:var(--accent-white); text-decoration:underline; }
+#panel-route .ship-card .linkbtn { margin-top:8px; }
+
+#panel-route .ship-fleet__head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;
+        font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); }
+/* About five rows tall, then it scrolls: a big fleet doesn't push the options down. */
+#panel-route .ship-list { list-style:none; margin:0; padding:0; max-height:15.5rem; overflow-y:auto;
+        border:1px solid var(--line); border-radius:10px; }
+#panel-route .ship-row { display:flex; align-items:stretch; border-bottom:1px solid var(--line2); }
+#panel-route .ship-row:last-child { border-bottom:0; }
+#panel-route .ship-row.active { background:rgba(18,148,214,.12); box-shadow:inset 3px 0 0 var(--accent); }
+#panel-route .ship-empty { padding:10px 12px; }
+#panel-route .ship-list button { border-radius:0; background:transparent; }
+#panel-route .ship-list button.ship-pick { flex:1 1 auto; min-width:0; flex-direction:column; align-items:flex-start; gap:1px;
+        padding:7px 12px; text-align:left; white-space:normal; }
+#panel-route .ship-row__name { color:var(--text); font-size:13px; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+#panel-route .ship-row.active .ship-row__name { color:var(--accent); font-weight:600; }
+#panel-route .ship-row__sub { color:var(--muted); font-size:11px; }
+#panel-route .ship-list button.ship-ren,
+#panel-route .ship-list button.ship-del { flex:none; padding:0 9px; color:var(--muted); font-size:13px; }
+#panel-route .ship-list button.ship-pick:hover:not(:disabled) { background:rgba(255,255,255,.06); color:inherit; }
+#panel-route .ship-list button.ship-ren:hover:not(:disabled) { background:rgba(255,255,255,.06); color:var(--text); }
+#panel-route .ship-list button.ship-del:hover:not(:disabled) { background:rgba(255,255,255,.06); color:var(--err); }
+#panel-route .ship-name-input { flex:1 1 auto; min-width:0; background:rgba(255,255,255,0.06); border:0; color:var(--text);
+        padding:9px 12px; font-size:13px; outline:none; }
+#panel-route .ship-add { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+#panel-route .ship-add button { flex:1 1 auto; }
+#panel-route .paste-panel { margin-top:12px; }
+#panel-route .ship-msg:empty { display:none; }
+#panel-route .ship-msg { margin-top:8px; }
 #panel-route .fuelbar { margin:12px 0 2px; font-size:13px; }
 
 #panel-route .summary { display:flex; gap:24px; flex-wrap:wrap; margin:20px 0 8px; align-items:flex-end; }
@@ -227,7 +257,7 @@
                  border:1px solid var(--dim); position:relative; transition:all .15s; }
 #panel-route .switch .track::after { content:""; position:absolute; top:1px; left:1px; width:12px; height:12px;
                         border-radius:50%; background:var(--muted); transition:all .15s; }
-#panel-route .switch input:checked + .track { background:rgba(128,196,230,.25); border-color:var(--accent); }
+#panel-route .switch input:checked + .track { background:rgba(18,148,214,.3); border-color:var(--accent); }
 #panel-route .switch input:checked + .track::after { left:15px; background:var(--accent); }
 
 #panel-route .msg { margin-top:16px; padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:var(--panel); }

@@ -300,16 +300,29 @@
             <details class="shiprow">
               <summary id="shipSummary">Ship &amp; options</summary>
               <div class="shipopts" style="margin-top:10px">
-                <!-- Stored ships (SLEF loadouts): switch active, remove one, or clear all. -->
-                <div id="shipLibrary" class="ship-library" hidden></div>
-                <textarea id="loadout" spellcheck="false" placeholder="Paste a ship loadout (SLEF / Journal JSON from EDSY &quot;Export&quot;, Coriolis, or the game) and Add ship to plot fuel-aware…" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" style="min-height:120px;resize:vertical;font-family:var(--mono)"></textarea>
-                <div class="shipline">
-                  <button id="importShip" class="tool-action" type="button">Add ship</button>
-                  <button id="importCurrentShip" class="tool-action" type="button" hidden title="Read your current ship from Frontier (your latest in-game Loadout, via elitedangereuse.fr)">Import current ship</button>
-                  <button id="clearShip" class="ghost" type="button" title="Deselect the active ship and plot without fuel awareness (keeps it in the list)">Clear active</button>
-                  <button id="clearAllShips" class="ghost" type="button" title="Remove every stored ship">Clear all</button>
-                  <span id="shipInfo" class="tiny"></span>
+                <!-- Active ship recap (left) and stored ships (right). Ships are stored in this browser. -->
+                <div class="shipbay">
+                  <div id="shipCard" class="ship-card" aria-live="polite"></div>
+                  <div class="ship-fleet">
+                    <div class="ship-fleet__head">
+                      <span>Your ships <span id="shipCount" class="tiny"></span></span>
+                      <button id="clearAllShips" class="linkbtn" type="button" title="Remove every stored ship">Clear all</button>
+                    </div>
+                    <ul id="shipLibrary" class="ship-list" aria-label="Stored ships"></ul>
+                    <div class="ship-add">
+                      <button id="importCurrentShip" class="tool-action" type="button" hidden title="Reads the ship you are flying in game, from your Frontier account via elitedangereuse.fr (its latest journal Loadout)">Import from game</button>
+                      <button id="pasteShip" class="ghost" type="button" aria-expanded="false" aria-controls="pastePanel" title="Paste a loadout exported from EDSY, Coriolis, or the game journal">Paste loadout (SLEF)</button>
+                    </div>
+                  </div>
                 </div>
+                <div id="pastePanel" class="paste-panel" hidden>
+                  <textarea id="loadout" spellcheck="false" placeholder="Paste a ship loadout: SLEF / Journal JSON from EDSY &quot;Export&quot;, Coriolis, or the game" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" style="min-height:120px;resize:vertical;font-family:var(--mono)"></textarea>
+                  <div class="shipline">
+                    <button id="importShip" class="tool-action" type="button">Add ship</button>
+                    <button id="cancelPaste" class="ghost" type="button">Cancel</button>
+                  </div>
+                </div>
+                <div id="shipInfo" class="tiny ship-msg"></div>
                 <div class="route-opts" style="margin-top:12px">
                   <div class="opts-short">
                     <div class="opt-field"><label for="ship" class="text-sm font-semibold">Supercharge</label>

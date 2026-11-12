@@ -35,52 +35,64 @@ $("range").addEventListener("change", () => {
   if (v) { localStorage.setItem(RANGE_LS, v); }
 });
 
-// Ship loadout (EDSY/SLEF) enables fuel-aware plotting. Stored in this browser.
-const SLEF_LS = "edgis_route_loadout";
+// Ship loadouts (EDSY/SLEF or a journal Loadout) enable fuel-aware plotting.
+// The stored ships and the active index are the single source of truth: the
+// textarea is only the paste box. Stored in this browser.
+const SLEF_LS = "edgis_route_loadout";  // legacy single loadout, migrated on load
 const FUELSAFE_LS = "edgis_route_fuelsafe";
-let shipInfo = null;  // parsed ship summary, or null when no ship is imported
-$("loadout").value = localStorage.getItem(SLEF_LS) || "";
+let shipInfo = null;   // /route/ship summary of the active ship, or null
+let shipError = "";    // why the active ship could not be read, if it couldn't
 
-// Ship library: multiple stored SLEF loadouts the commander can switch between.
-// Each entry is { name, loadout }; the active one's loadout also lives in
-// SLEF_LS (the textarea) for the single-ship import flow.
+// Each entry is { name, auto, renamed, loadout, range }: `auto` is the label
+// derived from the loadout, `range` the last plotting range read for it.
 const SHIPS_LS = "edgis_route_ships";
 const ACTIVE_SHIP_LS = "edgis_route_active_ship";
 function loadShips() { try { return JSON.parse(localStorage.getItem(SHIPS_LS)) || []; } catch (e) { return []; } }
 function saveShips(a) { localStorage.setItem(SHIPS_LS, JSON.stringify(a)); }
-function activeShip() { const i = Number(localStorage.getItem(ACTIVE_SHIP_LS)); return Number.isInteger(i) ? i : -1; }
+function activeShip() {
+  const i = Number(localStorage.getItem(ACTIVE_SHIP_LS) ?? -1);
+  return Number.isInteger(i) && i >= 0 && i < loadShips().length ? i : -1;
+}
 function setActiveShip(i) { localStorage.setItem(ACTIVE_SHIP_LS, String(i)); }
-// Upsert a loadout (by label or identical text), make it active, return index.
-// `auto` keeps the label derived from the loadout, so a ship the CMDR renamed
-// is still matched (and keeps its name) when re-imported after a refit.
-function rememberShip(loadout) {
+function activeLoadout() { const s = loadShips()[activeShip()]; return s ? s.loadout : ""; }
+
+// Same ship? The in-game ShipID when the loadout has one (journal / game
+// import: stable across refits), else the derived label (EDSY exports).
+function shipKey(loadout) {
+  const d = parseLoadout(loadout);
+  if (d && d.ShipID != null) return `id:${d.ShipID}`;
+  return `label:${shipLabel(loadout)}`;
+}
+// Upsert a loadout and make it active. A renamed ship keeps its name.
+function rememberShip(loadout, range) {
   const ships = loadShips();
-  const label = shipLabel(loadout);
-  let i = ships.findIndex(s => s.loadout === loadout || (s.auto || s.name) === label);
-  if (i < 0) { ships.push({ name: label, auto: label, loadout }); i = ships.length - 1; }
-  else { ships[i] = { ...ships[i], auto: label, loadout, name: ships[i].renamed ? ships[i].name : label }; }
-  saveShips(ships); setActiveShip(i); renderShipLibrary();
+  const label = shipLabel(loadout), key = shipKey(loadout);
+  let i = ships.findIndex(s => s.loadout === loadout || shipKey(s.loadout) === key);
+  if (i < 0) { ships.push({ name: label, auto: label, loadout, range }); i = ships.length - 1; }
+  else { ships[i] = { ...ships[i], auto: label, loadout, range, name: ships[i].renamed ? ships[i].name : label }; }
+  saveShips(ships); setActiveShip(i);
   return i;
 }
 function renderShipLibrary() {
   const el = $("shipLibrary"); if (!el) return;
   const ships = loadShips(); const active = activeShip();
-  if (!ships.length) { el.hidden = true; el.innerHTML = ""; return; }
-  el.hidden = false;
+  $("shipCount").textContent = ships.length ? `(${ships.length})` : "";
+  $("clearAllShips").hidden = !ships.length;
+  if (!ships.length) { el.innerHTML = `<li class="ship-empty tiny">No stored ships yet.</li>`; return; }
   el.innerHTML = ships.map((s, i) => {
-    // The active chip's tooltip carries the fuel details (range/tank/scoop) that
-    // used to clutter the #shipInfo line below.
-    const tip = (i === active && shipInfo && shipInfo.detail) ? shipInfo.detail : "Switch to this ship";
-    return `<span class="ship-item ${i === active ? "active" : ""}">`
-      + `<button type="button" class="ship-pick" data-i="${i}" title="${escapeHtml(tip)}">${escapeHtml(s.name)}</button>`
-      + `<button type="button" class="ship-ren" data-i="${i}" title="Rename this ship">✎</button>`
-      + `<button type="button" class="ship-del" data-i="${i}" title="Remove this ship">&times;</button>`
-      + `</span>`;
+    const d = parseLoadout(s.loadout) || {};
+    const type = shipTypeName(d.Ship);
+    const sub = [type, s.range ? `${fmt(s.range, 1)} LY` : ""].filter(Boolean).join(" · ");
+    const tip = i === active ? "Active ship: click to plot without it" : "Use this ship";
+    return `<li class="ship-row ${i === active ? "active" : ""}">`
+      + `<button type="button" class="ship-pick" data-i="${i}" title="${tip}" aria-pressed="${i === active}">`
+      + `<span class="ship-row__name">${escapeHtml(shipDisplayName(s))}</span><span class="ship-row__sub">${escapeHtml(sub)}</span></button>`
+      + `<button type="button" class="ship-ren" data-i="${i}" title="Rename this ship" aria-label="Rename ${escapeHtml(s.name)}">✎</button>`
+      + `<button type="button" class="ship-del" data-i="${i}" title="Remove this ship" aria-label="Remove ${escapeHtml(s.name)}">&times;</button>`
+      + `</li>`;
   }).join("");
 }
-// Remove every stored ship and return to fuel-agnostic plotting. Confirms first
-// since it wipes the whole library and can't be undone.
-// Inline rename: the chip's name becomes a field. Enter or leaving the field
+// Inline rename: the row's name becomes a field. Enter or leaving the field
 // saves, Escape cancels; an empty name goes back to the automatic label.
 function renameShip(i) {
   const ships = loadShips();
@@ -88,7 +100,7 @@ function renameShip(i) {
   if (!ships[i] || !pick) return;
   const input = document.createElement("input");
   input.className = "ship-name-input";
-  input.value = ships[i].name;
+  input.value = shipDisplayName(ships[i]);
   input.maxLength = 60;
   input.setAttribute("aria-label", "Ship name");
   pick.replaceWith(input);
@@ -100,13 +112,13 @@ function renameShip(i) {
     if (save) {
       const all = loadShips(), s = all[i];
       const name = input.value.trim();
-      if (s) {
+      if (s && name !== shipDisplayName(s)) {
         s.name = name || s.auto || shipLabel(s.loadout);
         s.renamed = !!name && name !== (s.auto || shipLabel(s.loadout));
         saveShips(all);
       }
     }
-    renderShipLibrary(); setShipSummary();
+    renderShips();
   };
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); finish(true); }
@@ -114,22 +126,15 @@ function renameShip(i) {
   });
   input.addEventListener("blur", () => finish(true));
 }
-// Name shown for the loadout in the textarea: the stored (maybe renamed) name
-// of the active ship, else the label derived from the loadout.
-function currentShipName() {
-  const text = $("loadout").value;
-  const s = loadShips()[activeShip()];
-  return (s && s.loadout === text.trim()) ? s.name : shipLabel(text);
-}
+// Remove every stored ship and return to fuel-agnostic plotting. Confirms first
+// since it wipes the whole library and can't be undone.
 function clearAllShips() {
   const n = loadShips().length;
-  if (!n) return;  // nothing to clear
+  if (!n) return;
   if (!confirm(`Remove all ${n} stored ship${n > 1 ? "s" : ""}? This cannot be undone.`)) return;
-  saveShips([]); setActiveShip(-1); clearShip();
+  saveShips([]); clearShip();
 }
 
-setShipSummary();  // reflect a restored (saved, not-yet-imported) loadout at once
-renderShipLibrary();
 $("fuelSafe").checked = (localStorage.getItem(FUELSAFE_LS) ?? "1") === "1";
 $("fuelSafe").addEventListener("change", () =>
   localStorage.setItem(FUELSAFE_LS, $("fuelSafe").checked ? "1" : "0"));
@@ -236,103 +241,225 @@ function shipLabel(loadout) {
     return name || type || "ship";
   } catch (e) { return "ship"; }
 }
-// The Ship & fuel section is collapsed by default, so its summary is the only
-// always-visible signal. Make it state-explicit: a saved loadout that hasn't
-// been imported (e.g. just after a page reload, before the auto-import lands)
-// must not look the same as an active fuel-aware ship.
-function setShipSummary() {
-  const el = $("shipSummary");
-  const hasText = !!($("loadout").value || "").trim();
-  if (shipInfo) {
-    el.innerHTML = `Ship &amp; options <span class="good">✓</span> · `
-      + `${escapeHtml(currentShipName())} · ${fmt(shipInfo.jump_range, 2)} LY`;
-  } else if (hasText) {
-    el.innerHTML = `Ship &amp; options · ${escapeHtml(currentShipName())} `
-      + `<span class="tiny">(saved, not added)</span>`;
-  } else {
-    el.textContent = "Ship & options";
-  }
+function parseLoadout(text) {
+  try {
+    let d = typeof text === "string" ? JSON.parse(text) : text;
+    if (Array.isArray(d)) d = d[0];
+    return (d && d.data) || d || null;
+  } catch (e) { return null; }
+}
+function shipTypeName(symbol) {
+  const k = String(symbol || "").toLowerCase();
+  return SHIP_TYPES[k] || k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+// FSD line for the card: "5A", "5A SCO", "8A SCO Mk II", from the module symbol
+// (int_hyperdrive[_overcharge|_overchargebooster_mkii]_sizeN_classM; class 5 = A).
+function fsdLabel(item) {
+  const it = String(item || "").toLowerCase();
+  const m = /size(\d)_class(\d)/.exec(it);
+  if (!m) return "";
+  const grade = `${m[1]}${"EDCBA"[Number(m[2]) - 1] || "?"}`;
+  if (it.includes("mkii")) return `${grade} SCO Mk II`;
+  return it.includes("overcharge") ? `${grade} SCO` : grade;
+}
+const FSD_BLUEPRINTS = { fsd_longrange: "Increased Range", fsd_fastboot: "Faster Boot Sequence", fsd_shielded: "Shielded" };
+function fsdEngineering(mod) {
+  const e = mod && mod.Engineering;
+  if (!e) return "";
+  const bp = FSD_BLUEPRINTS[String(e.BlueprintName || "").toLowerCase()]
+    || String(e.BlueprintName || "").replace(/^FSD_/i, "").replace(/([a-z])([A-Z])/g, "$1 $2");
+  const fx = e.ExperimentalEffect_Localised
+    || String(e.ExperimentalEffect || "").replace(/^special_fsd_/i, "").replace(/_/g, " ");
+  return [bp && `${bp}${e.Level ? ` G${e.Level}` : ""}`, fx].filter(Boolean).join(" · ");
 }
 
-// The import in flight (or last finished): plot() waits for it, so a plot
-// right after page load (shared link, quick click) uses the stored ship
-// instead of silently plotting ship-less while /route/ship is still answering.
-let shipImport = Promise.resolve();
-function importShip() {
-  shipImport = importShipNow();
-  return shipImport;
+// Left: what matters for jumping, for the active ship -- or "No ship selected".
+function renderShipCard() {
+  const el = $("shipCard"); if (!el) return;
+  const s = loadShips()[activeShip()];
+  if (!s) {
+    el.innerHTML = `<div class="ship-card__name">No ship selected</div>`
+      + `<p class="tiny">Routes plot at the jump range above, without fuel awareness. `
+      + `Pick a stored ship, or add one: import the ship you fly in game, or paste a loadout.</p>`;
+    return;
+  }
+  const d = parseLoadout(s.loadout) || {};
+  const type = [shipTypeName(d.Ship), d.ShipIdent].filter(Boolean).join(" · ");
+  const head = `<div class="ship-card__name">${escapeHtml(shipDisplayName(s))}</div>`
+    + `<div class="ship-card__type tiny">${escapeHtml(type)}</div>`;
+  if (!shipInfo) {
+    const why = shipError ? `<span class="bad">${escapeHtml(shipError)}</span>` : "Reading loadout…";
+    el.innerHTML = head + `<p class="tiny">${why}</p>`;
+    return;
+  }
+  const fsd = (d.Modules || []).find(m => m.Slot === "FrameShiftDrive");
+  const eng = fsdEngineering(fsd);
+  const sc = detectSupercharge(s.loadout);
+  const fuel = d.FuelCapacity || {};
+  const upTo = shipInfo.max_range_light > shipInfo.jump_range + 0.1
+    ? ` <span class="tiny">up to ${fmt(shipInfo.max_range_light, 1)} LY as fuel burns</span>` : "";
+  const rows = [
+    ["Jump range", `<b>${fmt(shipInfo.jump_range, 2)} LY</b> <span class="tiny">full tank</span>${upTo}`],
+    ["FSD", `${escapeHtml(fsdLabel(fsd && fsd.Item) || "?")} · ${sc}x supercharge`
+      + (eng ? `<br><span class="tiny">${escapeHtml(eng)}</span>` : "")],
+    shipInfo.range_boost ? ["Guardian booster", `+${fmt(shipInfo.range_boost, 2)} LY`] : null,
+    ["Fuel", `${fmt(fuel.Main || shipInfo.tank_size, 1)} t`
+      + (fuel.Reserve ? ` <span class="tiny">+ ${fmt(fuel.Reserve, 2)} t reserve</span>` : "")
+      + ` · ≈ ${fmt(shipInfo.tank_jumps)} jumps per tank`],
+    ["Fuel scoop", shipInfo.has_scoop ? "fitted" : `<span class="bad">none: you can't refuel en route</span>`],
+    ["Mass", `${fmt(d.UnladenMass, 1)} t unladen`
+      + (d.CargoCapacity ? ` · cargo ${fmt(cargoTons())} / ${fmt(d.CargoCapacity)} t` : "")],
+  ].filter(Boolean);
+  el.innerHTML = head
+    + `<dl class="ship-specs">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>`
+    + `<button type="button" class="linkbtn" id="deselectShip">Plot without a ship</button>`;
 }
-async function importShipNow() {
-  const loadout = ($("loadout").value || "").trim();
-  if (!loadout) { shipInfo = null; localStorage.removeItem(SLEF_LS); $("shipInfo").textContent = ""; setShipSummary(); updateCompareButton(); return; }
-  $("importShip").disabled = true;
-  $("shipInfo").innerHTML = `<span class="tiny">Reading loadout…</span>`;
-  $("shipSummary").innerHTML = `Ship &amp; options · <span class="tiny">reading loadout…</span>`;
+// The Ship & options section is collapsed by default, so its summary is the
+// only always-visible signal: say which ship plots, or that none does.
+function setShipSummary() {
+  const el = $("shipSummary");
+  const s = loadShips()[activeShip()];
+  if (s && shipInfo) {
+    el.innerHTML = `Ship &amp; options <span class="good">✓</span> · `
+      + `${escapeHtml(shipDisplayName(s))} · ${fmt(shipInfo.jump_range, 2)} LY`;
+  } else if (s) {
+    el.innerHTML = `Ship &amp; options · ${escapeHtml(shipDisplayName(s))} `
+      + `<span class="tiny">(${shipError ? "not usable" : "reading…"})</span>`;
+  } else {
+    el.innerHTML = `Ship &amp; options · <span class="tiny">no ship</span>`;
+  }
+}
+// Display name: the type has its own line now, so drop the " (Type)" suffix of
+// automatic labels (kept in storage: re-imports match on it).
+function shipDisplayName(s) {
+  const type = shipTypeName((parseLoadout(s.loadout) || {}).Ship);
+  const suffix = ` (${type})`;
+  return type && s.name.endsWith(suffix) && s.name !== suffix ? s.name.slice(0, -suffix.length) : s.name;
+}
+function renderShips() { renderShipLibrary(); renderShipCard(); setShipSummary(); }
+
+// /route/ship for a loadout: { info } or { error } (never throws).
+async function fetchShipSummary(loadout) {
   try {
     const res = await fetch("/route/ship", {
       method: "POST", credentials: "include",
       headers: { ...headers(), "Content-Type": "application/json" },
       body: JSON.stringify({ loadout, cargo: cargoTons() }),
     });
-    if (!res.ok) {
-      shipInfo = null;
-      const d = (await res.json().catch(() => ({}))).detail;
-      // detail can be a string (our 422), a dict (the early-access 403), or a
-      // list (request validation) -- never render an object raw.
-      let msg;
-      if (res.status === 403) {
-        msg = `${(d && d.message) || "This feature is in early access."} Add an access key below, or sign in as a patron.`;
-      } else {
-        msg = (typeof d === "string" ? d : (d && d.message)) || `Could not read that loadout (HTTP ${res.status}).`;
-      }
-      $("shipInfo").innerHTML = `<span class="bad">${escapeHtml(msg)}</span>`;
-      return;
+    if (res.ok) return { info: await res.json() };
+    // detail can be a string (our 422), a dict (the early-access 403), or a
+    // list (request validation) -- never render an object raw.
+    const d = (await res.json().catch(() => ({}))).detail;
+    if (res.status === 403) {
+      return { error: `${(d && d.message) || "This feature is in early access."} Add an access key above, or sign in as a patron.` };
     }
-    shipInfo = await res.json();
-    localStorage.setItem(SLEF_LS, loadout);
-    rememberShip(loadout);  // add/update this ship in the library + make it active
-    $("range").value = shipInfo.jump_range;
-    localStorage.setItem(RANGE_LS, String(shipInfo.jump_range));
-    // Auto-set the neutron supercharge for the imported ship (6x only on the
-    // Caspian Explorer's Mk II SCO drive, 4x otherwise), so swapping ships does
-    // not silently keep a stale 6x (tester got caught by this with a Mandalay).
-    const sc = detectSupercharge(loadout);
-    $("ship").value = sc;
-    localStorage.setItem(SHIP_LS, sc);
-    // The chip (highlighted) + summary already show the ship name + range, so
-    // keep #shipInfo clean: stash the fuel details on the chip tooltip (via
-    // renderShipLibrary) and surface only the one actionable fact not shown
-    // elsewhere -- a missing fuel scoop.
-    const upTo = (shipInfo.max_range_light && shipInfo.max_range_light > shipInfo.jump_range + 0.1)
-      ? ` (up to ${fmt(shipInfo.max_range_light, 1)} as fuel burns)` : "";
-    shipInfo.detail = `range ${fmt(shipInfo.jump_range, 2)} LY${upTo} · tank ≈ ${shipInfo.tank_jumps} jumps · `
-      + (shipInfo.has_scoop ? "fuel scoop fitted" : "no fuel scoop");
-    $("shipInfo").innerHTML = shipInfo.has_scoop ? "" : `<span class="bad">no fuel scoop</span>`;
-    renderShipLibrary();  // re-render so the active chip tooltip picks up .detail
+    return { error: (typeof d === "string" ? d : (d && d.message)) || `Could not read that loadout (HTTP ${res.status}).` };
   } catch (e) {
-    shipInfo = null;
-    $("shipInfo").innerHTML = `<span class="bad">${escapeHtml(e.message || String(e))}</span>`;
+    return { error: e.message || String(e) };
+  }
+}
+// Make a read ship the plotting ship: range, supercharge (6x only on the
+// Caspian's Mk II SCO drive, so swapping ships never keeps a stale 6x).
+function applyShipInfo(loadout, info) {
+  shipInfo = info; shipError = "";
+  $("range").value = info.jump_range;
+  localStorage.setItem(RANGE_LS, String(info.jump_range));
+  const sc = detectSupercharge(loadout);
+  $("ship").value = sc;
+  localStorage.setItem(SHIP_LS, sc);
+}
+
+// The read in flight (or last finished): plot() waits for it, so a plot right
+// after page load (shared link, quick click) uses the stored ship instead of
+// silently plotting ship-less while /route/ship is still answering.
+let shipImport = Promise.resolve();
+function importShip() {
+  shipImport = loadActiveShip();
+  return shipImport;
+}
+// (Re)read the active ship: on load, on switching ships, when cargo changes.
+async function loadActiveShip() {
+  const i = activeShip();
+  const loadout = activeLoadout();
+  shipInfo = null; shipError = "";
+  renderShips();
+  if (!loadout) { updateCompareButton(); return; }
+  const r = await fetchShipSummary(loadout);
+  if (activeShip() !== i) return;  // switched again meanwhile
+  if (r.info) {
+    applyShipInfo(loadout, r.info);
+    const ships = loadShips();
+    if (ships[i]) { ships[i].range = r.info.jump_range; saveShips(ships); }
+  } else {
+    shipError = r.error;
+    // Open the section so the reason is visible, not hidden when collapsed.
+    const dt = $("shipCard").closest("details"); if (dt) dt.open = true;
+  }
+  renderShips(); updateCompareButton();
+}
+// Add a new loadout (paste or game import): stored only once it reads.
+async function addShip(loadout) {
+  const r = await fetchShipSummary(loadout);
+  if (!r.info) return r.error;
+  rememberShip(loadout, r.info.jump_range);
+  applyShipInfo(loadout, r.info);
+  renderShips(); updateCompareButton();
+  return "";
+}
+function switchShip(i) {
+  setActiveShip(i);
+  return importShip();
+}
+
+// Deselect the active ship: fuel-agnostic plotting, ships stay in the list.
+// Also used by clearAllShips (after the list has been emptied).
+function clearShip() {
+  shipInfo = null; shipError = "";
+  setActiveShip(-1);
+  $("shipInfo").textContent = "";
+  renderShips();
+  updateCompareButton();  // route may still be plotted -> fall back to neutron compare
+}
+
+// Paste box: shown only when adding a loadout by hand.
+function setPasteOpen(open) {
+  $("pastePanel").hidden = !open;
+  $("pasteShip").setAttribute("aria-expanded", String(open));
+  if (open) { $("shipInfo").textContent = ""; $("loadout").focus(); }
+  else { $("loadout").value = ""; }
+}
+async function addPastedShip() {
+  const text = ($("loadout").value || "").trim();
+  if (!text) { $("shipInfo").innerHTML = `<span class="bad">Paste a loadout first.</span>`; return; }
+  $("importShip").disabled = true;
+  $("shipInfo").innerHTML = `<span class="tiny">Reading loadout…</span>`;
+  try {
+    const err = await addShip(text);
+    if (err) { $("shipInfo").innerHTML = `<span class="bad">${escapeHtml(err)}</span>`; return; }
+    $("shipInfo").textContent = "";
+    setPasteOpen(false);
   } finally {
-    $("importShip").disabled = false; setShipSummary(); updateCompareButton();
-    // A non-empty loadout that failed to import (bad JSON, access gate): open
-    // the section so the reason in #shipInfo is visible, not hidden when collapsed.
-    if (!shipInfo) { const dt = $("loadout").closest("details"); if (dt) dt.open = true; }
+    $("importShip").disabled = false;
   }
 }
 
-// Deselect the active ship: clears the loadout textarea and returns to
-// fuel-agnostic plotting, but keeps the ships in the library. Also used by
-// clearAllShips (after the list has been emptied) to reset the active state.
-function clearShip() {
-  shipInfo = null;
-  $("loadout").value = "";
+// Migrate the legacy single stored loadout (pre ship-library) into the list.
+(function migrateLegacyLoadout() {
+  const legacy = (localStorage.getItem(SLEF_LS) || "").trim();
+  if (!legacy) return;
+  const ships = loadShips();
+  const i = ships.findIndex(s => s.loadout === legacy);
+  if (i < 0) {
+    const label = shipLabel(legacy);
+    ships.push({ name: label, auto: label, loadout: legacy });
+    saveShips(ships);
+    if (activeShip() < 0) setActiveShip(ships.length - 1);
+  } else if (activeShip() < 0) {
+    setActiveShip(i);
+  }
   localStorage.removeItem(SLEF_LS);
-  $("shipInfo").textContent = "";
-  setActiveShip(-1);
-  setShipSummary();
-  renderShipLibrary();
-  updateCompareButton();  // route may still be plotted -> fall back to neutron compare
-}
+})();
+renderShips();
 
 // Bootstrap "bi-copy" icon + clipboard helper (matches the main EDGIS app).
 const copyIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/></svg>`;
@@ -762,8 +889,8 @@ async function importCurrentShip() {
       $("shipInfo").innerHTML = `<span class="bad">${escapeHtml(CAPI_ERRORS[d.error] || CAPI_ERRORS.profile_unavailable)}</span>`;
       return;
     }
-    $("loadout").value = JSON.stringify(loadout);
-    await importShip();
+    const err = await addShip(JSON.stringify(loadout));
+    $("shipInfo").innerHTML = err ? `<span class="bad">${escapeHtml(err)}</span>` : "";
   } finally {
     btn.disabled = false;
   }
@@ -863,7 +990,7 @@ function toSpanshExactRoute(r) {
   const now = new Date().toISOString().slice(0, 19);  // "YYYY-MM-DDTHH:MM:SS"
   const job = (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : "").toUpperCase();
   const scMul = r.boost_range && r.jump_range ? Math.round(r.boost_range / r.jump_range) : 4;
-  const loadout = ($("loadout").value || "").trim();
+  const loadout = activeLoadout();
   const parameters = {
     algorithm: "optimistic", max_time: "60",
     source_system: idStr(r.source_id64) ?? r.source,
@@ -1180,7 +1307,7 @@ async function compareSpansh() {
 // build, so it's only reached (via compareVsSpansh) once a loadout is imported.
 async function compareGalaxy() {
   if (!lastQuery) return;
-  const loadout = shipInfo ? ($("loadout").value || "").trim() : "";
+  const loadout = shipInfo ? activeLoadout() : "";
   const seq = plotSeq;
   const out = () => cmpLine("cmpGalaxy_line", seq);
   if (!loadout) { showSpanshMsg(out(), `<span class="bad">Import a ship first (the Galaxy Plotter is fuel-aware).</span>`); return; }
@@ -1215,7 +1342,7 @@ async function plot() {
   const supercharge = $("ship").value || "4";
   const companionLs = companionMaxLs();
   // Fuel-aware plotting (POST with the loadout) kicks in once a ship is imported.
-  const loadout = shipInfo ? ($("loadout").value || "").trim() : "";
+  const loadout = shipInfo ? activeLoadout() : "";
   lastQuery = { from, to, range, supercharge, companionLs, inject: injectMult() };
   plotSeq++;  // comparisons started from now on belong to this plot
   lastOurs = null;  // so a post-failure spansh compare doesn't show a stale "ours"
@@ -1320,26 +1447,33 @@ $("out").addEventListener("change", (e) => {
 
 $("go").addEventListener("click", plot);
 $("cmpGalaxy").addEventListener("click", compareVsSpansh);
-$("importShip").addEventListener("click", importShip);
+$("importShip").addEventListener("click", addPastedShip);
 $("importCurrentShip").addEventListener("click", importCurrentShip);
-$("clearShip").addEventListener("click", clearShip);
+$("pasteShip").addEventListener("click", () => setPasteOpen($("pastePanel").hidden));
+$("cancelPaste").addEventListener("click", () => setPasteOpen(false));
 $("clearAllShips").addEventListener("click", clearAllShips);
-// Switch to or remove a stored ship (buttons are rendered dynamically).
+// The card's "Plot without a ship" (rendered dynamically).
+$("shipCard").addEventListener("click", (ev) => {
+  if (ev.target.closest("#deselectShip")) clearShip();
+});
+// Use, rename or remove a stored ship (rows are rendered dynamically).
+// Clicking the active ship again deselects it.
 $("shipLibrary").addEventListener("click", (ev) => {
   const pick = ev.target.closest(".ship-pick");
   const del = ev.target.closest(".ship-del");
   const ren = ev.target.closest(".ship-ren");
   if (ren) { renameShip(Number(ren.dataset.i)); return; }
-  const ships = loadShips();
   if (pick) {
     const i = Number(pick.dataset.i);
-    if (ships[i]) { $("loadout").value = ships[i].loadout; importShip(); }
+    if (i === activeShip()) clearShip(); else switchShip(i);
   } else if (del) {
     const i = Number(del.dataset.i);
-    const wasActive = i === activeShip();
+    const ships = loadShips();
+    const active = activeShip();
     ships.splice(i, 1); saveShips(ships);
-    if (wasActive) { clearShip(); }          // deselect + re-render
-    else { const a = activeShip(); if (a > i) setActiveShip(a - 1); renderShipLibrary(); }
+    if (i === active) { clearShip(); return; }
+    if (active > i) setActiveShip(active - 1);
+    renderShips();
   }
 });
 // Swap departure and arrival, then re-plot if both are set (tester: "to go back
@@ -1376,7 +1510,7 @@ window.edgisInitRoutePanel = function () {
   if (sml != null && sml !== "") { $("scoopLs").value = sml; localStorage.setItem(SCOOP_LS, String(scoopMaxLs())); }
   const inj = q.get("inject_mult");
   if (inj != null && inj !== "") { setInjectMult(inj); localStorage.setItem(INJECT_MULT, String(injectMult())); }
-  if ($("loadout").value.trim()) { importShip(); }
+  if (activeLoadout()) { importShip(); }
   loadStatus();
   // A shared link (from + to both present) plots straight away, once the stored
   // ship (if any) is imported. That import sets range/supercharge from the
