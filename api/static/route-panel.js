@@ -51,12 +51,14 @@ function saveShips(a) { localStorage.setItem(SHIPS_LS, JSON.stringify(a)); }
 function activeShip() { const i = Number(localStorage.getItem(ACTIVE_SHIP_LS)); return Number.isInteger(i) ? i : -1; }
 function setActiveShip(i) { localStorage.setItem(ACTIVE_SHIP_LS, String(i)); }
 // Upsert a loadout (by label or identical text), make it active, return index.
+// `auto` keeps the label derived from the loadout, so a ship the CMDR renamed
+// is still matched (and keeps its name) when re-imported after a refit.
 function rememberShip(loadout) {
   const ships = loadShips();
-  const name = shipLabel(loadout);
-  let i = ships.findIndex(s => s.loadout === loadout || s.name === name);
-  if (i < 0) { ships.push({ name, loadout }); i = ships.length - 1; }
-  else { ships[i] = { name, loadout }; }
+  const label = shipLabel(loadout);
+  let i = ships.findIndex(s => s.loadout === loadout || (s.auto || s.name) === label);
+  if (i < 0) { ships.push({ name: label, auto: label, loadout }); i = ships.length - 1; }
+  else { ships[i] = { ...ships[i], auto: label, loadout, name: ships[i].renamed ? ships[i].name : label }; }
   saveShips(ships); setActiveShip(i); renderShipLibrary();
   return i;
 }
@@ -71,12 +73,54 @@ function renderShipLibrary() {
     const tip = (i === active && shipInfo && shipInfo.detail) ? shipInfo.detail : "Switch to this ship";
     return `<span class="ship-item ${i === active ? "active" : ""}">`
       + `<button type="button" class="ship-pick" data-i="${i}" title="${escapeHtml(tip)}">${escapeHtml(s.name)}</button>`
+      + `<button type="button" class="ship-ren" data-i="${i}" title="Rename this ship">✎</button>`
       + `<button type="button" class="ship-del" data-i="${i}" title="Remove this ship">&times;</button>`
       + `</span>`;
   }).join("");
 }
 // Remove every stored ship and return to fuel-agnostic plotting. Confirms first
 // since it wipes the whole library and can't be undone.
+// Inline rename: the chip's name becomes a field. Enter or leaving the field
+// saves, Escape cancels; an empty name goes back to the automatic label.
+function renameShip(i) {
+  const ships = loadShips();
+  const pick = $("shipLibrary").querySelector(`.ship-pick[data-i="${i}"]`);
+  if (!ships[i] || !pick) return;
+  const input = document.createElement("input");
+  input.className = "ship-name-input";
+  input.value = ships[i].name;
+  input.maxLength = 60;
+  input.setAttribute("aria-label", "Ship name");
+  pick.replaceWith(input);
+  input.focus(); input.select();
+  let done = false;
+  const finish = (save) => {
+    if (done) return;
+    done = true;
+    if (save) {
+      const all = loadShips(), s = all[i];
+      const name = input.value.trim();
+      if (s) {
+        s.name = name || s.auto || shipLabel(s.loadout);
+        s.renamed = !!name && name !== (s.auto || shipLabel(s.loadout));
+        saveShips(all);
+      }
+    }
+    renderShipLibrary(); setShipSummary();
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); finish(true); }
+    else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+  });
+  input.addEventListener("blur", () => finish(true));
+}
+// Name shown for the loadout in the textarea: the stored (maybe renamed) name
+// of the active ship, else the label derived from the loadout.
+function currentShipName() {
+  const text = $("loadout").value;
+  const s = loadShips()[activeShip()];
+  return (s && s.loadout === text.trim()) ? s.name : shipLabel(text);
+}
 function clearAllShips() {
   const n = loadShips().length;
   if (!n) return;  // nothing to clear
@@ -201,9 +245,9 @@ function setShipSummary() {
   const hasText = !!($("loadout").value || "").trim();
   if (shipInfo) {
     el.innerHTML = `Ship &amp; options <span class="good">✓</span> · `
-      + `${escapeHtml(shipLabel($("loadout").value))} · ${fmt(shipInfo.jump_range, 2)} LY`;
+      + `${escapeHtml(currentShipName())} · ${fmt(shipInfo.jump_range, 2)} LY`;
   } else if (hasText) {
-    el.innerHTML = `Ship &amp; options · ${escapeHtml(shipLabel($("loadout").value))} `
+    el.innerHTML = `Ship &amp; options · ${escapeHtml(currentShipName())} `
       + `<span class="tiny">(saved, not added)</span>`;
   } else {
     el.textContent = "Ship & options";
@@ -622,16 +666,17 @@ $("to").addEventListener("input", autocomplete);
 const hintSeq = { from: 0, to: 0 };
 const hintTimers = {};
 const xyzText = (c) => [c.x, c.y, c.z].map(v => String(Number(v.toFixed(2)))).join(", ");
-function setSysHint(id, badge, html) {
+function setSysHint(id, badge, html, tip = "") {
   const el = $(id), b = $(id + "Badge"), h = $(id + "Hint");
   const labels = { estimated: "estimated", coords: "coordinates", unknown: "not found" };
-  el.classList.toggle("sys-estimated", badge === "estimated");
+  el.classList.toggle("sys-estimated", badge === "estimated" || badge === "coords");
   el.classList.toggle("has-badge", !!badge);
   b.hidden = !badge;
   b.className = "sys-badge" + (badge ? " " + badge : "");
   b.textContent = badge ? labels[badge] : "";
   h.hidden = !html;
   h.innerHTML = html || "";
+  h.title = tip;
 }
 // `final`: the field was committed (change/blur/prefill). While typing, a name
 // that doesn't resolve yet is just incomplete, so "not found" waits for this.
@@ -652,13 +697,13 @@ async function resolveField(id, { final = false, note = "" } = {}) {
     const d = await r.json();
     const xyz = `<span class="xyz">${escapeHtml(xyzText(d.coords))}</span>`;
     if (d.kind === "predicted") {
-      setSysHint(id, "estimated", `Unknown to EDGIS: position estimated from its name at ${xyz}`
-        + (d.uncertainty ? ` (± ${fmt(d.uncertainty, 0)} LY per axis)` : "")
-        + `. Check it against the in-game galaxy map.`);
+      // Kept to one line; the advice lives in the tooltip.
+      setSysHint(id, "estimated", `Not in EDGIS · estimated at ${xyz}`
+        + (d.uncertainty ? ` ± ${fmt(d.uncertainty, 0)} LY` : ""),
+        "Position guessed from the procedural name (± per axis). Check it against the in-game galaxy map.");
     } else if (d.kind === "coords") {
-      setSysHint(id, "coords", id === "to"
-        ? `Destination position ${xyz}. The route ends at this point, so target the nearest star in the in-game galaxy map.`
-        : `Starting position ${xyz}.`);
+      setSysHint(id, "coords", `${id === "to" ? "Destination" : "Start"} point ${xyz}`,
+        id === "to" ? "The route ends at this point: target the nearest star in the in-game galaxy map." : "");
     } else {
       setSysHint(id, null, note);
     }
@@ -968,17 +1013,14 @@ function renderRoute(r) {
     rows = sourceRow(r, false) + rows;
   }
   $("out").innerHTML = `
-    <div class="summary">
-      <div class="stat"><b>${fmt(r.total_jumps)}</b><span>jumps</span></div>
-      <div class="stat"><b>${fmt(r.neutron_jumps)}</b><span>neutron jumps</span></div>
-      <div class="stat"><b>${fmt(r.bridge_jumps)}</b><span>regular jumps</span></div>
-      <div class="stat"><b>${fmt(r.total_distance_ly)}</b><span>LY flown</span></div>
-      <div class="stat"><b>${fmt(r.efficiency * 100, 1)}%</b><span>efficiency</span></div>
-      <div class="stat"><b>${fmt(r.solve_ms, 0)} ms</b><span>solve</span></div>
+    <div class="statgrid">
+      <div class="statrow" data-cmp>${statCells({
+        jumps: r.total_jumps, neutron: r.neutron_jumps, regular: r.bridge_jumps,
+        ly: r.total_distance_ly, eff: r.efficiency, solve: r.solve_ms })}</div>
+      <div id="cmpOut">${keepCmp}</div>
     </div>
     ${r.fuel ? `<div class="fuelbar">${fuelVerdict(r.fuel)}</div>` : ""}
     ${injectSummary(r)}
-    <div id="cmpOut">${keepCmp}</div>
     <div class="summary-actions">
       <label class="switch" title="Compact: only the waypoints you plot in-game. Off: every jump.">
         <input type="checkbox" id="compactToggle" ${compactMode ? "checked" : ""} />
@@ -999,6 +1041,7 @@ function renderRoute(r) {
       <tbody>${rows}</tbody></table>
     </div>`;
   updateCompareButton();  // enable + set exact/neutron tooltip for the plotted route
+  highlightBest();  // our row was re-rendered: re-mark the winners vs any kept spansh rows
   // Trigger the neighbors-style refresh glow on the freshly rendered table.
   const tbl = $("out").querySelector(".tablewrap.result-table");
   if (tbl) {
@@ -1019,20 +1062,65 @@ function cmpLine(id) {
   return el;
 }
 
-// Shared bits for a "spansh X: N jumps · ours: M · verdict · ⏱ …" line.
-function cmpVerdict(spJumps) {
-  const ours = lastOurs ? lastOurs.total_jumps : null;
-  if (ours == null) return "";
-  const d = spJumps - ours;
-  const v = d > 0 ? `<span class="good">ours ${d} fewer ✓</span>`
-          : d < 0 ? `<span class="bad">spansh ${-d} fewer</span>` : "tie";
-  return ` · <b>ours:</b> ${fmt(ours)} jumps · ${v}`;
+// Route stats, shared by our summary and the spansh comparison rows (same
+// columns, smaller), so the two read side by side. `better` is the direction
+// that wins: the best value of each column is marked in blue on every row.
+// Neutron jumps has none: more boosts is not better in itself.
+const STAT_COLS = [
+  { k: "jumps", label: "jumps", better: "min", show: (v) => fmt(v) },
+  { k: "neutron", label: "neutron jumps", better: null, show: (v) => fmt(v) },
+  { k: "regular", label: "regular jumps", better: "min", show: (v) => fmt(v) },
+  { k: "ly", label: "LY flown", better: "min", show: (v) => fmt(v), round: 1 },
+  { k: "eff", label: "efficiency", better: "max", show: (v) => `${fmt(v * 100, 1)}%`, round: 3 },
+  { k: "solve", label: "solve", better: "min", show: (v) => v >= 1000 ? `${fmt(v / 1000, 1)} s` : `${fmt(v, 0)} ms` },
+];
+function statCells(v) {
+  return STAT_COLS.map((c) => {
+    const val = v[c.k];
+    if (val == null || !Number.isFinite(Number(val))) {
+      return `<div class="stat"><b>–</b><span>${c.label}</span></div>`;
+    }
+    const n = c.round != null ? Number(Number(val).toFixed(c.round)) : Number(val);
+    return `<div class="stat" data-k="${c.k}" data-v="${n}"><b>${c.show(val)}</b><span>${c.label}</span></div>`;
+  }).join("");
 }
-function cmpTime(durationS) {
-  if (durationS == null || !lastOurs) return "";
-  const spMs = durationS * 1000, ourMs = lastOurs.solve_ms, dMs = spMs - ourMs;
-  const ft = (ms) => ms >= 1000 ? `${fmt(ms / 1000, 1)} s` : `${fmt(ms)} ms`;
-  return ` · ⏱ ${ft(ourMs)} vs ${ft(spMs)} <span class="${dMs >= 0 ? "good" : "bad"}">(${ft(Math.abs(dMs))} ${dMs >= 0 ? "faster" : "slower"})</span>`;
+function highlightBest() {
+  const rows = [...$("out").querySelectorAll("[data-cmp]")];
+  rows.forEach((r) => r.querySelectorAll(".stat.best").forEach((e) => e.classList.remove("best")));
+  if (rows.length < 2) return;
+  for (const c of STAT_COLS) {
+    if (!c.better) continue;
+    const cells = rows.map((r) => r.querySelector(`.stat[data-k="${c.k}"]`)).filter(Boolean);
+    if (cells.length < 2) continue;
+    const vals = cells.map((e) => Number(e.dataset.v));
+    const best = c.better === "min" ? Math.min(...vals) : Math.max(...vals);
+    if (vals.every((v) => v === best)) continue;  // a tie has no winner
+    cells.forEach((e, i) => e.classList.toggle("best", vals[i] === best));
+  }
+}
+// A spansh result as a row under ours: a title line, then the same stat cells.
+// Efficiency is ours' definition (straight line / LY flown) over the same
+// endpoints; spansh's own "efficiency" is a plotter setting, not a result.
+function showSpanshRow(el, title, s) {
+  const neutron = s.neutron_jumps != null ? s.neutron_jumps : null;
+  const straight = lastOurs ? lastOurs.straight_line_ly : null;
+  const link = s.results_url ? ` · <a href="${escapeHtml(s.results_url)}" target="_blank" rel="noopener">open in spansh ↗</a>` : "";
+  el.setAttribute("data-cmp", "");
+  el.className = "statrow small";
+  el.innerHTML = `<div class="cmp-head">${title}${link}</div>` + statCells({
+    jumps: s.total_jumps, neutron, regular: neutron != null ? s.total_jumps - neutron : null,
+    ly: s.total_distance_ly,
+    eff: straight && s.total_distance_ly ? straight / s.total_distance_ly : null,
+    solve: s.duration_s != null ? s.duration_s * 1000 : null,
+  });
+  highlightBest();
+}
+// Progress / error text on a spansh line: spans the grid, not a stats row.
+function showSpanshMsg(el, html) {
+  el.removeAttribute("data-cmp");
+  el.className = "statrow";
+  el.innerHTML = `<div class="cmp-head">${html}</div>`;
+  highlightBest();
 }
 
 // The "vs spansh" button adapts: with a ship imported we compare to spansh's
@@ -1055,18 +1143,15 @@ async function compareSpansh() {
   const { from, to, range, supercharge } = lastQuery;
   $("cmpGalaxy").disabled = true; $("cmpGalaxy").classList.add("querying"); setBusy(true);
   const out = () => cmpLine("cmpNeutron");
-  out().innerHTML = `<span class="tiny">Querying spansh Neutron Plotter… (can take ~10-30 s)</span>`;
+  showSpanshMsg(out(), `<span class="tiny">Querying spansh Neutron Plotter… (can take ~10-30 s)</span>`);
   try {
     const res = await fetch(`/spansh/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&range=${encodeURIComponent(range)}&efficiency=60&supercharge=${encodeURIComponent(supercharge || 4)}`, { headers: headers(), credentials: "include" });
-    if (!res.ok) { if (out()) out().innerHTML = `<span class="bad">spansh compare failed (HTTP ${res.status})</span>`; return; }
+    if (!res.ok) { showSpanshMsg(out(), `<span class="bad">spansh compare failed (HTTP ${res.status})</span>`); return; }
     const s = await res.json();
-    const sDur = s.duration_s != null ? `, ${fmt(s.duration_s, 1)} s` : "";
-    const link = s.results_url ? ` · <a href="${escapeHtml(s.results_url)}" target="_blank" rel="noopener">open in spansh ↗</a>` : "";
     const sc = Number(supercharge || 4);
-    const modeTag = sc !== 4 ? `<span class="tiny">supercharge ${sc}x</span> · ` : "";
-    if (out()) out().innerHTML = modeTag + `<b>spansh Neutron&nbsp;Plotter:</b> ${fmt(s.total_jumps)} jumps (eff 60${sDur})`
-      + cmpVerdict(s.total_jumps) + cmpTime(s.duration_s) + link;
-  } catch (e) { if (out()) out().innerHTML = `<span class="bad">${e.message || e}</span>`; }
+    const modeTag = sc !== 4 ? ` · supercharge ${sc}x` : "";
+    showSpanshRow(out(), `<b>spansh Neutron&nbsp;Plotter</b> <span class="tiny">(efficiency setting 60${modeTag})</span>`, s);
+  } catch (e) { showSpanshMsg(out(), `<span class="bad">${escapeHtml(e.message || String(e))}</span>`); }
   finally { $("cmpGalaxy").classList.remove("querying"); updateCompareButton(); setBusy(false); }
 }
 
@@ -1076,13 +1161,13 @@ async function compareGalaxy() {
   if (!lastQuery) return;
   const loadout = shipInfo ? ($("loadout").value || "").trim() : "";
   const out = () => cmpLine("cmpGalaxy_line");
-  if (!loadout) { out().innerHTML = `<span class="bad">Import a ship first (the Galaxy Plotter is fuel-aware).</span>`; return; }
+  if (!loadout) { showSpanshMsg(out(), `<span class="bad">Import a ship first (the Galaxy Plotter is fuel-aware).</span>`); return; }
   const { from, to } = lastQuery;
   $("cmpGalaxy").disabled = true; $("cmpGalaxy").classList.add("querying"); setBusy(true);
   // Blue 60 s progress line: the exact plotter typically takes up to a minute, so
   // give visible feedback. Pure CSS fill (0->100% over 60s); the result replaces it.
-  out().innerHTML = `<span class="tiny">Querying spansh Galaxy Plotter… (can take ~1 min)</span>`
-    + `<div class="spansh-bar" title="spansh exact plotter can take up to ~60 s"><div class="spansh-bar-fill"></div></div>`;
+  showSpanshMsg(out(), `<span class="tiny">Querying spansh Galaxy Plotter… (can take ~1 min)</span>`
+    + `<div class="spansh-bar" title="spansh exact plotter can take up to ~60 s"><div class="spansh-bar-fill"></div></div>`);
   try {
     const res = await fetch("/spansh/galaxy-route", {
       method: "POST", credentials: "include",
@@ -1091,15 +1176,12 @@ async function compareGalaxy() {
     });
     if (!res.ok) {
       const d = (await res.json().catch(() => ({}))).detail;
-      out().innerHTML = `<span class="bad">Galaxy Plotter failed: ${escapeHtml(typeof d === "string" ? d : ("HTTP " + res.status))}</span>`;
+      showSpanshMsg(out(), `<span class="bad">Galaxy Plotter failed: ${escapeHtml(typeof d === "string" ? d : ("HTTP " + res.status))}</span>`);
       return;
     }
     const s = await res.json();
-    const dur = s.duration_s != null ? ` (${fmt(s.duration_s, 1)} s)` : "";
-    const link = s.results_url ? ` · <a href="${escapeHtml(s.results_url)}" target="_blank" rel="noopener">open in spansh ↗</a>` : "";
-    out().innerHTML = `<b>spansh Galaxy&nbsp;Plotter:</b> ${fmt(s.total_jumps)} jumps${dur}`
-      + cmpVerdict(s.total_jumps) + cmpTime(s.duration_s) + link;
-  } catch (e) { out().innerHTML = `<span class="bad">${escapeHtml(e.message || String(e))}</span>`; }
+    showSpanshRow(out(), `<b>spansh Galaxy&nbsp;Plotter</b>`, s);
+  } catch (e) { showSpanshMsg(out(), `<span class="bad">${escapeHtml(e.message || String(e))}</span>`); }
   finally { $("cmpGalaxy").classList.remove("querying"); updateCompareButton(); setBusy(false); }
 }
 
@@ -1222,6 +1304,8 @@ $("clearAllShips").addEventListener("click", clearAllShips);
 $("shipLibrary").addEventListener("click", (ev) => {
   const pick = ev.target.closest(".ship-pick");
   const del = ev.target.closest(".ship-del");
+  const ren = ev.target.closest(".ship-ren");
+  if (ren) { renameShip(Number(ren.dataset.i)); return; }
   const ships = loadShips();
   if (pick) {
     const i = Number(pick.dataset.i);

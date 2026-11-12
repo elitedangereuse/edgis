@@ -4041,6 +4041,9 @@ async def spansh_route(
                     res = data["result"]
                     legs = res.get("system_jumps", [])
                     total = sum(int(x.get("jumps", 0)) for x in legs)
+                    # Supercharged jumps: one per neutron waypoint you leave
+                    # (the destination is the last waypoint, never left).
+                    neutron = sum(1 for x in legs[:-1] if x.get("neutron_star"))
                     flown = sum(
                         float(x.get("distance_jumped", 0)) for x in legs
                     )
@@ -4071,6 +4074,7 @@ async def spansh_route(
                         "source": res.get("source_system", from_),
                         "destination": res.get("destination_system", to),
                         "total_jumps": total,
+                        "neutron_jumps": neutron,
                         "waypoints": res.get("total_jumps"),
                         "distance_ly": res.get("distance"),
                         "total_distance_ly": flown,
@@ -4186,6 +4190,11 @@ async def spansh_galaxy_route(
                     res = data["result"]
                     legs = res.get("jumps", [])
                     total = max(0, len(legs) - 1)  # first entry is the source
+                    # A jump is supercharged when it leaves a neutron star.
+                    neutron = sum(
+                        1 for x in legs[:-1]
+                        if x.get("has_neutron") or x.get("neutron_star")
+                    )
                     flown = sum(float(x.get("distance", 0) or 0) for x in legs)
                     duration_s = None
                     try:
@@ -4207,6 +4216,7 @@ async def spansh_galaxy_route(
                         "source": src["name"],
                         "destination": dst["name"],
                         "total_jumps": total,
+                        "neutron_jumps": neutron,
                         "waypoints": len(legs),
                         "total_distance_ly": flown,
                         "duration_s": duration_s,

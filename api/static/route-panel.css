@@ -123,6 +123,9 @@
 #panel-route .ship-pick:hover { background:rgba(255,255,255,0.06); }
 #panel-route .ship-del { background:transparent; border:0; border-left:1px solid rgba(255,255,255,0.14); color:var(--muted); padding:0 8px; cursor:pointer; font-size:14px; line-height:1; }
 #panel-route .ship-del:hover { color:var(--bad); background:rgba(255,255,255,0.06); }
+#panel-route .ship-ren { background:transparent; border:0; border-left:1px solid rgba(255,255,255,0.14); color:var(--muted); padding:0 7px; cursor:pointer; font-size:12px; line-height:1; }
+#panel-route .ship-ren:hover { color:var(--text); background:rgba(255,255,255,0.06); }
+#panel-route .ship-name-input { background:rgba(255,255,255,0.06); border:0; color:var(--text); padding:5px 10px; font-size:12px; width:14rem; max-width:50vw; outline:none; }
 #panel-route .fuelbar { margin:12px 0 2px; font-size:13px; }
 
 #panel-route .summary { display:flex; gap:24px; flex-wrap:wrap; margin:20px 0 8px; align-items:flex-end; }
@@ -239,13 +242,24 @@
 /* From/To resolution: a badge inside the field (estimated / coordinates) and the
    position on the line below, so the CMDR can check an EDTS guess before plotting. */
 #panel-route .sys-field { position:relative; }
-#panel-route .sys-field input.sys-estimated { border-color:#7a5f27; }
+#panel-route .sys-field input.sys-estimated { border-color:rgba(248,248,255,.55); }
 #panel-route .sys-field input.has-badge { padding-right:7.5rem; }
 #panel-route .sys-badge { position:absolute; right:8px; top:50%; transform:translateY(-50%); pointer-events:none;
         padding:1px 8px; border-radius:999px; font-size:10px; line-height:1.4; text-transform:uppercase;
         letter-spacing:.5px; border:1px solid var(--dim); color:var(--muted); background:rgba(0,0,0,.35); }
-#panel-route .sys-badge.estimated { color:var(--warn); border-color:#7a5f27; }
-#panel-route .sys-badge.coords { color:var(--accent); }
+#panel-route .sys-badge.estimated,
+#panel-route .sys-badge.coords { color:var(--accent-white); border-color:rgba(248,248,255,.55); }
 #panel-route .sys-badge.unknown { color:var(--err); border-color:#7a2f33; }
 #panel-route .sys-hint { margin:2px 2px 0; }
 #panel-route .sys-hint .xyz { font-family:var(--mono); color:var(--text); }
+
+/* Route stats + spansh comparison rows share one grid so their columns line
+   up; spansh rows are the same cells, smaller. The best value per column is blue. */
+#panel-route .statgrid { display:grid; grid-template-columns:repeat(6, auto); justify-content:start;
+        column-gap:24px; row-gap:4px; margin:20px 0 8px; align-items:end; }
+#panel-route .statgrid #cmpOut, #panel-route .statgrid .statrow { display:contents; }
+#panel-route .cmp-head { grid-column:1 / -1; font-size:13px; margin-top:10px; }
+#panel-route .statrow.small .stat b { font-size:14px; }
+#panel-route .statrow.small .stat span { font-size:10px; }
+#panel-route .stat.best b { color:var(--neutron); }
+@media (max-width:560px) { #panel-route .statgrid { grid-template-columns:repeat(3, auto); } }
