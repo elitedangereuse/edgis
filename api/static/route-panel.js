@@ -864,9 +864,12 @@ async function loadStatus() {
     // Per-profile live countdown to this caller's wave (patron -> their wave).
     if (!st.public && opensFuture) startAccessCountdown(opensAt);
     else { clearInterval(accessCountdownTimer); accessCountdownTimer = null; }
-    // Collapse the banner (with its key field) once a key is set or it's public.
+    // Collapse the banner (with its key field) once the caller already has
+    // access: it's public, a key is set, or a signed-in patron/follower/hunter
+    // whose wave has opened (route_opens_at comes back null for them).
     const hasKey = !!($("key").value || "").trim();
-    $("banner").hidden = parts.length === 0 || hasKey;
+    const patronHasAccess = loggedIn && me && me.route_opens_at == null;
+    $("banner").hidden = parts.length === 0 || hasKey || st.public || patronHasAccess;
   } catch (e) {}
 }
 
