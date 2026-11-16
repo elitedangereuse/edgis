@@ -1088,6 +1088,12 @@ def test_read_index_uses_configured_path(tmp_path, monkeypatch):
     assert response.path == str(custom_index)
 
 
+def test_app_files_revalidate_but_images_do_not():
+    for path in ("/", "/static/route-panel.js", "/static/milkyway.css"):
+        assert client.get(path).headers.get("cache-control") == "no-cache", path
+    assert "cache-control" not in client.get("/static/favicon.png").headers
+
+
 def test_get_request_logs_user_agent(caplog):
     caplog.set_level("INFO", logger="uvicorn.error")
 

@@ -237,6 +237,24 @@ async def log_get_requests(request: Request, call_next):
     return response
 
 
+# Pages and their CSS/JS revalidate on every load (a cheap 304 via the ETag):
+# without a Cache-Control, browsers cached them heuristically and mixed a fresh
+# index.html with a stale route-panel.js after a deploy.
+_REVALIDATE_PAGES = {"/", "/admin", "/plotter"}
+_REVALIDATE_SUFFIXES = (".html", ".css", ".js")
+
+
+@app.middleware("http")
+async def revalidate_app_files(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path in _REVALIDATE_PAGES or (
+        path.startswith("/static/") and path.endswith(_REVALIDATE_SUFFIXES)
+    ):
+        response.headers.setdefault("Cache-Control", "no-cache")
+    return response
+
+
 # Database connection parameters
 DB_HOST = os.getenv("DB_HOST")
 DB_NAME = os.getenv("DB_NAME")
