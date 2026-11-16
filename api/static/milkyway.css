@@ -325,6 +325,15 @@ a:hover {
     font-family: var(--mono, ui-monospace, "SFMono-Regular", monospace);
     color: rgba(255, 255, 255, 0.55);
     letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+/* Phones: a far-rim triple (-12345.67, -1234.56, 65432.10) fits on one line. */
+@media (max-width: 480px) {
+    .system-card__coords {
+        font-size: 0.72rem;
+        letter-spacing: 0;
+    }
 }
 
 .system-card__star-indicator {
