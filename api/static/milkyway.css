@@ -361,10 +361,19 @@ a:hover {
 
 .system-card__actions {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 160px));
+    /* One row of four; auto-fit counted columns at the 160px max and wrapped
+       the fourth tile. */
+    grid-template-columns: repeat(4, minmax(0, 160px));
     gap: 1rem;
     justify-content: center;
     margin: 1.25rem auto;
+}
+
+/* Below the full card width the labels would not fit four across: 2 x 2. */
+@media (max-width: 767px) {
+    .system-card__actions {
+        grid-template-columns: repeat(2, minmax(0, 160px));
+    }
 }
 
 .system-card__action-tile {
