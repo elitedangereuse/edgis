@@ -3165,22 +3165,74 @@ def _load_permit_ids_sync() -> int:
     return len(ids)
 
 
+# Build progress for the "getting ready" bar after a deploy: no row counts to
+# stream (a few big queries, then the KD-tree), so the UI compares the elapsed
+# time with the previous build's duration, saved to this file.
+ROUTE_INDEX_TIMING_FILE = os.getenv("ROUTE_INDEX_TIMING_FILE") or os.path.join(
+    os.path.dirname(__file__), "route_index_build.json"
+)
+_neutron_index_build_started: float | None = None
+_neutron_index_build_stage = ""
+
+
+def _last_index_build_seconds() -> float | None:
+    try:
+        with open(ROUTE_INDEX_TIMING_FILE, encoding="utf-8") as fh:
+            seconds = float(json.load(fh)["seconds"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return seconds if seconds > 0 else None
+
+
+def _save_index_build_seconds(seconds: float) -> None:
+    try:
+        with open(ROUTE_INDEX_TIMING_FILE, "w", encoding="utf-8") as fh:
+            json.dump({"seconds": round(seconds, 3)}, fh)
+    except OSError:  # pragma: no cover - the bar just has no estimate next time
+        logger.warning("Could not save the route index build time")
+
+
+def _index_build_progress() -> dict[str, Any] | None:
+    started = _neutron_index_build_started
+    if started is None:
+        return None
+    return {
+        "stage": _neutron_index_build_stage,
+        "elapsed_s": round(time.monotonic() - started, 1),
+        "expected_s": _last_index_build_seconds(),
+    }
+
+
 def _build_neutron_index() -> None:
     global _neutron_index, _neutron_index_error, _neutron_index_building
+    global _neutron_index_build_started, _neutron_index_build_stage
+
+    def fetch_rows():
+        global _neutron_index_build_stage
+        _neutron_index_build_stage = "neutrons"
+        rows = _fetch_neutron_rows_sync()
+        _neutron_index_build_stage = "index"
+        return rows
+
+    _neutron_index_build_started = time.monotonic()
+    _neutron_index_build_stage = "permits"
     try:
         try:
             n_permit = _load_permit_ids_sync()
             logger.info("Permit id64 set loaded: %d systems", n_permit)
         except Exception:  # pragma: no cover - non-fatal; name rules still apply
             logger.exception("Permit id64 load failed; using name/sector rules only")
-        index = routing.NeutronIndex.build(_fetch_neutron_rows_sync)
+        index = routing.NeutronIndex.build(fetch_rows)
         _neutron_index = index
         _neutron_index_error = None
-        logger.info("Neutron route index built: %d stars", index.count)
+        seconds = time.monotonic() - _neutron_index_build_started
+        _save_index_build_seconds(seconds)
+        logger.info("Neutron route index built: %d stars in %.0f s", index.count, seconds)
     except Exception as exc:  # pragma: no cover - logged, non-fatal
         _neutron_index_error = str(exc)
         logger.exception("Neutron route index build failed")
     finally:
+        _neutron_index_build_started = None
         with _neutron_index_lock:
             _neutron_index_building = False
 
@@ -3701,6 +3753,10 @@ def route_status():
     )
     if _neutron_index_error:
         status["index_error"] = _neutron_index_error
+    if _neutron_index is None:
+        progress = _index_build_progress()
+        if progress:
+            status["index_build"] = progress
     return status
 
 

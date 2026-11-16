@@ -92,6 +92,17 @@
 #panel-route button#go.warming { opacity:.8; cursor:progress; }
 #panel-route button#go.warming .go-logo { animation:gospin 2.6s linear infinite; transform-origin:47% 38%; }
 @keyframes gospin { to { transform:rotate(-360deg); } }
+/* "New version getting ready" line + bar under the actions while warming up. */
+#panel-route .warm-note { margin-top:.6rem; font-size:.8rem; color:var(--muted); }
+#panel-route .warm-note[hidden] { display:none; }
+#panel-route .warm-note__track { position:relative; height:4px; margin-top:.4rem; border-radius:999px; background:rgba(255,255,255,.1); overflow:hidden; }
+#panel-route .warm-note__track span { display:block; height:100%; width:0; border-radius:inherit; background:var(--neutron); transition:width 3s linear; }
+#panel-route .warm-note.indeterminate .warm-note__track span { width:30%; transition:none; animation:warmslide 1.6s ease-in-out infinite; }
+@keyframes warmslide { from { transform:translateX(-100%); } to { transform:translateX(340%); } }
+@media (prefers-reduced-motion: reduce) {
+  #panel-route .warm-note__track span { transition:none; }
+  #panel-route .warm-note.indeterminate .warm-note__track span { animation:none; width:100%; opacity:.4; }
+}
 #panel-route .cmp-logo { width:16px; height:16px; border-radius:50%; }
 /* Spin the spansh logo while a compare query is in flight, so it is obvious. */
 #panel-route #cmpGalaxy.querying .cmp-logo { animation:gospin 0.8s linear infinite; }

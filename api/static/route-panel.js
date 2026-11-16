@@ -710,24 +710,60 @@ function renderAccessIndicator() {
 // disable the button, and poll /route/status until ready -- the poll is the
 // "event" that reactivates the button.
 let indexPollTimer = null;
-function setPlotWarming(on) {
+function setPlotWarming(on, build) {
   const go = $("go");
   if (!go) return;
   go.classList.toggle("warming", on);
   go.disabled = on;
   const label = go.querySelector(".go-label");
   if (label) label.textContent = on ? "Warming up…" : "Plot route";
+  showWarmProgress(on, build);
   if (on) pollIndexReady();
+}
+// The "new version getting ready" line under the button. The server has no row
+// counts to report (big queries, then the KD-tree), so the bar is the elapsed
+// time over the previous build's duration (`expected_s`), held below 100 %
+// until the index is really ready; with no previous build it just pulses.
+const WARM_POLL_MS = 3000;
+const WARM_STAGES = { permits: "Loading permit systems", neutrons: "Loading neutron stars", index: "Building the route index" };
+function showWarmProgress(on, build) {
+  const note = $("warmNote");
+  if (!note) return;
+  const bar = $("warmBar");
+  if (!on) {
+    if (note.hidden) return;
+    bar.style.width = "100%";
+    setTimeout(() => { note.hidden = true; }, 600);
+    return;
+  }
+  note.hidden = false;
+  const stage = build && WARM_STAGES[build.stage];
+  const exp = build && build.expected_s;
+  note.classList.toggle("indeterminate", !exp);
+  let eta = "";
+  if (exp) {
+    // Aim at where the build will be at the next poll: the width transition
+    // (as long as the poll interval) then glides instead of jumping.
+    const frac = Math.min(0.97, (build.elapsed_s + WARM_POLL_MS / 1000) / exp);
+    bar.style.width = `${(frac * 100).toFixed(1)}%`;
+    const left = Math.round(exp - build.elapsed_s);
+    eta = left > 90 ? `about ${Math.round(left / 60)} min left` : left > 5 ? `about ${left} s left` : "almost there";
+  } else {
+    bar.style.width = "";
+  }
+  $("warmEta").textContent = [stage, eta].filter(Boolean).join(" · ");
 }
 function pollIndexReady() {
   if (indexPollTimer) return;  // already polling
   const check = async () => {
     indexPollTimer = null;
-    let ready = false;
-    try { ready = !!(await fetch("/route/status").then(r => r.json())).index_ready; } catch (e) {}
-    if (ready) { setPlotWarming(false); loadStatus(); } else indexPollTimer = setTimeout(check, 3000);
+    let st = {};
+    try { st = await fetch("/route/status").then(r => r.json()); } catch (e) {}
+    if (st.index_ready) { setPlotWarming(false); loadStatus(); return; }
+    showWarmProgress(true, st.index_build);
+    indexPollTimer = setTimeout(check, WARM_POLL_MS);
   };
-  indexPollTimer = setTimeout(check, 3000);
+  indexPollTimer = setTimeout(check, WARM_POLL_MS);
 }
 
 // Format an ISO wave date ("2026-11-11") as "11 Nov" for the schedule copy,
@@ -773,7 +809,7 @@ async function loadStatus() {
     const loggedIn = !!(me && me.authenticated);
     $("importCurrentShip").hidden = !loggedIn;
     if (loggedIn) startPrefill = prefillFromCapi();
-    setPlotWarming(!st.index_ready);
+    setPlotWarming(!st.index_ready, st.index_build);
     const pill = $("accessPill");   // removed from the UI; guard if absent
     if (pill) {
       if (st.public) { pill.textContent = "public"; pill.className = "pill ok"; }

@@ -1,3 +1,4 @@
+import json
 import os
 import pathlib
 import sys
@@ -781,6 +782,38 @@ def test_route_status_is_public_and_ungated(monkeypatch):
     assert body["feature"] == "route"
     assert body["index_ready"] is False
     assert "public" in body
+
+
+def test_route_status_reports_build_progress_against_the_last_build(monkeypatch, tmp_path):
+    timing = tmp_path / "route_index_build.json"
+    monkeypatch.setattr(systems, "ROUTE_INDEX_TIMING_FILE", str(timing))
+    monkeypatch.setattr(systems, "_neutron_index", None)
+    monkeypatch.setattr(systems, "_neutron_index_build_started", systems.time.monotonic() - 10)
+    monkeypatch.setattr(systems, "_neutron_index_build_stage", "neutrons")
+
+    build = client.get("/route/status").json()["index_build"]
+    assert build["stage"] == "neutrons"
+    assert build["elapsed_s"] >= 10
+    assert build["expected_s"] is None  # first build: no estimate yet
+
+    systems._save_index_build_seconds(42.04)
+    assert client.get("/route/status").json()["index_build"]["expected_s"] == 42.04
+
+
+def test_index_build_saves_its_duration(monkeypatch, tmp_path):
+    timing = tmp_path / "route_index_build.json"
+    monkeypatch.setattr(systems, "ROUTE_INDEX_TIMING_FILE", str(timing))
+    monkeypatch.setattr(systems, "_neutron_index", None)
+    monkeypatch.setattr(systems, "_load_permit_ids_sync", lambda: 0)
+    monkeypatch.setattr(
+        systems, "_fetch_neutron_rows_sync",
+        lambda: [(0.0, 0.0, 0.0, 1, "A"), (10.0, 0.0, 0.0, 2, "B")],
+    )
+    systems._build_neutron_index()
+    assert systems._neutron_index.count == 2
+    assert systems._neutron_index_build_started is None
+    assert "seconds" in json.loads(timing.read_text())  # a 2-star build rounds to 0 s
+    assert "index_build" not in client.get("/route/status").json()
 
 
 def test_spansh_route_is_gated(monkeypatch):
