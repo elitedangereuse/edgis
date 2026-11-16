@@ -434,6 +434,9 @@ function switchShip(i) {
 function clearShip() {
   shipInfo = null; shipError = "";
   setActiveShip(-1);
+  // The ship set the supercharge (6x for a Caspian Mk II): don't keep it ship-less.
+  $("ship").value = "4";
+  localStorage.setItem(SHIP_LS, "4");
   $("shipInfo").textContent = "";
   renderShips();
   updateCompareButton();  // route may still be plotted -> fall back to neutron compare
