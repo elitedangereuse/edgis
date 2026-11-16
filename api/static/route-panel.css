@@ -297,7 +297,7 @@
 
 /* Route stats + spansh comparison rows share one grid so their columns line
    up; spansh rows are the same cells, smaller. The best value per column is blue. */
-#panel-route .statgrid { display:grid; grid-template-columns:repeat(6, auto); justify-content:start;
+#panel-route .statgrid { display:grid; grid-template-columns:repeat(6, auto); justify-content:space-between;
         column-gap:24px; row-gap:4px; margin:20px 0 8px; align-items:end; }
 #panel-route .statgrid #cmpOut, #panel-route .statgrid .statrow { display:contents; }
 #panel-route .cmp-head { grid-column:1 / -1; font-size:13px; margin-top:10px; }
