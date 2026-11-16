@@ -950,7 +950,10 @@
        } else if (count === null) {
          countEl.textContent = '';
        } else {
-         countEl.textContent = `Found ${count} system${count !== 1 ? 's' : ''}.`;
+         // A system search auto-loads its bodies, so the count is often bodies.
+         const isBodies = kind === 'bodies' || kind === 'body-detail';
+         const noun = isBodies ? (count !== 1 ? 'bodies' : 'body') : (count !== 1 ? 'systems' : 'system');
+         countEl.textContent = `Found ${count} ${noun}.`;
        }
 
        resultsPending = false;
