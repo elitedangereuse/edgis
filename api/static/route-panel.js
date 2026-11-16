@@ -434,6 +434,9 @@ function switchShip(i) {
 function clearShip() {
   shipInfo = null; shipError = "";
   setActiveShip(-1);
+  // The ship set the supercharge (6x for a Caspian Mk II): don't keep it ship-less.
+  $("ship").value = "4";
+  localStorage.setItem(SHIP_LS, "4");
   $("shipInfo").textContent = "";
   renderShips();
   updateCompareButton();  // route may still be plotted -> fall back to neutron compare
@@ -769,7 +772,7 @@ async function loadStatus() {
     renderAccessIndicator();
     const loggedIn = !!(me && me.authenticated);
     $("importCurrentShip").hidden = !loggedIn;
-    if (loggedIn) prefillFromCapi();
+    if (loggedIn) startPrefill = prefillFromCapi();
     setPlotWarming(!st.index_ready);
     const pill = $("accessPill");   // removed from the UI; guard if absent
     if (pill) {
@@ -873,6 +876,7 @@ async function resolveField(id, { final = false, note = "" } = {}) {
 // ship's journal Loadout (cf. elitedangereuselight outils/edgis-capi.php).
 const SITE_CAPI = "https://elitedangereuse.fr/outils/edgis-capi.php";
 let capiPrefilled = false;
+let startPrefill = Promise.resolve();  // the CAPI start lookup, awaited by the "Plot route" tile
 async function prefillFromCapi() {
   if (capiPrefilled) return;
   capiPrefilled = true;
@@ -1533,6 +1537,7 @@ $("swapFromTo").addEventListener("click", () => {
 // they don't fire on every index page load. The index calls this when the route
 // panel activates (and on load if ?tool=route).
 let _routeInited = false;
+let statusLoad = Promise.resolve();
 window.edgisInitRoutePanel = function () {
   if (_routeInited) return;
   _routeInited = true;
@@ -1553,7 +1558,7 @@ window.edgisInitRoutePanel = function () {
   const inj = q.get("inject_mult");
   if (inj != null && inj !== "") { setInjectMult(inj); localStorage.setItem(INJECT_MULT, String(injectMult())); }
   if (activeLoadout()) { importShip(); }
-  loadStatus();
+  statusLoad = loadStatus();
   // A shared link (from + to both present) plots straight away, once the stored
   // ship (if any) is imported. With a usable ship, the ship sets range and
   // supercharge (it is what you fly); without one, the link's values apply.
@@ -1566,6 +1571,18 @@ window.edgisInitRoutePanel = function () {
       plot();
     });
   }
+};
+
+// The lookup card's "Plot route" tile: set the destination, keep the start, and
+// plot straight away once a start is known (typed, or the CMDR's current system
+// from CAPI, which lands after the status fetch). Not while warming up or busy.
+window.edgisSetRouteDestination = async function (name) {
+  $("to").value = name;
+  resolveField("to", { final: true });
+  await statusLoad;
+  await startPrefill;
+  if ($("to").value.trim() !== name) return;  // changed meanwhile
+  if ($("from").value.trim() && !$("go").disabled) plot();
 };
 
 // The index's init is a deferred module that runs BEFORE this (deferred) script,
