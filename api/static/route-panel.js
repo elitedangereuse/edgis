@@ -351,6 +351,7 @@ function renderShips() {
   const shipRange = hasShip && !shipError;
   $("range").readOnly = shipRange;
   $("rangeNote").hidden = !shipRange;
+  $("range").classList.toggle("has-note", shipRange);
   $("range").title = shipRange
     ? "Your ship's full-tank range (cargo included). Change Cargo, or plot without a ship to set it by hand."
     : "";
@@ -898,20 +899,28 @@ const hintSeq = { from: 0, to: 0 };
 const hintTimers = {};
 const xyzText = (c) => [c.x, c.y, c.z].map(v => String(Number(v.toFixed(2)))).join(", ");
 function setSysHint(id, badge, html, tip = "") {
-  const el = $(id), b = $(id + "Badge"), h = $(id + "Hint");
+  const el = $(id), b = $(id + "Badge"), h = $(id + "Hint"), n = $(id + "Note");
   const labels = { estimated: "estimated", coords: "coordinates", unknown: "not found" };
   el.classList.toggle("sys-estimated", badge === "estimated" || badge === "coords");
   el.classList.toggle("has-badge", !!badge);
   b.hidden = !badge;
   b.className = "sys-badge" + (badge ? " " + badge : "");
   b.textContent = badge ? labels[badge] : "";
-  h.hidden = !html;
-  h.innerHTML = html || "";
-  h.title = tip;
+  // A badge state (coordinates / estimated) explains itself on the line below;
+  // a plain provenance note (the Frontier prefill) sits inside the field,
+  // right-aligned. The two are mutually exclusive, so they share the right edge.
+  const inField = !badge && !!html;
+  h.hidden = badge ? !html : true;
+  h.innerHTML = badge ? (html || "") : "";
+  h.title = badge ? tip : "";
+  n.hidden = !inField;
+  n.innerHTML = inField ? html : "";
+  n.title = inField ? tip : "";
+  el.classList.toggle("has-note", inField);
 }
 // `final`: the field was committed (change/blur/prefill). While typing, a name
 // that doesn't resolve yet is just incomplete, so "not found" waits for this.
-async function resolveField(id, { final = false, note = "" } = {}) {
+async function resolveField(id, { final = false, note = "", noteTip = "" } = {}) {
   clearTimeout(hintTimers[id]);
   const v = $(id).value.trim();
   const seq = ++hintSeq[id];
@@ -936,7 +945,7 @@ async function resolveField(id, { final = false, note = "" } = {}) {
       setSysHint(id, "coords", `${id === "to" ? "Destination" : "Start"} point ${xyz}`,
         id === "to" ? "The route ends at this point: target the nearest star in the in-game galaxy map." : "");
     } else {
-      setSysHint(id, null, note);
+      setSysHint(id, null, note, noteTip);
     }
   } catch (e) {
     if (seq === hintSeq[id]) setSysHint(id, null, "");
@@ -964,7 +973,7 @@ async function prefillFromCapi() {
     // Never overwrite what the CMDR typed (or a shared link's start).
     if (d && d.system && !$("from").value.trim()) {
       $("from").value = d.system;
-      resolveField("from", { final: true, note: "Your current system, from Frontier." });
+      resolveField("from", { final: true, note: "from Frontier", noteTip: "Your current system, auto-filled from Frontier." });
     }
   } catch (e) {}
 }
@@ -983,7 +992,7 @@ async function importCurrentShip() {
       .then(r => r.json()).catch(() => ({}));
     if (d.system && !$("from").value.trim()) {
       $("from").value = d.system;
-      resolveField("from", { final: true, note: "Your current system, from Frontier." });
+      resolveField("from", { final: true, note: "from Frontier", noteTip: "Your current system, auto-filled from Frontier." });
     }
     const loadout = d.ship && d.ship.loadout;
     if (!loadout) {
@@ -1617,9 +1626,29 @@ $("swapFromTo").addEventListener("click", () => {
 // panel activates (and on load if ?tool=route).
 let _routeInited = false;
 let statusLoad = Promise.resolve();
+// The plotter renders in its own panel and never shows the shared #result card,
+// so the docs/links footer (API docs | Roadmap | Patreon | Status) is missing
+// here. Mirror that same footer at the foot of the route panel: clone it so the
+// links stay a single source of truth, and drop the cloned ids to avoid dupes.
+function mirrorDocsFooter() {
+  const src = document.getElementById("docsContainer"), out = $("out");
+  if (!src || !out || document.getElementById("routeDocsContainer")) return;
+  const copy = src.cloneNode(true);
+  copy.id = "routeDocsContainer";
+  copy.removeAttribute("hidden");
+  copy.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
+  // The index resolves the API-docs href at load; fall back if we cloned early.
+  const api = copy.querySelector("a");
+  if (api && !api.getAttribute("href")) api.href = new URL("/docs", location.origin).toString();
+  copy.classList.remove("mt-2");
+  copy.classList.add("mt-6");
+  out.insertAdjacentElement("afterend", copy);
+}
+
 window.edgisInitRoutePanel = function () {
   if (_routeInited) return;
   _routeInited = true;
+  mirrorDocsFooter();
   const q = new URLSearchParams(location.search);
   const from = q.get("from"); if (from) $("from").value = from;
   const to = q.get("to"); if (to) $("to").value = to;

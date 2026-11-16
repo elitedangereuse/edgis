@@ -282,6 +282,7 @@
               <div class="sys-field">
                 <input id="from" list="sysopts" placeholder="Sol, or x, y, z" autocomplete="off" aria-describedby="fromHint" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
                 <span id="fromBadge" class="sys-badge" hidden></span>
+                <span id="fromNote" class="field-note" hidden></span>
               </div>
               <div id="fromHint" class="sys-hint tiny" hidden></div>
             </div>
@@ -290,11 +291,12 @@
               <div class="sys-field">
                 <input id="to" list="sysopts" placeholder="Colonia, or x, y, z" autocomplete="off" aria-describedby="toHint" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
                 <span id="toBadge" class="sys-badge" hidden></span>
+                <span id="toNote" class="field-note" hidden></span>
               </div>
               <div id="toHint" class="sys-hint tiny" hidden></div>
             </div>
             <div class="flex flex-wrap gap-3">
-              <div class="flex-1 flex flex-col gap-2" style="min-width:180px"><label for="range" class="text-sm font-semibold">Jump range (LY) <span id="rangeNote" class="range-note" hidden>set by your ship</span></label><input id="range" type="number" min="1" max="200" step="0.1" value="50" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" /></div>
+              <div class="flex-1 flex flex-col gap-2" style="min-width:180px"><label for="range" class="text-sm font-semibold">Jump range (LY)</label><div class="field-wrap"><input id="range" type="number" min="1" max="200" step="0.1" value="50" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" /><span id="rangeNote" class="field-note" hidden>set by your ship</span></div></div>
             </div>
             <datalist id="sysopts"></datalist>
             <details class="shiprow">

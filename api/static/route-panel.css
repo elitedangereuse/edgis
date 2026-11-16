@@ -85,6 +85,12 @@
 #panel-route select { color:var(--text); }
 #panel-route select option { background:#0c1218; color:var(--text); }
 #panel-route select option:checked { background:#107CB2; color:#fff; }
+/* Native number-input spinners render as bright UA chrome that clashes with the
+   glass panel (and sit uselessly on the read-only ship range). The fields step
+   via mouse wheel and typing already, so drop the arrows. */
+#panel-route input[type=number]::-webkit-outer-spin-button,
+#panel-route input[type=number]::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+#panel-route input[type=number] { -moz-appearance:textfield; appearance:textfield; }
 #panel-route .go-logo { width:16px; height:16px; }
 /* Plot button "warming up" state: the logo rotates slowly, stays visible while
    disabled. The mark's blades converge above box centre, so pivot on that hub
@@ -295,6 +301,15 @@
 #panel-route .sys-hint { margin:2px 2px 0; }
 #panel-route .sys-hint .xyz { font-family:var(--mono); color:var(--text); }
 
+/* A field's provenance note (From "from Frontier", Jump range "set by your
+   ship") sits inside the input, right-aligned and muted, so they read the same.
+   Purely a label: pointer-events off, never part of the value. */
+#panel-route .field-wrap { position:relative; }
+#panel-route .field-note { position:absolute; right:10px; top:50%; transform:translateY(-50%);
+        pointer-events:none; color:var(--muted); font-size:11px; line-height:1.4; white-space:nowrap;
+        max-width:60%; overflow:hidden; text-overflow:ellipsis; }
+#panel-route input.has-note { padding-right:7.5rem; }
+
 /* Route stats + spansh comparison rows share one grid so their columns line
    up; spansh rows are the same cells, smaller. The best value per column is blue. */
 #panel-route .statgrid { display:grid; grid-template-columns:repeat(6, auto); justify-content:space-between;
@@ -308,5 +323,4 @@
 @media (max-width:560px) { #panel-route .statgrid { grid-template-columns:repeat(3, auto); } }
 
 /* Jump range set by the selected ship: read-only, readable, marked as derived. */
-#panel-route .range-note { margin-left:6px; font-size:11px; font-weight:400; color:var(--muted); text-transform:none; }
 #panel-route input#range:read-only { border-style:dashed; color:var(--accent-white); cursor:default; }
