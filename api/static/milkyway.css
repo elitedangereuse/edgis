@@ -310,10 +310,9 @@ a:hover {
    full-width primary-star card with X/Y/Z boxes). */
 .system-card__meta {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    flex-wrap: wrap;
-    gap: 0.35rem 0.7rem;
+    gap: 0.35rem;
     margin: -0.4rem 0 1rem;
     font-size: 0.85rem;
 }
@@ -326,12 +325,6 @@ a:hover {
     font-family: var(--mono, ui-monospace, "SFMono-Regular", monospace);
     color: rgba(255, 255, 255, 0.55);
     letter-spacing: 0.02em;
-}
-
-.system-card__coords::before {
-    content: "·";
-    margin-right: 0.7rem;
-    color: rgba(255, 255, 255, 0.3);
 }
 
 .system-card__star-indicator {
@@ -659,6 +652,30 @@ a:hover {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+/* Phones: the title and the menu fill the row, so the chip drops below them. */
+@media (max-width: 480px) {
+    .hero-header {
+        flex-wrap: wrap;
+        row-gap: 0;
+    }
+    .hero-header h1 {
+        font-size: 2.25rem;
+    }
+    .hero-title svg {
+        width: 48px;
+        height: 48px;
+    }
+    .hero-header::after {
+        content: "";
+        order: 1;
+        flex-basis: 100%;
+    }
+    .cmdr-chip {
+        order: 2;
+        max-width: 100%;
+        margin-top: 0.5rem;
+    }
 }
 .cmdr-chip__dot {
     width: 7px;
