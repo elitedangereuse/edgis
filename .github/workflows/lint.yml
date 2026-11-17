@@ -1,0 +1,15 @@
+name: Lint
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+jobs:
+  no-emdash:
+    name: No em-dashes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for em-dashes
+        run: bash scripts/check-no-emdash.sh
