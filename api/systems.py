@@ -840,7 +840,11 @@ def _normalize_neighbor_row(
     else:
         normalized_distance = distance
     normalized = {
-        "id64": row[0],
+        # id64 as a STRING: Elite id64s exceed JS's safe-integer range (2^53), so a
+        # JSON number loses precision in the browser for deep-space systems, which
+        # broke the /body-counts match (galaxymap heatmap + neighbors table). Callers
+        # treat id64 as an opaque string.
+        "id64": str(row[0]),
         "name": row[1],
         "mainstar": row[2],
         "coords": {
@@ -2607,7 +2611,9 @@ def _fetch_body_counts_sync(id_list: list[int]) -> dict[str, int]:
 
 
 class BodyCountsRequest(BaseModel):
-    ids: list[int] = []
+    # STRING ids: id64 exceeds JS's safe-integer range, so callers send it as a
+    # string to avoid precision loss; parsed to an exact int here.
+    ids: list[str] = []
 
 
 @app.post("/body-counts", include_in_schema=True)
@@ -2619,7 +2625,11 @@ async def body_counts(req: BodyCountsRequest):
     stays off the critical path."""
     seen: set[int] = set()
     id_list: list[int] = []
-    for value in req.ids:
+    for token in req.ids:
+        try:
+            value = int(token)
+        except (TypeError, ValueError):
+            continue
         if value not in seen:
             seen.add(value)
             id_list.append(value)
