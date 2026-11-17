@@ -44,6 +44,7 @@
      let hudFacetSearchTerm = '';
      let hudFacetSortMode = 'count_desc';
      let distanceHeatEnabled = false;
+     let bodiesHeatEnabled = false;
      let boxelOverlayEnabled = false;
      let allegianceVoronoiEnabled = false;
      let predictedSystemsEnabled = false;
@@ -1064,6 +1065,38 @@
       window.System.syncParticleColors();
     }
 
+    // Colour each visible system by its scanned-body count (infos.body_count,
+    // from /neighbors). The ramp is relative to the densest system in view (floor
+    // 1), so it adapts as you pan/zoom; systems with no known bodies stay cold.
+    function applyBodiesHeatColoring() {
+      if (!window.System?.particleGeo?.vertices || !Array.isArray(window.System.particleGeo.colors)) {
+        return;
+      }
+      const vertices = window.System.particleGeo.vertices;
+      const colors = window.System.particleGeo.colors;
+      let maxBodies = 1;
+      for (let index = 0; index < vertices.length; index++) {
+        const vertex = vertices[index];
+        if (!vertex || vertex.visible !== true) {
+          continue;
+        }
+        const n = Number(vertex?.infos?.body_count);
+        if (Number.isFinite(n) && n > maxBodies) {
+          maxBodies = n;
+        }
+      }
+      for (let index = 0; index < vertices.length; index++) {
+        const vertex = vertices[index];
+        if (!vertex || vertex.visible !== true) {
+          continue;
+        }
+        const n = Number(vertex?.infos?.body_count);
+        const ratio = Number.isFinite(n) ? (n / maxBodies) : 0;
+        colors[index] = colorFromHeatRatio(ratio);
+      }
+      window.System.syncParticleColors();
+    }
+
     function applyFacetSelectionColoring() {
       if (!window.System?.particleGeo?.vertices || !Array.isArray(window.System.particleGeo.colors)) {
         return;
@@ -1124,6 +1157,10 @@
     function applyActivePointColorMode() {
       if (distanceHeatEnabled) {
         applyDistanceHeatColoring();
+        return;
+      }
+      if (bodiesHeatEnabled) {
+        applyBodiesHeatColoring();
         return;
       }
       restoreVisiblePointBaseColors();
@@ -1411,6 +1448,11 @@
       } else {
         nextUrl.searchParams.delete('heat');
       }
+      if (bodiesHeatEnabled) {
+        nextUrl.searchParams.set('bodies_heat', '1');
+      } else {
+        nextUrl.searchParams.delete('bodies_heat');
+      }
       if (boxelOverlayEnabled) {
         nextUrl.searchParams.set('boxels', '1');
       } else {
@@ -1443,6 +1485,16 @@
       }
       button.classList.toggle('is-active', Boolean(distanceHeatEnabled));
       button.title = distanceHeatEnabled ? 'Distance Heat: On' : 'Distance Heat: Off';
+      button.setAttribute('aria-label', button.title);
+    }
+
+    function updateBodiesHeatButtonState() {
+      const button = document.getElementById('bodiesHeatButton');
+      if (!button) {
+        return;
+      }
+      button.classList.toggle('is-active', Boolean(bodiesHeatEnabled));
+      button.title = bodiesHeatEnabled ? 'Bodies Heat: On' : 'Bodies Heat: Off';
       button.setAttribute('aria-label', button.title);
     }
 
@@ -2497,7 +2549,22 @@
 
     function toggleDistanceHeat() {
       distanceHeatEnabled = !distanceHeatEnabled;
+      // Distance and bodies heat are mutually exclusive point-colour modes.
+      if (distanceHeatEnabled && bodiesHeatEnabled) {
+        bodiesHeatEnabled = false;
+        updateBodiesHeatButtonState();
+      }
       updateDistanceHeatButtonState();
+      applyActivePointColorMode();
+    }
+
+    function toggleBodiesHeat() {
+      bodiesHeatEnabled = !bodiesHeatEnabled;
+      if (bodiesHeatEnabled && distanceHeatEnabled) {
+        distanceHeatEnabled = false;
+        updateDistanceHeatButtonState();
+      }
+      updateBodiesHeatButtonState();
       applyActivePointColorMode();
     }
 
@@ -4233,6 +4300,7 @@
          material: raw.material
        });
        distanceHeatEnabled = raw.heat === '1';
+       bodiesHeatEnabled = raw.bodies_heat === '1';
        boxelOverlayEnabled = raw.boxels === '1';
        allegianceVoronoiEnabled = raw.allegiance_voronoi === '1';
        predictedSystemsEnabled = raw.predicted === '1';
@@ -4463,6 +4531,7 @@
       const systemMapButton = document.getElementById('systemMapButton');
       const openEdgisButton = document.getElementById('openEdgisButton');
       const distanceHeatButton = document.getElementById('distanceHeatButton');
+      const bodiesHeatButton = document.getElementById('bodiesHeatButton');
       const boxelOverlayButton = document.getElementById('boxelOverlayButton');
       const allegianceVoronoiButton = document.getElementById('allegianceVoronoiButton');
       const predictedSystemsButton = document.getElementById('predictedSystemsButton');
@@ -4539,6 +4608,12 @@
       if (distanceHeatButton) {
         distanceHeatButton.addEventListener('click', () => {
           toggleDistanceHeat();
+        });
+      }
+
+      if (bodiesHeatButton) {
+        bodiesHeatButton.addEventListener('click', () => {
+          toggleBodiesHeat();
         });
       }
 
@@ -4955,6 +5030,7 @@
       updateModeButtonState();
       updateFilterDimensionButtonState();
       updateDistanceHeatButtonState();
+      updateBodiesHeatButtonState();
       updateBoxelOverlayButtonState();
       updateAllegianceVoronoiButtonState();
       updatePredictedSystemsButtonState();
