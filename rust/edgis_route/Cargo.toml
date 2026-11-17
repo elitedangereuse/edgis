@@ -1,8 +1,8 @@
 [package]
 name = "edgis_route"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-description = "Native range-growth neutron A* kernel for the EDGIS route plotter"
+description = "Native fuel-aware neutron A* kernel (B1 + B2) for the EDGIS route plotter"
 
 [lib]
 name = "edgis_route"

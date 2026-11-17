@@ -47,6 +47,15 @@ if _os.environ.get("EDGIS_NATIVE_ROUTE", "1") != "0":
         _native_route = None
 _native_route_warned = False
 
+# B1 (_graph_search_fuel) runs on the native graph_search_fuel kernel (fixed reach
+# + prefix-min dominance). Parity-verified: identical min-jumps vs the Python B1
+# (13-route prod A/B, 0 regressions), 5-7x faster on pure-B1 (>30 kly) routes.
+# SCOPED to the final search only (native_ok): the two-phase B2 seeds its corridor
+# from a B1 COARSE path, and native's different tie-break could shift that seed, so
+# the coarse stays on Python. On by default (gated by the .so, like B2); set
+# EDGIS_B1_NATIVE=0 to disable without removing the .so.
+_B1_NATIVE = _os.environ.get("EDGIS_B1_NATIVE", "1") != "0"
+
 NeutronRow = tuple[float, float, float, int, str]
 StarRow = tuple  # (x, y, z, name[, mainstar])
 FetchNeutrons = Callable[[], Iterable[NeutronRow]]
@@ -840,6 +849,7 @@ def _graph_search_fuel(
     tank_jumps: int,
     scoop_max_ls: float,
     boost_mult: float = 4.0,
+    native_ok: bool = True,
 ) -> Optional[list[int]]:
     """Fuel-aware variant of :func:`_graph_search`. Min-**jumps** over the
     corridor neutrons where a boosted hop burns one jump of fuel and landing on a
@@ -874,6 +884,45 @@ def _graph_search_fuel(
     straight = float(np.linalg.norm(dv - sv))
     n = len(cand)
     cc = index.coords[cand] if n else np.zeros((0, 3))
+
+    # Native kernel: B1 runs on graph_search_fuel (fixed reach + prefix-min
+    # dominance, matching this function's min-jumps and small front). Identical
+    # jump count, ~native speed. On any marshalling error we warn once and fall
+    # through to the Python loop below.
+    # Native B1 only for the FINAL search (native_ok). The two-phase B2 seeds its
+    # thin corridor from a B1 COARSE path; the native kernel tie-breaks differently
+    # (kiddo vs scipy KD-tree), so a native coarse can seed a different corridor and
+    # shift the B2 result +/-1. Keeping the coarse on Python preserves the corridor
+    # and the no-regression guarantee; native still speeds the pure-B1 routes.
+    if _B1_NATIVE and native_ok and _native_route is not None:
+        try:
+            return _native_graph_search_fuel(
+                index,
+                cand,
+                cc,
+                sv,
+                dv,
+                J,
+                entry_r,
+                gap_k,
+                blacklist,
+                badzones,
+                deadline,
+                int(tank_jumps),
+                scoop_max_ls,
+                boost_mult,
+            )
+        except Exception:  # pragma: no cover
+            global _native_route_warned
+            if not _native_route_warned:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "native B1 (fuel) kernel failed; using Python fallback",
+                    exc_info=True,
+                )
+                _native_route_warned = True
+
     lt = cKDTree(cc) if n else None
     dd_dst = np.linalg.norm(cc - dv, axis=1) if n else np.zeros(0)
     hv = (
@@ -1109,6 +1158,52 @@ def _native_graph_search_range(
         float(entry_r),
         int(gap_k),
         [float(x) for x in reach_by_r],
+        float(boost_mult),
+        float(budget),
+        [(int(a), int(b)) for (a, b) in blacklist],
+        bz,
+    )
+
+
+def _native_graph_search_fuel(
+    index: NeutronIndex,
+    cand: np.ndarray,
+    cc: np.ndarray,
+    sv: np.ndarray,
+    dv: np.ndarray,
+    jump_range: float,
+    entry_r: float,
+    gap_k: int,
+    blacklist: set[tuple[int, int]],
+    badzones: list[tuple[np.ndarray, float]],
+    deadline: float,
+    tank_jumps: int,
+    scoop_max_ls: float,
+    boost_mult: float,
+) -> Optional[list[int]]:
+    """Marshal the B1 inputs and run the native fuel A* kernel (fixed reach +
+    prefix-min). Same contract as :func:`_graph_search_fuel`: the GLOBAL-id neutron
+    sequence, or ``None`` (timeout / no route). ``cc`` is the sliced coord block."""
+    sls = getattr(index, "scoop_ls", None)
+    scoopable = (
+        (np.asarray(sls)[cand] <= scoop_max_ls)
+        if (sls is not None and len(cand))
+        else np.zeros(len(cand), dtype=bool)
+    )
+    budget = max(0.0, float(deadline) - time.perf_counter())
+    bz = [
+        (float(c[0]), float(c[1]), float(c[2]), float(r)) for c, r in badzones
+    ]
+    return _native_route.graph_search_fuel(
+        np.ascontiguousarray(cc, dtype=np.float64),
+        np.ascontiguousarray(scoopable).astype(np.uint8),
+        np.ascontiguousarray(cand, dtype=np.int64),
+        np.ascontiguousarray(sv, dtype=np.float64),
+        np.ascontiguousarray(dv, dtype=np.float64),
+        float(jump_range),
+        float(entry_r),
+        int(gap_k),
+        int(tank_jumps),
         float(boost_mult),
         float(budget),
         [(int(a), int(b)) for (a, b) in blacklist],
@@ -2031,6 +2126,8 @@ def graph_route(
             int(tank_jumps),
             float(scoop_max_ls),
             boost_mult=boost_mult,
+            # Keep the B2 corridor seed on Python: see _graph_search_fuel native note.
+            native_ok=False,
         )
         if coarse:
             b1seq = list(reversed(coarse)) if flip else coarse

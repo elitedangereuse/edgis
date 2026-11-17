@@ -56,6 +56,12 @@ fn search_core(
     time_budget_s: f64,
     bl: &HashSet<(i64, i64)>,
     badzones: &[(f64, f64, f64, f64)],
+    // B1 fuel search (fixed reach) uses PREFIX-MIN dominance: a label is dropped
+    // when any lower-or-equal resource reaches the node in no more jumps. B2 range
+    // growth uses SAME-r only (a fuller tank has shorter reach, so it cannot
+    // dominate an emptier one). Both find the same min-jumps; prefix-min keeps the
+    // (node x fuel) front a small anti-chain, so B1 stays fast on the full corridor.
+    prefix_min: bool,
 ) -> (Option<Vec<i64>>, i64, u64) {
     let n = cand.len();
     let j = jump_range;
@@ -136,7 +142,21 @@ fn search_core(
             let m: usize = $m;
             let cg: i64 = $cg;
             let cr: usize = $cr;
-            if best[idx(m, cr)] > cg {
+            // Dominated iff an equal-or-better label already reaches m: same-r for
+            // B2, prefix-min over resources 0..=cr for B1.
+            let dominated = if prefix_min {
+                let base = m * slots;
+                let mut pm = i64::MAX;
+                for rr in 0..=cr {
+                    if best[base + rr] < pm {
+                        pm = best[base + rr];
+                    }
+                }
+                pm <= cg
+            } else {
+                best[idx(m, cr)] <= cg
+            };
+            if !dominated {
                 best[idx(m, cr)] = cg;
                 par[idx(m, cr)] = ($pnode as i32, $pr as i32);
                 let h = if m >= n { 0 } else { hv[m] };
@@ -161,8 +181,23 @@ fn search_core(
             dst_g = g;
             break;
         }
-        if u < n && best[idx(u, r)] < g {
-            continue;
+        if u < n {
+            if best[idx(u, r)] < g {
+                continue;
+            }
+            // Prefix-min (B1): a lower resource now reaches u in no more jumps.
+            if prefix_min && r > 0 {
+                let base = u * slots;
+                let mut pm = i64::MAX;
+                for rr in 0..r {
+                    if best[base + rr] < pm {
+                        pm = best[base + rr];
+                    }
+                }
+                if pm <= g {
+                    continue;
+                }
+            }
         }
         pops += 1;
         // Deadline check every 4096 real pops.
@@ -327,6 +362,7 @@ fn run<'py>(
     time_budget_s: f64,
     blacklist: Vec<(i64, i64)>,
     badzones: Vec<(f64, f64, f64, f64)>,
+    prefix_min: bool,
 ) -> PyResult<(Option<Vec<i64>>, i64, u64)> {
     let bl: HashSet<(i64, i64)> = blacklist.into_iter().collect();
     Ok(search_core(
@@ -343,6 +379,7 @@ fn run<'py>(
         time_budget_s,
         &bl,
         &badzones,
+        prefix_min,
     ))
 }
 
@@ -371,7 +408,7 @@ fn graph_search_range<'py>(
     let _ = py;
     let (seq, _g, _p) = run(
         cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, reach_by_r,
-        boost_mult, time_budget_s, blacklist, badzones,
+        boost_mult, time_budget_s, blacklist, badzones, false,
     )?;
     Ok(seq)
 }
@@ -396,7 +433,62 @@ fn graph_search_range_debug<'py>(
 ) -> PyResult<(Option<Vec<i64>>, i64, u64)> {
     run(
         cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, reach_by_r,
-        boost_mult, time_budget_s, blacklist, badzones,
+        boost_mult, time_budget_s, blacklist, badzones, false,
+    )
+}
+
+/// B1 fuel entry point. Same contract as graph_search_range but a FIXED reach
+/// (boost_mult * jump_range at every fuel level) over `tank_jumps` resource
+/// levels, with prefix-min dominance. The GLOBAL-id neutron sequence, or None.
+#[allow(clippy::too_many_arguments)]
+#[pyfunction]
+fn graph_search_fuel<'py>(
+    py: Python<'py>,
+    cc: PyReadonlyArray2<'py, f64>,
+    scoopable: PyReadonlyArray1<'py, u8>,
+    cand: PyReadonlyArray1<'py, i64>,
+    sv: PyReadonlyArray1<'py, f64>,
+    dv: PyReadonlyArray1<'py, f64>,
+    jump_range: f64,
+    entry_r: f64,
+    gap_k: usize,
+    tank_jumps: usize,
+    boost_mult: f64,
+    time_budget_s: f64,
+    blacklist: Vec<(i64, i64)>,
+    badzones: Vec<(f64, f64, f64, f64)>,
+) -> PyResult<Option<Vec<i64>>> {
+    let _ = py;
+    let reach_by_r = vec![boost_mult * jump_range; tank_jumps];
+    let (seq, _g, _p) = run(
+        cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, reach_by_r,
+        boost_mult, time_budget_s, blacklist, badzones, true,
+    )?;
+    Ok(seq)
+}
+
+/// Debug/parity entry point for B1: (sequence, dst_g jump count, pops).
+#[allow(clippy::too_many_arguments)]
+#[pyfunction]
+fn graph_search_fuel_debug<'py>(
+    cc: PyReadonlyArray2<'py, f64>,
+    scoopable: PyReadonlyArray1<'py, u8>,
+    cand: PyReadonlyArray1<'py, i64>,
+    sv: PyReadonlyArray1<'py, f64>,
+    dv: PyReadonlyArray1<'py, f64>,
+    jump_range: f64,
+    entry_r: f64,
+    gap_k: usize,
+    tank_jumps: usize,
+    boost_mult: f64,
+    time_budget_s: f64,
+    blacklist: Vec<(i64, i64)>,
+    badzones: Vec<(f64, f64, f64, f64)>,
+) -> PyResult<(Option<Vec<i64>>, i64, u64)> {
+    let reach_by_r = vec![boost_mult * jump_range; tank_jumps];
+    run(
+        cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, reach_by_r,
+        boost_mult, time_budget_s, blacklist, badzones, true,
     )
 }
 
@@ -404,6 +496,8 @@ fn graph_search_range_debug<'py>(
 fn edgis_route(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(graph_search_range, m)?)?;
     m.add_function(wrap_pyfunction!(graph_search_range_debug, m)?)?;
+    m.add_function(wrap_pyfunction!(graph_search_fuel, m)?)?;
+    m.add_function(wrap_pyfunction!(graph_search_fuel_debug, m)?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }
