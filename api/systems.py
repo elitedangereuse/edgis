@@ -849,6 +849,10 @@ def _normalize_neighbor_row(
             "z": float(coords[2]),
         },
         "distance": normalized_distance,
+        # Scanned-body count. Always the last SELECT column (appended after the
+        # optional facet/allegiance/power columns), so read it positionally as
+        # row[-1] without disturbing those forward indices.
+        "body_count": int(row[-1]) if row[-1] is not None else 0,
     }
     if include_facets:
         atmosphere_gases = row[5] if len(row) > 5 else []
@@ -956,7 +960,7 @@ def _neighbors_page_payload(
     endpoint=REDIS_HOST,  # or your Redis host
     port=REDIS_PORT,
     ttl=ONE_DAY_SECONDS,  # one day cache
-    namespace="neighbors",
+    namespace="neighbors_v2",
     serializer=PickleSerializer(),  # Or JsonSerializer if you prefer
 )
 async def fetch_neighbors_from_db(
@@ -1088,6 +1092,10 @@ def _fetch_neighbors_from_db_sync(
                         {facet_select}
                         {allegiance_select}
                         {controlling_power_select}
+                        , (
+                            SELECT COUNT(*) FROM bodies b
+                            WHERE b.system_id64 = s.id64
+                        ) AS body_count
                     FROM systems_big s
                     {allegiance_join}
                     {controlling_power_join}
@@ -1121,7 +1129,7 @@ def _fetch_neighbors_from_db_sync(
     endpoint=REDIS_HOST,
     port=REDIS_PORT,
     ttl=ONE_DAY_SECONDS,
-    namespace="neighbors_paged_exact_v1",
+    namespace="neighbors_paged_exact_v2",
     serializer=PickleSerializer(),
 )
 async def fetch_neighbors_page_from_db(
@@ -1262,6 +1270,10 @@ def _fetch_neighbors_page_from_db_sync(
                         {facet_select}
                         {allegiance_select}
                         {controlling_power_select}
+                        , (
+                            SELECT COUNT(*) FROM bodies b
+                            WHERE b.system_id64 = s.id64
+                        ) AS body_count
                     FROM systems_big s
                     {allegiance_join}
                     {controlling_power_join}
@@ -2448,7 +2460,14 @@ def fetch_bodies_from_db(
             cursor.execute(query, tuple(params))
             rows = cursor.fetchall()
             if not rows:
-                return None
+                # A real system can have no scanned bodies (e.g. NavRoute-only
+                # systems). Return an empty list ("0 bodies") when the system
+                # exists, and keep None (-> 404 "not found") only for a genuinely
+                # unknown system, so the lookup stops reporting an error.
+                cursor.execute(
+                    "SELECT 1 FROM systems_big WHERE id64 = %s", (system_id64,)
+                )
+                return [] if cursor.fetchone() is not None else None
 
             # get column names from cursor.description
             col_names = [desc[0] for desc in cursor.description]

@@ -517,6 +517,7 @@
        mainstar: 'type',
        distance: 'LY',
        distance_ly: 'LY',
+       body_count: 'bodies',
        body_id: 'Body ID',
        body_name: 'Name',
        body_type: 'Type',
@@ -1508,6 +1509,15 @@
        }
        callApi('/coords?q=' + encodeURIComponent(value), 'system-lookup');
      }
+
+     // A result row's magnifier: look up that system in the lookup tool (its
+     // system card + bodies), the same as typing the name and searching.
+     function lookupSystemByName(name) {
+       if (!name || !searchInput) return;
+       searchInput.value = name;
+       submitSearch();
+     }
+     globalThis.lookupSystemByName = lookupSystemByName;
 
      function submitBodies(options = {}) {
        dismissBodiesAutocomplete();
@@ -2916,6 +2926,16 @@
        const hasSystemId = normalizedSystemId !== null;
 
        if (displayName && !isSystemLookup) {
+         parts.push(`
+      <button
+        type="button"
+        title="Search this system"
+        class="row-act"
+        onclick="lookupSystemByName('${escapeQuotes(displayName)}')"
+      >
+        ${bodyDetailsIconSvg}
+      </button>
+         `);
          parts.push(`
       <button
         title="View system map"
