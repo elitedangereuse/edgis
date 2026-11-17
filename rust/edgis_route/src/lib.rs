@@ -13,7 +13,7 @@ use std::collections::{BinaryHeap, HashSet};
 use std::time::Instant;
 
 use kiddo::{KdTree, SquaredEuclidean};
-use numpy::ndarray::ArrayView2;
+use numpy::ndarray::{Array2, ArrayView2};
 use numpy::{PyReadonlyArray1, PyReadonlyArray2};
 use ordered_float::OrderedFloat;
 use pyo3::prelude::*;
@@ -347,8 +347,14 @@ fn search_core(
 }
 
 /// Marshal numpy inputs then call the shared core. Shared by both wrappers.
+///
+/// Copies the buffers under the GIL, then releases it for the search: the
+/// kernel runs for seconds and the API is one single-process event loop, so
+/// holding the GIL here would stall every other request for the whole solve.
+/// The copies are a few MB at most, trivial next to the search itself.
 #[allow(clippy::too_many_arguments)]
 fn run<'py>(
+    py: Python<'py>,
     cc: PyReadonlyArray2<'py, f64>,
     scoopable: PyReadonlyArray1<'py, u8>,
     cand: PyReadonlyArray1<'py, i64>,
@@ -364,23 +370,30 @@ fn run<'py>(
     badzones: Vec<(f64, f64, f64, f64)>,
     prefix_min: bool,
 ) -> PyResult<(Option<Vec<i64>>, i64, u64)> {
+    let cc_o: Array2<f64> = cc.as_array().to_owned();
+    let scoop_o: Vec<u8> = scoopable.as_slice()?.to_vec();
+    let cand_o: Vec<i64> = cand.as_slice()?.to_vec();
+    let sv_o: Vec<f64> = sv.as_slice()?.to_vec();
+    let dv_o: Vec<f64> = dv.as_slice()?.to_vec();
     let bl: HashSet<(i64, i64)> = blacklist.into_iter().collect();
-    Ok(search_core(
-        cc.as_array(),
-        scoopable.as_slice()?,
-        cand.as_slice()?,
-        sv.as_slice()?,
-        dv.as_slice()?,
-        jump_range,
-        entry_r,
-        gap_k,
-        &reach_by_r,
-        boost_mult,
-        time_budget_s,
-        &bl,
-        &badzones,
-        prefix_min,
-    ))
+    Ok(py.allow_threads(move || {
+        search_core(
+            cc_o.view(),
+            &scoop_o,
+            &cand_o,
+            &sv_o,
+            &dv_o,
+            jump_range,
+            entry_r,
+            gap_k,
+            &reach_by_r,
+            boost_mult,
+            time_budget_s,
+            &bl,
+            &badzones,
+            prefix_min,
+        )
+    }))
 }
 
 /// Production entry point: the GLOBAL-id neutron sequence, or None (timeout / no
@@ -403,11 +416,8 @@ fn graph_search_range<'py>(
     blacklist: Vec<(i64, i64)>,
     badzones: Vec<(f64, f64, f64, f64)>,
 ) -> PyResult<Option<Vec<i64>>> {
-    // as_array/as_slice borrow the numpy buffers; marshal under the GIL, then the
-    // core does its own heavy lifting. (Buffers are read-only for the whole call.)
-    let _ = py;
     let (seq, _g, _p) = run(
-        cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, reach_by_r,
+        py, cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, reach_by_r,
         boost_mult, time_budget_s, blacklist, badzones, false,
     )?;
     Ok(seq)
@@ -417,6 +427,7 @@ fn graph_search_range<'py>(
 #[allow(clippy::too_many_arguments)]
 #[pyfunction]
 fn graph_search_range_debug<'py>(
+    py: Python<'py>,
     cc: PyReadonlyArray2<'py, f64>,
     scoopable: PyReadonlyArray1<'py, u8>,
     cand: PyReadonlyArray1<'py, i64>,
@@ -432,7 +443,7 @@ fn graph_search_range_debug<'py>(
     badzones: Vec<(f64, f64, f64, f64)>,
 ) -> PyResult<(Option<Vec<i64>>, i64, u64)> {
     run(
-        cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, reach_by_r,
+        py, cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, reach_by_r,
         boost_mult, time_budget_s, blacklist, badzones, false,
     )
 }
@@ -458,10 +469,9 @@ fn graph_search_fuel<'py>(
     blacklist: Vec<(i64, i64)>,
     badzones: Vec<(f64, f64, f64, f64)>,
 ) -> PyResult<Option<Vec<i64>>> {
-    let _ = py;
     let reach_by_r = vec![boost_mult * jump_range; tank_jumps];
     let (seq, _g, _p) = run(
-        cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, reach_by_r,
+        py, cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, reach_by_r,
         boost_mult, time_budget_s, blacklist, badzones, true,
     )?;
     Ok(seq)
@@ -471,6 +481,7 @@ fn graph_search_fuel<'py>(
 #[allow(clippy::too_many_arguments)]
 #[pyfunction]
 fn graph_search_fuel_debug<'py>(
+    py: Python<'py>,
     cc: PyReadonlyArray2<'py, f64>,
     scoopable: PyReadonlyArray1<'py, u8>,
     cand: PyReadonlyArray1<'py, i64>,
@@ -487,7 +498,7 @@ fn graph_search_fuel_debug<'py>(
 ) -> PyResult<(Option<Vec<i64>>, i64, u64)> {
     let reach_by_r = vec![boost_mult * jump_range; tank_jumps];
     run(
-        cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, reach_by_r,
+        py, cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, reach_by_r,
         boost_mult, time_budget_s, blacklist, badzones, true,
     )
 }
