@@ -1825,3 +1825,47 @@ def test_materialize_predicted_name_appends_sequence():
     assert m("Pru Theia IW-W b1-") == "Pru Theia IW-W b1-0"
     assert m("Flyua Dryoae ZQ-K d9-54") == "Flyua Dryoae ZQ-K d9-54"
     assert m("") == ""
+
+
+def test_profiled_raises_once_when_row_budget_exceeded(monkeypatch):
+    # Crossing the cumulative row budget raises exactly once (the solver falls
+    # back to the beam); subsequent fetches proceed unbudgeted but profiled.
+    monkeypatch.setattr(systems, "_ROUTE_DB_ROW_BUDGET", 10)
+    prof = {"db_ms": 0.0, "db_calls": 0, "db_rows": 0}
+    fetch = systems._profiled(prof, lambda: [1] * 8)
+    fetch()  # 8 rows, under budget
+    fetch()  # 16 rows, over -- but checked BEFORE the fetch, so still passes
+    with pytest.raises(systems._DbBudgetExceeded):
+        fetch()
+    assert prof["db_budget_hit"] is True
+    assert fetch() == [1] * 8  # beam fetches keep working after the trip
+    assert prof["db_calls"] == 3  # the raising call never reached the DB
+
+
+def test_solve_route_core_falls_back_to_beam_on_db_budget(monkeypatch):
+    # A graph solve that trips the row budget abandons the graph (and any
+    # injection retry pass) and lands on the beam fallback.
+    from contextlib import contextmanager
+
+    @contextmanager
+    def fake_conn():
+        yield object()
+
+    calls = {"graph": 0}
+
+    def exploding_graph(*a, **k):
+        calls["graph"] += 1
+        raise systems._DbBudgetExceeded("test")
+
+    monkeypatch.setattr(systems, "_db_connection", fake_conn)
+    monkeypatch.setattr(systems, "_neutron_index", object())
+    monkeypatch.setattr(systems.routing, "graph_route", exploding_graph)
+    monkeypatch.setattr(
+        systems.routing, "solve_route", lambda *a, **k: {"total_jumps": 3}
+    )
+    result = systems._solve_route_core(
+        {"db_ms": 0.0, "db_calls": 0, "db_rows": 0},
+        (0.0, 0.0, 0.0), (100.0, 0.0, 0.0), 50.0, None, inject_mult=2.0,
+    )
+    assert result["engine"] == "beam"
+    assert calls["graph"] == 1  # the injection pass is skipped, not retried

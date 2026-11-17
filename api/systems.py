@@ -3337,10 +3337,36 @@ def _kick_neutron_index_build() -> bool:
     return True
 
 
+# Cumulative DB-row budget for one graph solve. The blacklist-retry loop has a
+# time cap but realization between checks can issue unbounded giant fetches: a
+# pathological short route was observed pulling 865k rows / 138s of DB time
+# across repeated capsule fetches before failing over. Normal solves stay far
+# below this (a 65 kly rim route uses ~72k rows); crossing it means the graph
+# is thrashing, so abandon it for the beam fallback instead of hammering
+# Postgres.
+_ROUTE_DB_ROW_BUDGET = int(os.getenv("ROUTE_DB_ROW_BUDGET") or "500000")
+
+
+class _DbBudgetExceeded(Exception):
+    """A graph solve pulled more DB rows than _ROUTE_DB_ROW_BUDGET."""
+
+
 def _profiled(prof: dict, fetch: Callable[..., Any]) -> Callable[..., Any]:
-    """Wrap a solver DB fetch to accumulate its calls, rows and time in ``prof``."""
+    """Wrap a solver DB fetch to accumulate its calls, rows and time in ``prof``.
+
+    When the cumulative row count crosses ``_ROUTE_DB_ROW_BUDGET`` the wrapper
+    raises ``_DbBudgetExceeded`` ONCE (the caller falls back to the beam engine,
+    whose small fetches then proceed unbudgeted but still profiled)."""
 
     def wrapper(*args: Any, **kwargs: Any) -> Any:
+        if (
+            prof["db_rows"] > _ROUTE_DB_ROW_BUDGET
+            and not prof.get("db_budget_hit")
+        ):
+            prof["db_budget_hit"] = True
+            raise _DbBudgetExceeded(
+                f"route solve exceeded {_ROUTE_DB_ROW_BUDGET} DB rows"
+            )
         t0 = time.perf_counter()
         try:
             rows = fetch(*args, **kwargs)
@@ -3525,23 +3551,31 @@ def _solve_route_core(
                 if im == 1.0
                 else min(base_cap, _ROUTE_INJECT_TIME_CAP)
             )
-            result = routing.graph_route(
-                index,
-                src,
-                dst,
-                jump_range,
-                fetch_stars_within,
-                fetch_stars_near_segment=fetch_stars_near_segment,
-                fetch_stars_toward=fetch_stars_toward,
-                time_cap=time_cap,
-                is_locked=permit_zones.is_locked,
-                boost_mult=boost_mult,
-                companion_max_ls=companion_max_ls,
-                inject_mult=im,
-                tank_jumps=tank_jumps,
-                scoop_max_ls=scoop_max_ls,
-                reach_by_r=reach_by_r,
-            )
+            try:
+                result = routing.graph_route(
+                    index,
+                    src,
+                    dst,
+                    jump_range,
+                    fetch_stars_within,
+                    fetch_stars_near_segment=fetch_stars_near_segment,
+                    fetch_stars_toward=fetch_stars_toward,
+                    time_cap=time_cap,
+                    is_locked=permit_zones.is_locked,
+                    boost_mult=boost_mult,
+                    companion_max_ls=companion_max_ls,
+                    inject_mult=im,
+                    tank_jumps=tank_jumps,
+                    scoop_max_ls=scoop_max_ls,
+                    reach_by_r=reach_by_r,
+                )
+            except _DbBudgetExceeded:
+                # The graph is thrashing the DB (pathological realization);
+                # abandon it for the beam rather than keep hammering Postgres.
+                logger.warning(
+                    "route solve hit the DB row budget; beam fallback",
+                )
+                break
             if result is not None:
                 result["engine"] = "graph"
                 return result
