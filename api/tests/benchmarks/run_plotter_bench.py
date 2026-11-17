@@ -19,6 +19,13 @@ Usage:
                                                      # cache returns old jump counts)
   python run_plotter_bench.py --update               # rewrite 'our' baselines in place
 
+Fuel-aware mode (POST /route with a ship loadout; exercises the B1/B2 planner
++ enforcement path, which GET never touches):
+  python run_plotter_bench.py --cases fuel_cases_caspian.json \
+      --loadout loadouts/caspian.json --fresh --key <KEY>
+Fuel cases also baseline the fuel verdict: a route whose "safe" flips to false
+is a regression even at an equal jump count.
+
 Exit code is non-zero if any regression or unexpected failure is seen (CI-friendly).
 """
 import argparse
@@ -31,26 +38,38 @@ import urllib.parse
 import urllib.request
 
 HERE = pathlib.Path(__file__).parent
-CASES_FILE = HERE / "route_cases.json"
 # Categories whose routes re-solve slowly (no cache, or genuinely heavy).
 SLOW_CATS = {"win-rim-slow", "void-stuck", "void-stuck-highrange"}
 
 
-def plot(base_url, key, case, timeout, nonce):
+def plot(base_url, key, case, timeout, nonce, loadout=None, scoop_max_ls=None):
     params = {"from": case["from"], "to": case["to"], "range": case["range"]}
     if nonce is not None:
         # A throwaway beam_width changes the Redis cache key (graph_route ignores
         # it), forcing a fresh solve. The route cache otherwise busts only on
         # neutron-index rebuild, so a code change would serve stale jump counts.
         params["beam_width"] = nonce
-    url = f"{base_url}/route?{urllib.parse.urlencode(params)}"
     headers = {"x-route-key": key} if key else {}
+    if loadout is not None:
+        # Fuel-aware POST: same route params plus the SLEF, so the solve runs
+        # the B1/B2 planner + fuel enforcement instead of the shared geometry.
+        params["loadout"] = loadout
+        if scoop_max_ls is not None:
+            params["scoop_max_ls"] = scoop_max_ls
+        req = urllib.request.Request(
+            f"{base_url}/route", data=json.dumps(params).encode(),
+            headers={**headers, "Content-Type": "application/json"})
+    else:
+        req = urllib.request.Request(
+            f"{base_url}/route?{urllib.parse.urlencode(params)}",
+            headers=headers)
     t0 = time.monotonic()
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers=headers),
-                                    timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.load(resp)
+        fuel = data.get("fuel") or {}
         return {"status": "ok", "jumps": data.get("total_jumps"),
+                "safe": fuel.get("safe"),
                 "wall": time.monotonic() - t0, "solve_ms": data.get("solve_ms")}
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", "ignore")
@@ -81,9 +100,17 @@ def main():
     ap.add_argument("--no-slow", action="store_true")
     ap.add_argument("--fresh", action="store_true", help="bust the route cache")
     ap.add_argument("--update", action="store_true", help="rewrite baselines")
+    ap.add_argument("--cases", default="route_cases.json",
+                    help="case file (relative to this directory)")
+    ap.add_argument("--loadout", default="",
+                    help="SLEF file: POST fuel-aware solves instead of GET")
+    ap.add_argument("--scoop-max-ls", type=float, default=1000.0,
+                    help="in-system scoop reach for fuel-aware solves")
     args = ap.parse_args()
 
-    data = json.loads(CASES_FILE.read_text())
+    loadout = (HERE / args.loadout).read_text() if args.loadout else None
+    cases_file = HERE / args.cases
+    data = json.loads(cases_file.read_text())
     cases = data["cases"]
     if args.only:
         prefixes = tuple(p.strip() for p in args.only.split(","))
@@ -101,7 +128,8 @@ def main():
         # beam_width is capped at 100; 1..100 is enough to bust the cache since
         # each case is a distinct route.
         nonce = (1 + (i % 100)) if args.fresh else None
-        r = plot(args.base_url, args.key, c, args.timeout, nonce)
+        r = plot(args.base_url, args.key, c, args.timeout, nonce,
+                 loadout=loadout, scoop_max_ls=args.scoop_max_ls)
         expected = c.get("status", "ok")
         our = c.get("our")
 
@@ -125,6 +153,12 @@ def main():
         else:
             verdict, result = "match", r["jumps"]
 
+        # Fuel verdict: a baselined-safe route turning unsafe is a regression
+        # even at an equal jump count (the planner/enforcer broke, not the A*).
+        if (r["status"] == "ok" and c.get("safe") is True
+                and r.get("safe") is False):
+            verdict += " UNSAFE"; regress += 1
+
         vs = ""
         if r["status"] == "ok" and r["jumps"] is not None and c.get("spansh"):
             d = r["jumps"] - c["spansh"]
@@ -133,12 +167,14 @@ def main():
 
         if args.update and r["status"] == "ok":
             c["our"] = r["jumps"]
+            if r.get("safe") is not None:
+                c["safe"] = r["safe"]
 
     print(f"\nSummary: {regress} regressions, {fail} unexpected failures, "
           f"{improve} improvements, {len(cases)} total.")
     if args.update:
-        CASES_FILE.write_text(json.dumps(data, indent=2) + "\n")
-        print("Baselines updated in route_cases.json")
+        cases_file.write_text(json.dumps(data, indent=2) + "\n")
+        print(f"Baselines updated in {cases_file.name}")
     return 1 if (regress or fail) else 0
 
 
