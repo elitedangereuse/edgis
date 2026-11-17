@@ -2,7 +2,7 @@
 
 The ecosystem already does Patreon OAuth once, on the PHP site
 (``elitedangereuselight/patreon.php``), which sets an opaque
-``ED_LOGGED_CMDR_ID`` cookie. Satellite apps don't re-implement OAuth — they
+``ED_LOGGED_CMDR_ID`` cookie. Satellite apps don't re-implement OAuth, they
 forward that cookie to a site identity endpoint (as the mini-shipinteriors
 relay does via ``outils/mini-shipinteriors-cmdr.php``) and read back
 ``{"cmdr": ..., "patreon": bool}``.
@@ -14,7 +14,7 @@ the entitlement gate as ``{"entitled": bool, "name": str, "tier": str|None}``.
 Requirements: EDGIS must be served on a domain that carries the
 ``ED_LOGGED_CMDR_ID`` cookie (same site / parent domain), and
 ``EDGIS_IDENTITY_URL`` must point at the site identity endpoint. No Patreon
-client secret lives here — the site owns the OAuth.
+client secret lives here, the site owns the OAuth.
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ async def resolve_patron(request: Request) -> Optional[dict]:
     """Return ``{"entitled", "name", "tier"}`` for the caller, or ``None``.
 
     ``None`` means "treated as a guest" (no cookie, not configured, or the site
-    was unreachable) — the entitlement gate then falls back to the access key.
+    was unreachable), the entitlement gate then falls back to the access key.
     """
 
     if not IDENTITY_URL:

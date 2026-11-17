@@ -1,6 +1,6 @@
 """Reusable feature-entitlement gate for EDGIS.
 
-A single dependency — ``require_entitlement("<feature>")`` — guards any
+A single dependency, ``require_entitlement("<feature>")``, guards any
 endpoint behind a time-boxed, Patreon-style access window:
 
 * Before a feature's ``public_after`` date the caller must prove entitlement
@@ -86,18 +86,28 @@ HUNTER_MIN_SUBMISSIONS = int(os.getenv("ROUTE_HUNTER_MIN_SUBMISSIONS") or "5")
 FEATURES: dict[str, Feature] = {
     "route": Feature(
         key="route",
-        public_after=_parse_cutover(os.getenv("ROUTE_PUBLIC_AFTER", "2026-12-06")),
+        public_after=_parse_cutover(
+            os.getenv("ROUTE_PUBLIC_AFTER", "2026-12-06")
+        ),
         min_tier=os.getenv("ROUTE_MIN_TIER", "supporter"),
         waves=(
             # Paid patrons (tier 1 and up). Key-only access runs until this date.
-            ("supporter", _parse_cutover(
-                os.getenv("ROUTE_WAVE_SUPPORTER", "2026-11-13"))),
+            (
+                "supporter",
+                _parse_cutover(
+                    os.getenv("ROUTE_WAVE_SUPPORTER", "2026-11-13")
+                ),
+            ),
             # Free Patreon followers.
-            ("follower", _parse_cutover(
-                os.getenv("ROUTE_WAVE_FOLLOWER", "2026-11-19"))),
+            (
+                "follower",
+                _parse_cutover(os.getenv("ROUTE_WAVE_FOLLOWER", "2026-11-19")),
+            ),
             # Galactic Hunters with >= HUNTER_MIN_SUBMISSIONS confirmed targets.
-            ("hunter", _parse_cutover(
-                os.getenv("ROUTE_WAVE_HUNTER", "2026-11-19"))),
+            (
+                "hunter",
+                _parse_cutover(os.getenv("ROUTE_WAVE_HUNTER", "2026-11-19")),
+            ),
         ),
     ),
 }
@@ -111,7 +121,9 @@ def _caller_levels(patron: dict) -> set[str]:
 
     levels: set[str] = set()
     tier = str(patron.get("tier") or "").strip().lower()
-    if tier in _PAID_TIERS or (patron.get("entitled") and tier not in {"follower"}):
+    if tier in _PAID_TIERS or (
+        patron.get("entitled") and tier not in {"follower"}
+    ):
         levels.add("supporter")
     if tier == "follower" or patron.get("follower"):
         levels.add("follower")
@@ -129,7 +141,9 @@ def _earliest_wave_unlock(
     """Earliest unlock datetime among the waves the caller qualifies for, or
     ``None`` if they qualify for no dated wave."""
 
-    dates = [d for (lvl, d) in feature.waves if lvl in levels and d is not None]
+    dates = [
+        d for (lvl, d) in feature.waves if lvl in levels and d is not None
+    ]
     return min(dates) if dates else None
 
 
@@ -195,7 +209,9 @@ def _read_keys_file() -> list[dict]:
         if not isinstance(records, list):
             records = []
     except (OSError, ValueError) as exc:
-        logger.warning("entitlement key store unreadable (%s): %s", _KEYS_FILE, exc)
+        logger.warning(
+            "entitlement key store unreadable (%s): %s", _KEYS_FILE, exc
+        )
         return _KEYS_CACHE["records"]
     _KEYS_CACHE["mtime"] = mtime
     _KEYS_CACHE["records"] = records
@@ -326,7 +342,8 @@ def _key_is_valid(provided: str) -> bool:
 def resolve_key_label(provided: Optional[str]) -> Optional[str]:
     """Human label for a provided access key, for request tracing: a managed
     key's label, ``"admin"`` for the admin token, or ``"env-key"`` for an
-    env-configured key. ``None`` when it matches nothing. Internal use (logging)."""
+    env-configured key. ``None`` when it matches nothing. Internal use (logging).
+    """
     provided = (provided or "").strip()
     if not provided:
         return None
@@ -355,11 +372,15 @@ def entitlement_status(feature_key: str) -> dict:
         "requires": None if public else "patron",
         "min_tier": None if public else feature.min_tier,
         "patreon": None if public else PATREON_URL,
-        "waves": None if public else [
-            {"level": lvl, "after": d.date().isoformat()}
-            for (lvl, d) in feature.waves
-            if d is not None
-        ],
+        "waves": (
+            None
+            if public
+            else [
+                {"level": lvl, "after": d.date().isoformat()}
+                for (lvl, d) in feature.waves
+                if d is not None
+            ]
+        ),
     }
 
 
@@ -367,7 +388,9 @@ def entitlement_status(feature_key: str) -> dict:
 # ``{"entitled": bool, "tier": str|None, "name": str|None}`` (or ``None`` for a
 # guest). Registered by patreon_auth at import; kept here so entitlements.py
 # stays free of HTTP/site specifics and remains trivially unit-testable.
-_patron_resolver = None  # Optional[Callable[[Request], Awaitable[Optional[dict]]]]
+_patron_resolver = (
+    None  # Optional[Callable[[Request], Awaitable[Optional[dict]]]]
+)
 
 
 def set_patron_resolver(resolver) -> None:
@@ -408,12 +431,18 @@ def require_entitlement(feature_key: str):
         if is_public(feature):
             # After public, auth isn't required; still label a provided key so
             # the trace can attribute the request when one is sent.
-            return {"via": "public", "feature": feature_key,
-                    "caller": resolve_key_label(provided)}
+            return {
+                "via": "public",
+                "feature": feature_key,
+                "caller": resolve_key_label(provided),
+            }
         # Local key check first (no network); then the patron identity call.
         if _key_is_valid(provided):
-            return {"via": "key", "feature": feature_key,
-                    "caller": resolve_key_label(provided)}
+            return {
+                "via": "key",
+                "feature": feature_key,
+                "caller": resolve_key_label(provided),
+            }
         patron = await _resolve_patron(request)
         your_wave: Optional[datetime] = None
         if patron:
