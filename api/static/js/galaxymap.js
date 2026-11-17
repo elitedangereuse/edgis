@@ -4545,6 +4545,8 @@
          const distanceValue = typeof s.distance === 'number'
            ? `${s.distance.toFixed(2)} LY`
            : (typeof s?.infos?.distance === 'number' ? `${s.infos.distance.toFixed(2)} LY` : 'Unknown');
+         const bodyCount = Array.isArray(systemData?.bodies) ? systemData.bodies.length : null;
+         const bodyCountValue = bodyCount != null ? String(bodyCount) : 'Unknown';
 
          card.innerHTML = `
            <header>
@@ -4559,6 +4561,7 @@
                <li><span class="label">STAR TYPE: </span>${star?.spectralClass ?? 'Unknown'} ${star?.luminosity ?? ''}</li>
                <li><span class="label">DISTANCE: </span>${distanceValue}<br/></li>
                <li><span class="label">STAR CLASS: </span>${mainStar}</li>
+               <li><span class="label">BODIES: </span>${bodyCountValue}</li>
                <div>
                  <span class="pill">Scoopable: <b>${star?.isScoopable ?? 'Unknown'}</b></span>
                </div>
