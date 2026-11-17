@@ -1012,7 +1012,7 @@ function fuelVerdict(f) {
   if (f.stranded) {
     return `<span class="bad">⚠ Fuel: may strand near jump ${f.stranded_at + 1}</span> `
       + `<span class="tiny">no scoopable star within range (${tank})`
-      + `${f.enforced ? " — couldn't insert a refuel detour there (sparse region)" : ""}.</span>`;
+      + `${f.enforced ? ", couldn't insert a refuel detour there (sparse region)" : ""}.</span>`;
   }
   if (!f.safe) {
     return `<span class="bad">⚠ Fuel: tight</span> `
@@ -1486,7 +1486,7 @@ async function plot() {
       $("out").innerHTML = `<div class="msg warn"><b>Early access.</b> ${escapeHtml(d.message || "")} ${schedule} ${d.patreon ? `Join on <a href="${d.patreon}" target="_blank" rel="noopener">Patreon</a>` : ""} or add an access key above.</div>`;
       return;
     }
-    if (res.status === 503) { $("out").innerHTML = `<div class="msg warn">Route index is warming up — the Plot button re-enables automatically when it's ready.</div>`; setPlotWarming(true); return; }
+      if (res.status === 503) { $("out").innerHTML = `<div class="msg warn">Route index is warming up. The Plot button re-enables automatically when it's ready.</div>`; setPlotWarming(true); return; }
     if (res.status === 404) { $("out").innerHTML = `<div class="msg err">${escapeHtml((await res.json()).detail || "System not found.")}</div>`; return; }
     if (res.status === 422) { const d = (await res.json()).detail || {}; $("out").innerHTML = `<div class="msg err">No route: ${escapeHtml(d.error || "")} ${escapeHtml(d.message || "")}</div>`; return; }
     if (!res.ok) { $("out").innerHTML = `<div class="msg err">Error ${res.status}.</div>`; return; }
@@ -1626,29 +1626,9 @@ $("swapFromTo").addEventListener("click", () => {
 // panel activates (and on load if ?tool=route).
 let _routeInited = false;
 let statusLoad = Promise.resolve();
-// The plotter renders in its own panel and never shows the shared #result card,
-// so the docs/links footer (API docs | Roadmap | Patreon | Status) is missing
-// here. Mirror that same footer at the foot of the route panel: clone it so the
-// links stay a single source of truth, and drop the cloned ids to avoid dupes.
-function mirrorDocsFooter() {
-  const src = document.getElementById("docsContainer"), out = $("out");
-  if (!src || !out || document.getElementById("routeDocsContainer")) return;
-  const copy = src.cloneNode(true);
-  copy.id = "routeDocsContainer";
-  copy.removeAttribute("hidden");
-  copy.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
-  // The index resolves the API-docs href at load; fall back if we cloned early.
-  const api = copy.querySelector("a");
-  if (api && !api.getAttribute("href")) api.href = new URL("/docs", location.origin).toString();
-  copy.classList.remove("mt-2");
-  copy.classList.add("mt-6");
-  out.insertAdjacentElement("afterend", copy);
-}
-
 window.edgisInitRoutePanel = function () {
   if (_routeInited) return;
   _routeInited = true;
-  mirrorDocsFooter();
   const q = new URLSearchParams(location.search);
   const from = q.get("from"); if (from) $("from").value = from;
   const to = q.get("to"); if (to) $("to").value = to;

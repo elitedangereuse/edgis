@@ -480,8 +480,11 @@
         </div>
         <div id="resultTable" class="mt-3 text-sm text-gray-100 bg-transparent mono overflow-x-auto" style="display:none;"></div>
         <div id="neighborsLoadMore" class="mt-4 flex w-full justify-end" style="display:none; width:100%; justify-content:flex-end;" hidden></div>
-        <div id="docsContainer" class="text-xs mt-2" style="text-align: right;">
-          <a id="apiDocsLink" target="_blank" class="text-[var(--accent-blue)] hover:underline">
+      </div>
+      <!-- Shared page footer: one copy, outside #result (which is hidden for the
+           route tool), so every tool shows the same links at the bottom. -->
+      <div id="docsContainer" class="text-xs mt-2" style="text-align: right;">
+          <a target="_blank" class="text-[var(--accent-blue)] hover:underline" href="/docs">
             API docs <svg version="1.1" style="display:inline;margin-bottom: 1px;" width="16" height="16" viewBox="0 0 14.97 14.92" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <style>.cls-1 {
@@ -504,7 +507,6 @@
             <path d="m12.383 5.8245c1.3844 3.1648 1.3844 5.1492 0 5.9527-2.077 1.2052-7.4889 1.5726-9.0468-0.28002-1.0386-1.2351-1.0386-3.1261 0-5.6727 1.0561-1.7394 2.5571-2.6092 4.5028-2.6092 1.946 0 3.4606 0.86972 4.5441 2.6092z" fill-opacity="0" stroke="#24292f" stroke-width="5.157"/>
           </svg>
           </a>
-        </div>
       </div>
     </main>
     <!-- Raw-material grade lookup, reused by the body-detail card (loads before the
@@ -775,7 +777,6 @@
      // 'bodies' result keeps (not hides) the lookup card shown just above it.
      let autoBodiesForLookup = false;
      const statusEl = document.getElementById('status');
-     const apiDocsLink = document.getElementById('apiDocsLink');
      const quotePlaceholder = document.getElementById('quotePlaceholder');
      // Shared result area ownership (see syncSharedResults).
      let activeTool = 'lookup';
@@ -843,15 +844,6 @@
          url.searchParams.delete('tool');
        }
        globalThis.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
-     }
-
-     if (apiDocsLink) {
-       try {
-         const docsUrl = new URL('/docs', globalThis.location.origin);
-         apiDocsLink.href = docsUrl.toString();
-       } catch (err) {
-         console.warn('Unable to resolve docs URL', err);
-       }
      }
 
      function stripTrailingDots(str) {
