@@ -447,13 +447,17 @@ def test_route_without_loadout_stays_ship_agnostic(monkeypatch):
 
 
 def test_route_post_inflight_scoop_avoids_divert_stops(monkeypatch):
-    # Every neutron waypoint has a scoopable companion in-system (the annotation
-    # query returns one), so enforcement inserts NO divert stops and the chain is
-    # safe at its original length.
+    # Every neutron waypoint has a scoopable companion in-system (per the
+    # PLANNER'S index model, which the annotation reads), so enforcement
+    # inserts NO divert stops and the chain is safe at its original length.
     _gate_future(monkeypatch)
     monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
     _clear_route_cache()
-    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1, "version": "v1"})())
+    monkeypatch.setattr(
+        systems, "_neutron_index",
+        type("I", (), {"count": 1, "version": "v1",
+                       "scoop_ls_for": lambda self, id64: 25.0})(),
+    )
 
     async def fake_resolve(value):
         coords = {"A": (0.0, 0.0, 0.0), "B": (1200.0, 0.0, 0.0)}
@@ -465,7 +469,7 @@ def test_route_post_inflight_scoop_avoids_divert_stops(monkeypatch):
         legs, x = [], 0.0
         for i in range(20):
             x += 60.0
-            legs.append({"system": f"N{i}", "id64": None, "x": x, "y": 0.0,
+            legs.append({"system": f"N{i}", "id64": i, "x": x, "y": 0.0,
                          "z": 0.0, "spectral": "N", "type": "boost",
                          "neutron_star": True, "distance_jumped": 60.0,
                          "distance_left": 1200.0 - x})
@@ -480,14 +484,7 @@ def test_route_post_inflight_scoop_avoids_divert_stops(monkeypatch):
 
     class _FakeCursor:
         def execute(self, sql, params):
-            if "distance_from_arrival_ls" in sql:
-                # Every queried neutron system has a scoopable companion at 25 Ls.
-                # params[0] is lowercased (the query matches lower(name)); the real
-                # DB returns the original-case name, so echo "N0" not "n0".
-                names = params[0]
-                self._rows = [(n[:1].upper() + n[1:], 25.0) for n in names]
-            else:
-                self._rows = []  # should never need a divert
+            self._rows = []  # should never need a divert
 
         def fetchall(self):
             return self._rows

@@ -107,16 +107,34 @@ class NeutronIndex:
         self.tree = cKDTree(coords)
         self.count = len(id64)
         self.built_at = time.time()
+        # Sorted id64 view for O(log n) system lookups (scoop_ls_for). A dict
+        # of the 5M ids would cost hundreds of MB; two int64 arrays are 80 MB.
+        self._id64_arr = np.asarray(id64, dtype=np.int64)
+        self._id64_sorted = np.sort(self._id64_arr)
+        self._id64_order = np.argsort(self._id64_arr)
         # Content version for route-cache keys. The old key used only the
         # COUNT, so a rebuild landing on the same count served stale routes;
         # digesting the id64s plus the companion/scoop columns busts exactly
         # when the routing data changes (and cache stays valid across
         # restarts, which a build timestamp would throw away).
         h = hashlib.blake2b(digest_size=8)
-        h.update(np.asarray(id64, dtype=np.int64).tobytes())
+        h.update(self._id64_arr.tobytes())
         h.update(self.arrival_ls.tobytes())
         h.update(self.scoop_ls.tobytes())
         self.version = h.hexdigest()
+
+    def scoop_ls_for(self, id64: int) -> float:
+        """``scoop_ls`` of the system ``id64`` -- the PLANNER'S scoopable model
+        (the ``scoopable_neutrons`` precompute folded into this index). ``+inf``
+        when the system is not in the index or has no scoopable companion. The
+        fuel enforcer reads THIS, never a live re-derivation: planner and
+        enforcer must agree on what counts as an inline refuel, or marginal
+        routes flip unsafe and the B2 guard discards good range-growth routes.
+        """
+        pos = int(np.searchsorted(self._id64_sorted, id64))
+        if pos >= len(self._id64_sorted) or self._id64_sorted[pos] != id64:
+            return float("inf")
+        return float(self.scoop_ls[self._id64_order[pos]])
 
     @classmethod
     def build(cls, fetch_neutron_rows: FetchNeutrons) -> "NeutronIndex":

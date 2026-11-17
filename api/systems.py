@@ -3609,53 +3609,35 @@ INFLIGHT_SCOOP_MAX_LS = 500.0
 
 
 def _annotate_inflight_scoops(
-    legs: list, conn, max_ls: float = INFLIGHT_SCOOP_MAX_LS
+    legs: list, index, max_ls: float = INFLIGHT_SCOOP_MAX_LS
 ) -> int:
     """Flag neutron-landing legs whose system has a scoopable companion within
-    ``max_ls`` (read from the bodies table), so the fuel layer treats them as
-    in-highway refuels instead of forcing a +2-jump divert. Mutates ``legs`` in
-    place -- pass COPIES, never the cached geometry. Returns the count flagged.
+    ``max_ls``, so the fuel layer treats them as in-highway refuels instead of
+    forcing a +2-jump divert. Mutates ``legs`` in place -- pass COPIES, never
+    the cached geometry. Returns the count flagged.
+
+    Reads ``index.scoop_ls_for`` -- the SAME ``scoopable_neutrons`` precompute
+    the fuel-aware planner threads refuels with -- on purpose. This used to be
+    an independent live bodies-table query with its own star-type definition
+    (a name regex that also matched unscoopable giants, and a different
+    arrival-distance filter); when the two models disagreed on an
+    inline-refuel-dependent route, the enforcer called the planned route
+    unsafe and the B2 guard discarded it for a far worse non-range-growth one
+    (observed: 45 -> 68 and 177 -> 429 jumps). One model, one verdict.
     """
-    names = sorted(
-        {
-            leg.get("system")
-            for leg in legs
-            if leg.get("neutron_star") and leg.get("system")
-        }
-    )
-    if not names:
+    if index is None:
         return 0
-    cursor = conn.cursor()
-    try:
-        # lower(name) = ANY hits idx_systems_big_name_lower_prefix (a plain
-        # name= ANY seq-scans the 40M-row table, ~34s). The star-type regex
-        # mirrors fsd.is_scoopable: the class letter must stand alone so a
-        # black hole ("Black Hole") is not matched as a B-class star. Result
-        # keeps the DB's original-case name, which matches the leg's `system`.
-        cursor.execute(
-            "SELECT s.name, min(b.distance_from_arrival_ls) "
-            "FROM systems_big s "
-            "JOIN bodies b ON b.system_id64 = s.id64 "
-            "JOIN star_types st ON b.star_type_id = st.id "
-            "WHERE lower(s.name) = ANY(%s) "
-            "AND b.distance_from_arrival_ls > 0 "
-            "AND b.distance_from_arrival_ls <= %s "
-            "AND st.name ~ %s "
-            "GROUP BY s.name",
-            (
-                [n.lower() for n in names],
-                float(max_ls),
-                r"^[KGBFOAM]($|[ _(0-9])",
-            ),
-        )
-        scoop_ls = {row[0]: float(row[1]) for row in cursor.fetchall()}
-    finally:
-        cursor.close()
     count = 0
     for leg in legs:
-        if leg.get("neutron_star") and leg.get("system") in scoop_ls:
+        if not leg.get("neutron_star"):
+            continue
+        lid = leg.get("id64")
+        if lid is None:
+            continue
+        sls = index.scoop_ls_for(int(lid))
+        if sls <= float(max_ls):
             leg["inflight_scoop"] = True
-            leg["scoop_ls"] = scoop_ls[leg["system"]]
+            leg["scoop_ls"] = sls
             count += 1
     return count
 
@@ -3683,52 +3665,53 @@ def _enforce_fuel_sync(
     has_neutron = any(leg.get("neutron_star") for leg in legs)
     new_legs = None
     info = None
-    if do_enforce or has_neutron:
+    if has_neutron:
+        # In-memory (index) lookup, no DB: the annotation must use the exact
+        # scoopable model the planner planned with.
+        _annotate_inflight_scoops(legs, _neutron_index, scoop_max_ls)
+    if do_enforce:
         with _db_connection() as conn:
-            if has_neutron:
-                _annotate_inflight_scoops(legs, conn, scoop_max_ls)
-            if do_enforce:
-                dst = (legs[-1]["x"], legs[-1]["y"], legs[-1]["z"])
-                src_t = (src["x"], src["y"], src["z"])
+            dst = (legs[-1]["x"], legs[-1]["y"], legs[-1]["z"])
+            src_t = (src["x"], src["y"], src["z"])
 
-                def fetch_scoopable_near(pos, radius):
-                    cursor = conn.cursor()
-                    try:
-                        cursor.execute(
-                            "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name, "
-                            "mainstar, id64 FROM systems_big "
-                            "WHERE mainstar ~ %s AND ST_3DDWithin("
-                            "coords, ST_MakePoint(%s, %s, %s), %s) "
-                            "ORDER BY ST_3DDistance(coords, ST_MakePoint(%s, %s, %s)) "
-                            "LIMIT 48",
-                            # Class letter must stand alone so "Black Hole" (B+l)
-                            # is not matched as a B-class star. Mirrors
-                            # fsd.is_scoopable; _nearest_scoopable re-checks too.
-                            (
-                                r"^[KGBFOAM]($|[ _(0-9])",
-                                pos[0],
-                                pos[1],
-                                pos[2],
-                                radius,
-                                pos[0],
-                                pos[1],
-                                pos[2],
-                            ),
-                        )
-                        return cursor.fetchall()
-                    finally:
-                        cursor.close()
+            def fetch_scoopable_near(pos, radius):
+                cursor = conn.cursor()
+                try:
+                    cursor.execute(
+                        "SELECT ST_X(coords), ST_Y(coords), ST_Z(coords), name, "
+                        "mainstar, id64 FROM systems_big "
+                        "WHERE mainstar ~ %s AND ST_3DDWithin("
+                        "coords, ST_MakePoint(%s, %s, %s), %s) "
+                        "ORDER BY ST_3DDistance(coords, ST_MakePoint(%s, %s, %s)) "
+                        "LIMIT 48",
+                        # Class letter must stand alone so "Black Hole" (B+l)
+                        # is not matched as a B-class star. Mirrors
+                        # fsd.is_scoopable; _nearest_scoopable re-checks too.
+                        (
+                            r"^[KGBFOAM]($|[ _(0-9])",
+                            pos[0],
+                            pos[1],
+                            pos[2],
+                            radius,
+                            pos[0],
+                            pos[1],
+                            pos[2],
+                        ),
+                    )
+                    return cursor.fetchall()
+                finally:
+                    cursor.close()
 
-                new_legs, info = fsd.enforce_fuel_safety(
-                    legs,
-                    src_t,
-                    dst,
-                    params,
-                    fetch_scoopable_near,
-                    src_name=base_result.get("source"),
-                    is_locked=permit_zones.is_locked,
-                    boost_mult=boost_mult,
-                )
+            new_legs, info = fsd.enforce_fuel_safety(
+                legs,
+                src_t,
+                dst,
+                params,
+                fetch_scoopable_near,
+                src_name=base_result.get("source"),
+                is_locked=permit_zones.is_locked,
+                boost_mult=boost_mult,
+            )
     if do_enforce:
         flown = sum(leg["distance_jumped"] for leg in new_legs)
         straight = base_result.get("straight_line_ly") or 0.0
@@ -4414,6 +4397,24 @@ async def plot_route_post(
             and req.fuel_safe
             and not (result.get("fuel") or {}).get("safe", True)
         ):
+            # Observability: this fallback discards a full range-growth route,
+            # which on low-range routes can cost hundreds of jumps (observed
+            # 177 -> 429). Firing at all should be RARE now that planner and
+            # enforcer share one scoopable model; trace every firing with the
+            # discarded route's vitals so a disagreement regression is visible
+            # in prod instead of silently shipping worse routes.
+            _dfuel = result.get("fuel") or {}
+            _log_route_trace(
+                "route-b2-unsafe",
+                frm=result.get("source"),
+                to=result.get("destination"),
+                range=req.jump_range,
+                discarded_jumps=result.get("total_jumps"),
+                stranded_at=_dfuel.get("stranded_at"),
+                over_range_at=_dfuel.get("over_range_at"),
+                unsafe_at=_dfuel.get("unsafe_at"),
+                caller=access.get("caller"),
+            )
             b1 = await _solve_route_cached(
                 req.from_,
                 req.to,

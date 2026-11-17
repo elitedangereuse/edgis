@@ -619,3 +619,14 @@ def test_index_version_tracks_content_not_count():
     c = make_scoop_index(_SCOOP_PTS, changed)
     assert c.count == a.count
     assert c.version != a.version
+
+
+def test_scoop_ls_for_matches_planner_model():
+    # The enforcer reads scoop_ls through this lookup; it must agree with the
+    # scoop_ls array the planner threads refuels with, and return +inf for
+    # unknown systems (no flag, conservative).
+    idx = make_scoop_index(_SCOOP_PTS, _SCOOP_LS)
+    # make_scoop_index assigns id64 = row position.
+    assert idx.scoop_ls_for(2) == 50.0
+    assert idx.scoop_ls_for(0) == float("inf")   # no scoopable companion
+    assert idx.scoop_ls_for(999) == float("inf")  # not in the index
