@@ -1097,6 +1097,71 @@
       window.System.syncParticleColors();
     }
 
+    // Body counts are fetched on demand (/body-counts), not inlined in /neighbors.
+    // Colour immediately with whatever is loaded (missing reads as cold), then
+    // fetch the missing counts for the visible systems and re-colour. Guarded so
+    // overlapping colour passes don't fire duplicate fetches.
+    let bodyCountsInFlight = false;
+    async function ensureBodyCountsThenColor() {
+      applyBodiesHeatColoring();
+      if (bodyCountsInFlight) {
+        return;
+      }
+      const vertices = window.System?.particleGeo?.vertices;
+      if (!Array.isArray(vertices)) {
+        return;
+      }
+      const seen = new Set();
+      const missing = [];
+      for (const vertex of vertices) {
+        if (!vertex || vertex.visible !== true) {
+          continue;
+        }
+        const id = vertex?.infos?.id64;
+        if (id == null || typeof vertex.infos.body_count === 'number') {
+          continue;
+        }
+        const key = String(id);
+        if (!seen.has(key)) {
+          seen.add(key);
+          missing.push(key);
+        }
+      }
+      if (!missing.length) {
+        return;
+      }
+      bodyCountsInFlight = true;
+      try {
+        const chunks = [];
+        for (let i = 0; i < missing.length; i += 2000) {
+          chunks.push(missing.slice(i, i + 2000));
+        }
+        const results = await Promise.all(chunks.map((chunk) =>
+          fetch('/body-counts?ids=' + encodeURIComponent(chunk.join(',')))
+            .then((r) => (r.ok ? r.json() : {}))
+            .catch(() => ({}))
+        ));
+        const counts = Object.assign({}, ...results);
+        for (const vertex of vertices) {
+          const id = vertex?.infos?.id64;
+          if (id == null) {
+            continue;
+          }
+          const c = counts[String(id)];
+          if (typeof c === 'number') {
+            vertex.infos.body_count = c;
+          }
+        }
+      } catch (e) {
+        /* non-fatal: leave uncoloured systems cold */
+      } finally {
+        bodyCountsInFlight = false;
+      }
+      if (bodiesHeatEnabled) {
+        applyBodiesHeatColoring();
+      }
+    }
+
     function applyFacetSelectionColoring() {
       if (!window.System?.particleGeo?.vertices || !Array.isArray(window.System.particleGeo.colors)) {
         return;
@@ -1160,7 +1225,7 @@
         return;
       }
       if (bodiesHeatEnabled) {
-        applyBodiesHeatColoring();
+        ensureBodyCountsThenColor();
         return;
       }
       restoreVisiblePointBaseColors();

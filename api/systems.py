@@ -849,10 +849,6 @@ def _normalize_neighbor_row(
             "z": float(coords[2]),
         },
         "distance": normalized_distance,
-        # Scanned-body count. Always the last SELECT column (appended after the
-        # optional facet/allegiance/power columns), so read it positionally as
-        # row[-1] without disturbing those forward indices.
-        "body_count": int(row[-1]) if row[-1] is not None else 0,
     }
     if include_facets:
         atmosphere_gases = row[5] if len(row) > 5 else []
@@ -960,7 +956,7 @@ def _neighbors_page_payload(
     endpoint=REDIS_HOST,  # or your Redis host
     port=REDIS_PORT,
     ttl=ONE_DAY_SECONDS,  # one day cache
-    namespace="neighbors_v2",
+    namespace="neighbors",
     serializer=PickleSerializer(),  # Or JsonSerializer if you prefer
 )
 async def fetch_neighbors_from_db(
@@ -1092,10 +1088,6 @@ def _fetch_neighbors_from_db_sync(
                         {facet_select}
                         {allegiance_select}
                         {controlling_power_select}
-                        , (
-                            SELECT COUNT(*) FROM bodies b
-                            WHERE b.system_id64 = s.id64
-                        ) AS body_count
                     FROM systems_big s
                     {allegiance_join}
                     {controlling_power_join}
@@ -1129,7 +1121,7 @@ def _fetch_neighbors_from_db_sync(
     endpoint=REDIS_HOST,
     port=REDIS_PORT,
     ttl=ONE_DAY_SECONDS,
-    namespace="neighbors_paged_exact_v2",
+    namespace="neighbors_paged_exact_v1",
     serializer=PickleSerializer(),
 )
 async def fetch_neighbors_page_from_db(
@@ -1270,10 +1262,6 @@ def _fetch_neighbors_page_from_db_sync(
                         {facet_select}
                         {allegiance_select}
                         {controlling_power_select}
-                        , (
-                            SELECT COUNT(*) FROM bodies b
-                            WHERE b.system_id64 = s.id64
-                        ) AS body_count
                     FROM systems_big s
                     {allegiance_join}
                     {controlling_power_join}
@@ -2596,6 +2584,52 @@ async def bodies(
             content={"error": SYSTEM_NOT_FOUND}, status_code=404
         )
     return result
+
+
+def _fetch_body_counts_sync(id_list: list[int]) -> dict[str, int]:
+    """Scanned-body count per system for a batch of id64s (one grouped PK scan)."""
+    if not id_list:
+        return {}
+    with _db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT system_id64, COUNT(*) FROM bodies "
+                "WHERE system_id64 = ANY(%s) GROUP BY system_id64",
+                (id_list,),
+            )
+            found = {int(row[0]): int(row[1]) for row in cursor.fetchall()}
+        finally:
+            cursor.close()
+    # Systems absent from `bodies` have 0 scanned bodies. Keys are STRINGS: id64
+    # exceeds JS's safe-integer range, so a numeric JSON key would lose precision.
+    return {str(i): found.get(i, 0) for i in id_list}
+
+
+@app.get("/body-counts", include_in_schema=True)
+async def body_counts(
+    ids: str = Query(..., description="Comma-separated system id64s"),
+):
+    """Scanned-body counts for a batch of systems, keyed by id64 (string). The
+    deferred companion to /neighbors: the list renders first, then fills in these
+    counts (and the galaxymap bodies heatmap reads them), so the count query is
+    off the critical path."""
+    seen: set[int] = set()
+    id_list: list[int] = []
+    for token in ids.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            value = int(token)
+        except ValueError:
+            continue
+        if value not in seen:
+            seen.add(value)
+            id_list.append(value)
+        if len(id_list) >= 5000:
+            break
+    return await _run_db_task(_fetch_body_counts_sync, id_list)
 
 
 _system_map_cache = RedisCache(

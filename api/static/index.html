@@ -1975,11 +1975,65 @@
          return renderBodyDetailCard(rows[0]);
        }
 
+       // Bodies count is deferred (/body-counts) so the list renders fast. Seed a
+       // null so the "bodies" column exists with a placeholder; the real count is
+       // filled in after render. Mutates the shared row objects, so once filled the
+       // value survives re-renders (sort / load-more).
+       if (kind === 'neighbors') {
+         for (const row of rows) {
+           if (row && typeof row === 'object' && row.body_count === undefined) {
+             row.body_count = null;
+           }
+         }
+       }
+
        const keys = pickKeysForTable(rows, kind);
        const limited = kind === 'neighbors' ? rows : limitRows(rows, 100);
        const tableHtml = buildTableShell(keys, limited, kind, rows.length);
        activateTableInteractions(limited, keys, kind);
+       if (kind === 'neighbors') {
+         queueMicrotask(() => fillNeighborBodyCounts(limited));
+       }
        return tableHtml;
+     }
+
+     // Fetch scanned-body counts for the rendered neighbor rows and fill the
+     // "bodies" column in place (keeps the current sort/filter). Updates the row
+     // objects too, so sorting by bodies uses the real values once they arrive.
+     async function fillNeighborBodyCounts(rows) {
+       const need = rows.filter(r => r && r.id64 != null && typeof r.body_count !== 'number');
+       if (!need.length) {
+         return;
+       }
+       const ids = need.map(r => String(r.id64));
+       let counts;
+       try {
+         const res = await fetch('/body-counts?ids=' + encodeURIComponent(ids.join(',')));
+         if (!res.ok) {
+           return;
+         }
+         counts = await res.json();
+       } catch {
+         return;
+       }
+       for (const r of rows) {
+         if (r && r.id64 != null) {
+           const c = counts[String(r.id64)];
+           if (typeof c === 'number') {
+             r.body_count = c;
+           }
+         }
+       }
+       const table = document.getElementById('resultTable');
+       if (!table) {
+         return;
+       }
+       for (const [id64, count] of Object.entries(counts)) {
+         const cell = table.querySelector(`td[data-column="body_count"][data-id64="${CSS.escape(id64)}"]`);
+         if (cell) {
+           cell.textContent = String(count);
+         }
+       }
      }
 
      function normalizeTableData(data) {
@@ -2768,6 +2822,15 @@
      function renderTableCell(row, key, kind) {
        const labelAttr = escapeAttr(getColumnLabel(key));
        let value = row[key];
+
+       // Deferred bodies count: tag the cell with its id64 so the async fill can
+       // find it; show a placeholder until the count arrives.
+       if (key === 'body_count') {
+         const v = row?.body_count;
+         const txt = (typeof v === 'number') ? String(v) : '…';
+         const idAttr = escapeAttr(String(row?.id64 ?? ''));
+         return `<td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono" data-label="${labelAttr}" data-column="body_count" data-id64="${idAttr}">${txt}</td>`;
+       }
 
        if (key === 'planet_class' && kind === 'bodies') {
          value = formatStarClass(row);
