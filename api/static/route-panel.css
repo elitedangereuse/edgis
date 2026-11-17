@@ -215,6 +215,8 @@
 #panel-route .arrls { color:var(--neutron); opacity:.8; font-size:11px; cursor:help; white-space:nowrap; }
 /* In-system scoop distance reuses .arrls but in the fuel (green) colour. */
 #panel-route .arrls.scoop-ls { color:var(--ok); }
+/* Fuel column: tank level after the jump; green where the tank was topped up. */
+#panel-route .result-table td.refuel { color:var(--ok); font-weight:600; }
 /* FSD synthesis injection: violet delta icon (distinct from neutron-amber and
    fuel-green) on a jump that needs it, and
    the summary bar listing how many of each grade the route requires. */

@@ -4552,7 +4552,14 @@
            ? `${s.distance.toFixed(2)} LY`
            : (typeof s?.infos?.distance === 'number' ? `${s.infos.distance.toFixed(2)} LY` : 'Unknown');
          const bodyCount = Array.isArray(systemData?.bodies) ? systemData.bodies.length : null;
-         const bodyCountValue = bodyCount != null ? String(bodyCount) : 'Unknown';
+         // The DB only knows SCANNED bodies, never the system's true total: a
+         // count of 1 is almost always just the arrival star from discovery
+         // data, so saying "1" reads as a one-body system and confuses. Label
+         // the count as "known", and the 1 case honestly.
+         const bodyCountValue =
+           bodyCount == null ? 'Unknown'
+           : bodyCount === 1 ? 'Unknown (primary star only)'
+           : `${bodyCount} known`;
 
          card.innerHTML = `
            <header>

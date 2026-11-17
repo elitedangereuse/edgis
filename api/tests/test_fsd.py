@@ -1,4 +1,5 @@
 import pathlib
+import json
 import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -346,3 +347,24 @@ def test_ship_summary_fills_range_and_flags_scoop():
     assert abs(s["max_range_light"] - 67.57) < 0.5  # lightest still shown
     assert s["tank_jumps"] == 10
     assert s["has_scoop"] is True
+
+
+def test_detect_supercharge_caspian_variants():
+    # EDSY names the Mk II drive with an _overchargebooster_mkii suffix; other
+    # exports may only carry size8 (the Mk II is the game's only size-8 FSD).
+    def slef(ship, item):
+        return json.dumps([{"data": {"Ship": ship, "Modules": [
+            {"Slot": "FrameShiftDrive", "Item": item}]}}])
+
+    edsy = slef("explorer_nx",
+                "int_hyperdrive_overcharge_size8_class5_overchargebooster_mkii")
+    journalish = slef("Explorer_NX", "int_hyperdrive_overcharge_size8_class5")
+    small_drive = slef("explorer_nx", "int_hyperdrive_overcharge_size7_class5")
+    cobra = slef("cobramkv", "int_hyperdrive_overcharge_size4_class5")
+
+    assert fsd.detect_supercharge(edsy) == 6.0
+    assert fsd.detect_supercharge(journalish) == 6.0   # size8 on a Caspian
+    assert fsd.detect_supercharge(small_drive) == 4.0  # ordinary drive fitted
+    assert fsd.detect_supercharge(cobra) == 4.0        # size8 rule is NX-only
+    assert fsd.detect_supercharge("not json") == 4.0
+    assert fsd.detect_supercharge(None) == 4.0

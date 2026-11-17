@@ -210,6 +210,36 @@ def _parse_loadout(slef, cargo: float = 0.0) -> Optional[FuelParams]:
     )
 
 
+def detect_supercharge(slef) -> float:
+    """Neutron supercharge multiplier for a loadout: 6x only on the Caspian
+    Explorer (``explorer_nx``) with its Mk II overcharge-booster SCO drive, 4x
+    otherwise. The drive is matched loosely on purpose: EDSY names it
+    ``..._overchargebooster_mkii`` while other exports may not carry that
+    suffix, and the Mk II is the ONLY size-8 FSD in the game, so on a Caspian
+    a size-8 (or booster/mkii-tagged) drive IS the 6x drive. A Caspian fitted
+    with a smaller ordinary drive correctly stays 4x. Never raises."""
+    try:
+        if isinstance(slef, str):
+            slef = json.loads(slef)
+        if isinstance(slef, list):
+            slef = slef[0]
+        data = slef.get("data", slef) if isinstance(slef, dict) else {}
+        if str(data.get("Ship", "")).lower() != "explorer_nx":
+            return 4.0
+        fsd_mod = next(
+            (m for m in data.get("Modules", [])
+             if m.get("Slot") == "FrameShiftDrive"),
+            None,
+        )
+        item = str((fsd_mod or {}).get("Item", "")).lower()
+        if ("overchargebooster" in item or "mkii" in item
+                or "size8" in item):
+            return 6.0
+        return 4.0
+    except (ValueError, TypeError, KeyError, IndexError, AttributeError):
+        return 4.0
+
+
 def ship_summary(params: "FuelParams") -> dict:
     """A compact, display-ready view of a parsed loadout for the UI's ship
     import (fills the jump-range field, shows tank/scoop at a glance).

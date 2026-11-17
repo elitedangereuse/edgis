@@ -4215,6 +4215,7 @@ async def _solve_route_cached(
             to=dst_name,
             range=jump_range,
             status="ok",
+            sc=supercharge,
             total_jumps=result["total_jumps"],
             neutron=result["neutron_jumps"],
             bridge=result["bridge_jumps"],
@@ -4300,7 +4301,12 @@ class RouteRequest(BaseModel):
     to: str = Field(..., min_length=1)
     jump_range: float = Field(50.0, alias="range", gt=0, le=200)
     beam_width: Optional[int] = Field(None, ge=1, le=100)
-    supercharge: float = Field(4.0, ge=1.0, le=6.0)
+    # None = derive from the loadout (6x for a Caspian Mk II SCO drive, else
+    # 4x). A client that pins a value keeps it; clients that do not know about
+    # supercharge (older EDMC plugin builds, raw API users) stop silently
+    # plotting a 6x ship at 4x -- a real route came back with 4 pointless
+    # bridge jumps the commander then skipped in-game by boosting directly.
+    supercharge: Optional[float] = Field(None, ge=1.0, le=6.0)
     companion_max_ls: float = Field(
         500.0, ge=0.0, le=COMPANION_NEUTRON_BUILD_MAX_LS
     )
@@ -4353,11 +4359,16 @@ async def plot_route_post(
     # geometry (identical to GET /route).
     params = fsd.parse_loadout(req.loadout, req.cargo) if req.loadout else None
     tank_jumps = fsd.tank_capacity_jumps(params) if params is not None else 0
+    supercharge = (
+        req.supercharge
+        if req.supercharge is not None
+        else (fsd.detect_supercharge(req.loadout) if req.loadout else 4.0)
+    )
     # B2: the per-resource boost reach (range grows as the tank empties) lets the
     # planner chain fewer, longer hops late in a refuel cycle. Derived from the
     # loadout + supercharge; None without a loadout (shared ship-agnostic geometry).
     reach_by_r = (
-        fsd.reach_profile(params, req.supercharge)
+        fsd.reach_profile(params, supercharge)
         if (params is not None and req.range_growth)
         else None
     )
@@ -4366,7 +4377,7 @@ async def plot_route_post(
         req.to,
         req.jump_range,
         req.beam_width,
-        req.supercharge,
+        supercharge,
         access.get("via"),
         caller=access.get("caller"),
         companion_max_ls=req.companion_max_ls,
@@ -4383,7 +4394,7 @@ async def plot_route_post(
             result,
             params,
             req.fuel_safe,
-            req.supercharge,
+            supercharge,
             req.scoop_max_ls,
         )
         # B2 SAFETY GUARD: the range-growth geometry plans longer hops against a
@@ -4396,6 +4407,13 @@ async def plot_route_post(
             reach_by_r is not None
             and req.fuel_safe
             and not (result.get("fuel") or {}).get("safe", True)
+            # over_range_at == 0 means the FIRST full-tank jump already exceeds
+            # what the ship can fly: the requested range is beyond the loadout,
+            # so a B1 re-solve at the same range is over-range at leg 0 too.
+            # Skip the pointless second solve (it doubled the cost of every
+            # forced-range bench case and pushed one past the client timeout)
+            # and ship the better B2 geometry with its honest unsafe verdict.
+            and (result.get("fuel") or {}).get("over_range_at") != 0
         ):
             # Observability: this fallback discards a full range-growth route,
             # which on low-range routes can cost hundreds of jumps (observed
@@ -4420,7 +4438,7 @@ async def plot_route_post(
                 req.to,
                 req.jump_range,
                 req.beam_width,
-                req.supercharge,
+                supercharge,
                 access.get("via"),
                 companion_max_ls=req.companion_max_ls,
                 inject_mult=req.inject_mult,
@@ -4433,12 +4451,12 @@ async def plot_route_post(
                 b1,
                 params,
                 req.fuel_safe,
-                req.supercharge,
+                supercharge,
                 req.scoop_max_ls,
             )
         # Parameters block for the spansh-exact export (ship build + fuel model).
         result["spansh_params"] = fsd.spansh_params(
-            params, req.supercharge, req.inject_mult
+            params, supercharge, req.inject_mult
         )
     # Record the fuel mode on its own trace line: the shared geometry trace is
     # ship-agnostic, so without this the trace never shows whether a ship was

@@ -216,8 +216,10 @@ const SHIP_TYPES = {
 };
 // Neutron supercharge multiplier for a loadout: 6x only on the Caspian Explorer
 // (explorer_nx) fitted with the Mk II overcharge-booster SCO drive; 4x for every
-// other ship/FSD. The MKII drive currently exists only as 8A on the Caspian, but
-// require BOTH so a future MKII variant on another hull does not wrongly get 6x.
+// other ship/FSD. Matched loosely (mirrors fsd.detect_supercharge server-side):
+// EDSY names the drive ..._overchargebooster_mkii but other exports may not
+// carry that suffix, and the Mk II is the game's only size-8 FSD, so on a
+// Caspian a size-8 drive IS the 6x drive. A smaller ordinary drive stays 4x.
 function detectSupercharge(loadout) {
   try {
     let d = JSON.parse(loadout);
@@ -226,7 +228,9 @@ function detectSupercharge(loadout) {
     const ship = String(d.Ship || "").toLowerCase();
     const fsd = (d.Modules || []).find(m => m.Slot === "FrameShiftDrive");
     const item = String((fsd && fsd.Item) || "").toLowerCase();
-    return (ship === "explorer_nx" && item.includes("overchargebooster_mkii")) ? "6" : "4";
+    const mkii = item.includes("overchargebooster") || item.includes("mkii")
+              || item.includes("size8");
+    return (ship === "explorer_nx" && mkii) ? "6" : "4";
   } catch (e) { return "4"; }
 }
 function shipLabel(loadout) {
@@ -1191,18 +1195,25 @@ function doneBox(sys) {
 // The departure system as row #0 (like spansh): jumps/LY from source are 0,
 // "left" is the straight-line distance to the destination. Compact has three
 // numeric columns (jumps/LY/left), full has two (jumped/left).
-function sourceRow(r, compact) {
+function sourceRow(r, compact, hasFuel) {
   const sc = r.source_coords || {};
   const left = fmt(r.straight_line_ly, 0);
   const nums = compact
     ? `<td class="num">0</td><td class="num">0</td><td class="num">${left}</td>`
     : `<td class="num">0</td><td class="num">${left}</td>`;
+  // Departure fuel = first leg's tank level before its burn.
+  const j0 = (r.jumps || [])[0];
+  const start = j0 && j0.fuel_in_tank != null
+    ? j0.fuel_in_tank + (j0.fuel_used || 0) : null;
+  const fuel = hasFuel
+    ? `<td class="num">${start != null ? fmt(start, 1) : ""}</td>` : "";
   return `<tr class="src-row${doneSet.has(r.source) ? " done" : ""}">
       ${doneBox(r.source)}
       <td class="num">0</td>
       <td class="sys">${escapeHtml(r.source)}${copyBtn(r.source)}</td>
       <td></td>
       ${nums}
+      ${fuel}
       ${actsCell(r.source, sc.x, sc.y, sc.z)}
     </tr>`;
 }
@@ -1219,9 +1230,20 @@ function renderRoute(r) {
   loadDone();
   let header, rows;
   const riskMap = fuelRisks(r);
+  // Per-leg fuel (fuel_in_tank after the jump) is present when a ship was
+  // loaded; the column only renders then, so ship-less tables are unchanged.
+  const hasFuel = Array.isArray(r.jumps) && r.jumps.some(j => j && j.fuel_in_tank != null);
+  const fuelHead = hasFuel ? `<th class="num" title="Fuel in the tank after arriving here (tonnes)">fuel</th>` : "";
+  const fuelCell = (j) => {
+    if (!hasFuel) return "";
+    const v = j ? j.fuel_in_tank : null;
+    if (v == null) return `<td class="num"></td>`;
+    const refuel = !!(j.must_refuel || j.inflight_scoop);
+    return `<td class="num${refuel ? " refuel" : ""}"${refuel ? ` title="Tank topped up here"` : ""}>${fmt(v, 1)}</td>`;
+  };
   if (compactMode) {
     const wps = compactRows(r);
-    header = `<th class="chk-head" title="Done"></th><th class="num">#</th><th>system</th><th>star</th><th class="num">jumps</th><th class="num">LY</th><th class="num">left</th><th class="acts-head">actions</th>`;
+    header = `<th class="chk-head" title="Done"></th><th class="num">#</th><th>system</th><th>star</th><th class="num">jumps</th><th class="num">LY</th><th class="num">left</th>${fuelHead}<th class="acts-head">actions</th>`;
     rows = wps.map((w, i) => {
       const risk = riskInRange(riskMap, w.i0, w.i1);
       const cname = w.dest ? r.destination : w.system;
@@ -1233,12 +1255,13 @@ function renderRoute(r) {
       <td class="num">${fmt(w.jumps)}</td>
       <td class="num">${fmt(w.ly, 0)}</td>
       <td class="num">${fmt(w.left, 0)}</td>
+      ${fuelCell(r.jumps[w.i1])}
       ${actsCell(w.dest ? r.destination : w.system, w.x, w.y, w.z)}
     </tr>`;
     }).join("");
-    rows = sourceRow(r, true) + rows;
+    rows = sourceRow(r, true, hasFuel) + rows;
   } else {
-    header = `<th class="chk-head" title="Done"></th><th class="num">#</th><th>system</th><th>star</th><th class="num">jumped</th><th class="num">left</th><th class="acts-head">actions</th>`;
+    header = `<th class="chk-head" title="Done"></th><th class="num">#</th><th>system</th><th>star</th><th class="num">jumped</th><th class="num">left</th>${fuelHead}<th class="acts-head">actions</th>`;
     rows = r.jumps.map((j, i) => {
       const last = i === r.jumps.length - 1;
       const name = j.system ?? (last ? r.destination : "?");
@@ -1250,10 +1273,11 @@ function renderRoute(r) {
       <td>${spectralCell(j)}</td>
       <td class="num">${fmt(j.distance_jumped, 1)}</td>
       <td class="num">${fmt(j.distance_left, 0)}</td>
+      ${fuelCell(j)}
       ${actsCell(j.system ?? (last ? r.destination : null), j.x, j.y, j.z)}
     </tr>`;
     }).join("");
-    rows = sourceRow(r, false) + rows;
+    rows = sourceRow(r, false, hasFuel) + rows;
   }
   $("out").innerHTML = `
     <div class="statgrid">
