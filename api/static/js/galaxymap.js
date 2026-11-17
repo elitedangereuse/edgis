@@ -1065,15 +1065,18 @@
       window.System.syncParticleColors();
     }
 
-    // Colour each visible system by its scanned-body count (infos.body_count,
-    // from /neighbors). The ramp is relative to the densest system in view (floor
-    // 1), so it adapts as you pan/zoom; systems with no known bodies stay cold.
+    // Colour each visible system by its scanned-body count (infos.body_count, via
+    // /body-counts). Known systems (>= 1 body) span the heat ramp, relative to the
+    // densest in view so it adapts on pan/zoom; unknown/0-body systems get a
+    // distinct out-of-ramp colour (muted slate) so "no body data" reads apart from
+    // "few bodies".
     function applyBodiesHeatColoring() {
       if (!window.System?.particleGeo?.vertices || !Array.isArray(window.System.particleGeo.colors)) {
         return;
       }
       const vertices = window.System.particleGeo.vertices;
       const colors = window.System.particleGeo.colors;
+      const unknownColor = new THREE.Color('rgb(120, 126, 140)');
       let maxBodies = 1;
       for (let index = 0; index < vertices.length; index++) {
         const vertex = vertices[index];
@@ -1085,14 +1088,19 @@
           maxBodies = n;
         }
       }
+      const span = Math.max(1, maxBodies - 1);
       for (let index = 0; index < vertices.length; index++) {
         const vertex = vertices[index];
         if (!vertex || vertex.visible !== true) {
           continue;
         }
         const n = Number(vertex?.infos?.body_count);
-        const ratio = Number.isFinite(n) ? (n / maxBodies) : 0;
-        colors[index] = colorFromHeatRatio(ratio);
+        if (!Number.isFinite(n) || n <= 0) {
+          colors[index] = unknownColor.clone();
+        } else {
+          // 1 body -> coldest, maxBodies -> hottest.
+          colors[index] = colorFromHeatRatio((n - 1) / span);
+        }
       }
       window.System.syncParticleColors();
     }
