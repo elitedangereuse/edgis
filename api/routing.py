@@ -50,15 +50,11 @@ _native_route_warned = False
 
 # B1 (_graph_search_fuel) runs on the native graph_search_fuel kernel (fixed reach
 # + prefix-min dominance). Parity-verified: identical min-jumps vs the Python B1
-# (13-route prod A/B, 0 regressions), 5-7x faster. Applies to EVERY B1 search
-# including the two-phase B2 corridor seed: the native kernel tie-breaks
-# equal-jump paths differently (kiddo vs scipy KD-tree order), so a seeded
-# corridor can shift the realized result by +/-1 jump vs the Python coarse --
-# measured net +1 of 1306 across 13 prod routes, i.e. noise, and accepting it
-# removes the Python/native coupling and puts the dominant CPU phase of ALL
-# fuel routes on Rust. Judge changes on the fuel bench AGGREGATE, not
-# per-route. On by default (gated by the .so, like B2); set EDGIS_B1_NATIVE=0
-# to disable without removing the .so.
+# (13-route prod A/B, 0 regressions), 5-7x faster on pure-B1 (>30 kly) routes.
+# SCOPED to the final search only (native_ok): the two-phase B2 seeds its corridor
+# from a B1 COARSE path, and native's different tie-break could shift that seed, so
+# the coarse stays on Python. On by default (gated by the .so, like B2); set
+# EDGIS_B1_NATIVE=0 to disable without removing the .so.
 _B1_NATIVE = _os.environ.get("EDGIS_B1_NATIVE", "1") != "0"
 
 NeutronRow = tuple[float, float, float, int, str]
@@ -882,6 +878,7 @@ def _graph_search_fuel(
     tank_jumps: int,
     scoop_max_ls: float,
     boost_mult: float = 4.0,
+    native_ok: bool = True,
 ) -> Optional[list[int]]:
     """Fuel-aware variant of :func:`_graph_search`. Min-**jumps** over the
     corridor neutrons where a boosted hop burns one jump of fuel and landing on a
@@ -919,10 +916,14 @@ def _graph_search_fuel(
 
     # Native kernel: B1 runs on graph_search_fuel (fixed reach + prefix-min
     # dominance, matching this function's min-jumps and small front). Identical
-    # jump count, ~native speed; equal-jump TIE-BREAKS may differ from the
-    # Python loop (see the _B1_NATIVE note). On any marshalling error we warn
-    # once and fall through to the Python loop below.
-    if _B1_NATIVE and _native_route is not None:
+    # jump count, ~native speed. On any marshalling error we warn once and fall
+    # through to the Python loop below.
+    # Native B1 only for the FINAL search (native_ok). The two-phase B2 seeds its
+    # thin corridor from a B1 COARSE path; the native kernel tie-breaks differently
+    # (kiddo vs scipy KD-tree), so a native coarse can seed a different corridor and
+    # shift the B2 result +/-1. Keeping the coarse on Python preserves the corridor
+    # and the no-regression guarantee; native still speeds the pure-B1 routes.
+    if _B1_NATIVE and native_ok and _native_route is not None:
         try:
             return _native_graph_search_fuel(
                 index,
@@ -2154,6 +2155,8 @@ def graph_route(
             int(tank_jumps),
             float(scoop_max_ls),
             boost_mult=boost_mult,
+            # Keep the B2 corridor seed on Python: see _graph_search_fuel native note.
+            native_ok=False,
         )
         if coarse:
             b1seq = list(reversed(coarse)) if flip else coarse
