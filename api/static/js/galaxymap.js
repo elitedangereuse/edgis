@@ -1132,7 +1132,7 @@
         const key = String(id);
         if (!seen.has(key)) {
           seen.add(key);
-          missing.push(key);
+          missing.push(Number(id));
         }
       }
       if (!missing.length) {
@@ -1140,12 +1140,18 @@
       }
       bodyCountsInFlight = true;
       try {
+        // POST (not GET): a radius-50 view has thousands of ids, far past the
+        // proxy's URL-length limit. No URL cap, so large chunks.
         const chunks = [];
-        for (let i = 0; i < missing.length; i += 2000) {
-          chunks.push(missing.slice(i, i + 2000));
+        for (let i = 0; i < missing.length; i += 10000) {
+          chunks.push(missing.slice(i, i + 10000));
         }
         const results = await Promise.all(chunks.map((chunk) =>
-          fetch('/body-counts?ids=' + encodeURIComponent(chunk.join(',')))
+          fetch('/body-counts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: chunk }),
+          })
             .then((r) => (r.ok ? r.json() : {}))
             .catch(() => ({}))
         ));

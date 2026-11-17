@@ -2606,28 +2606,24 @@ def _fetch_body_counts_sync(id_list: list[int]) -> dict[str, int]:
     return {str(i): found.get(i, 0) for i in id_list}
 
 
-@app.get("/body-counts", include_in_schema=True)
-async def body_counts(
-    ids: str = Query(..., description="Comma-separated system id64s"),
-):
-    """Scanned-body counts for a batch of systems, keyed by id64 (string). The
-    deferred companion to /neighbors: the list renders first, then fills in these
-    counts (and the galaxymap bodies heatmap reads them), so the count query is
-    off the critical path."""
+class BodyCountsRequest(BaseModel):
+    ids: list[int] = []
+
+
+@app.post("/body-counts", include_in_schema=True)
+async def body_counts(req: BodyCountsRequest):
+    """Scanned-body counts for a batch of systems, keyed by id64 (string). POST,
+    not GET, so the galaxymap's large id batches never hit the proxy's URL-length
+    limit. The deferred companion to /neighbors: the list renders first, then
+    fills in these counts (and the bodies heatmap reads them), so the count query
+    stays off the critical path."""
     seen: set[int] = set()
     id_list: list[int] = []
-    for token in ids.split(","):
-        token = token.strip()
-        if not token:
-            continue
-        try:
-            value = int(token)
-        except ValueError:
-            continue
+    for value in req.ids:
         if value not in seen:
             seen.add(value)
             id_list.append(value)
-        if len(id_list) >= 5000:
+        if len(id_list) >= 20000:
             break
     return await _run_db_task(_fetch_body_counts_sync, id_list)
 

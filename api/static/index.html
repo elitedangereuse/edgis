@@ -2005,10 +2005,14 @@
        if (!need.length) {
          return;
        }
-       const ids = need.map(r => String(r.id64));
+       const ids = need.map(r => Number(r.id64)).filter(Number.isFinite);
        let counts;
        try {
-         const res = await fetch('/body-counts?ids=' + encodeURIComponent(ids.join(',')));
+         const res = await fetch('/body-counts', {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify({ ids }),
+         });
          if (!res.ok) {
            return;
          }
