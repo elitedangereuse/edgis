@@ -24,6 +24,7 @@ and unit-testable:
 
 from __future__ import annotations
 
+import hashlib
 import heapq
 import math
 import time
@@ -106,6 +107,16 @@ class NeutronIndex:
         self.tree = cKDTree(coords)
         self.count = len(id64)
         self.built_at = time.time()
+        # Content version for route-cache keys. The old key used only the
+        # COUNT, so a rebuild landing on the same count served stale routes;
+        # digesting the id64s plus the companion/scoop columns busts exactly
+        # when the routing data changes (and cache stays valid across
+        # restarts, which a build timestamp would throw away).
+        h = hashlib.blake2b(digest_size=8)
+        h.update(np.asarray(id64, dtype=np.int64).tobytes())
+        h.update(self.arrival_ls.tobytes())
+        h.update(self.scoop_ls.tobytes())
+        self.version = h.hexdigest()
 
     @classmethod
     def build(cls, fetch_neutron_rows: FetchNeutrons) -> "NeutronIndex":

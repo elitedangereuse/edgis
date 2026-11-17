@@ -606,3 +606,16 @@ def test_graph_route_b2_noop_without_growth():
     base = routing.graph_route(idx, src, dst, 10.0, no_stars, time_cap=10.0,
                                tank_jumps=20, scoop_max_ls=100.0)
     assert flat["total_jumps"] == base["total_jumps"]
+
+
+def test_index_version_tracks_content_not_count():
+    # The route-cache key embeds index.version. Two identical builds must agree
+    # (cache survives restarts); a rebuild with the SAME count but different
+    # data must differ (the old count-only key served stale routes here).
+    a = make_scoop_index(_SCOOP_PTS, _SCOOP_LS)
+    b = make_scoop_index(_SCOOP_PTS, _SCOOP_LS)
+    assert a.version == b.version
+    changed = [np.inf, 50.0, np.inf, np.inf]  # scoopable moved N2 -> N1
+    c = make_scoop_index(_SCOOP_PTS, changed)
+    assert c.count == a.count
+    assert c.version != a.version

@@ -64,7 +64,7 @@ def test_route_success_path(monkeypatch):
     _gate_future(monkeypatch)
     monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
     _clear_route_cache()
-    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())  # truthy = "ready"
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1, "version": "v1"})())  # truthy = "ready"
 
     async def fake_resolve(value):
         coords = {"Sol": (0.0, 0.0, 0.0), "Colonia": (0.0, 0.0, 1000.0)}
@@ -132,7 +132,7 @@ def test_route_companion_max_ls_threaded_and_arrival_ls_passthrough(monkeypatch)
     _gate_future(monkeypatch)
     monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
     _clear_route_cache()
-    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1, "version": "v1"})())
 
     async def fake_resolve(value):
         return {"A": (0.0, 0.0, 0.0), "B": (0.0, 0.0, 360.0)}[value], value, None, None
@@ -173,7 +173,7 @@ def test_route_coalesces_concurrent_duplicates(monkeypatch):
 
     _gate_future(monkeypatch)
     monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
-    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1, "version": "v1"})())
 
     async def fake_resolve(value):
         return {"CoalA": (0.0, 0.0, 0.0), "CoalB": (0.0, 0.0, 999.0)}[value], value, None, None
@@ -263,7 +263,7 @@ def test_route_ship_import_rejects_garbage(monkeypatch):
 def test_route_post_attaches_fuel_report(monkeypatch):
     _gate_future(monkeypatch)
     monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
-    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1, "version": "v1"})())
 
     async def fake_resolve(value):
         coords = {"Sol": (0.0, 0.0, 0.0), "Near": (0.0, 0.0, 80.0)}
@@ -370,7 +370,7 @@ def test_route_post_with_loadout_plans_fuel_aware(monkeypatch):
     _gate_future(monkeypatch)
     monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
     _clear_route_cache()
-    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1, "version": "v1"})())
     captured: dict = {}
     _capture_solve(monkeypatch, captured)
 
@@ -395,7 +395,7 @@ def test_route_b2_on_by_default(monkeypatch):
     _gate_future(monkeypatch)
     monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
     _clear_route_cache()
-    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1, "version": "v1"})())
     captured: dict = {}
     _capture_solve(monkeypatch, captured)
     resp = client.post(
@@ -413,7 +413,7 @@ def test_route_b2_opt_out(monkeypatch):
     _gate_future(monkeypatch)
     monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
     _clear_route_cache()
-    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1, "version": "v1"})())
     captured: dict = {}
     _capture_solve(monkeypatch, captured)
     resp = client.post(
@@ -433,7 +433,7 @@ def test_route_without_loadout_stays_ship_agnostic(monkeypatch):
     _gate_future(monkeypatch)
     monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
     _clear_route_cache()
-    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1, "version": "v1"})())
     captured: dict = {}
     _capture_solve(monkeypatch, captured)
 
@@ -453,7 +453,7 @@ def test_route_post_inflight_scoop_avoids_divert_stops(monkeypatch):
     _gate_future(monkeypatch)
     monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
     _clear_route_cache()
-    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1, "version": "v1"})())
 
     async def fake_resolve(value):
         coords = {"A": (0.0, 0.0, 0.0), "B": (1200.0, 0.0, 0.0)}
@@ -526,7 +526,7 @@ def test_route_post_fuel_safe_inserts_scoop_stops(monkeypatch):
     _gate_future(monkeypatch)
     monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
     _clear_route_cache()
-    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1, "version": "v1"})())
 
     async def fake_resolve(value):
         coords = {"A": (0.0, 0.0, 0.0), "B": (1200.0, 0.0, 0.0)}
@@ -596,7 +596,7 @@ def test_route_post_fuel_safe_inserts_scoop_stops(monkeypatch):
 def test_route_post_without_loadout_has_no_fuel(monkeypatch):
     _gate_future(monkeypatch)
     monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
-    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1, "version": "v1"})())
 
     async def fake_resolve(value):
         return {"A": (0.0, 0.0, 0.0), "B": (0.0, 0.0, 30.0)}[value], value, None, None
@@ -709,7 +709,7 @@ def test_route_patron_access(monkeypatch):
     monkeypatch.delenv("ENTITLEMENT_KEYS", raising=False)
     monkeypatch.delenv("ROUTE_ACCESS_KEYS", raising=False)
     monkeypatch.delenv("ADMIN_TOKEN", raising=False)
-    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1, "version": "v1"})())
 
     async def fake_resolve(value):
         return {"Sol": (0.0, 0.0, 0.0), "X": (0.0, 0.0, 10.0)}[value], value, None, None
@@ -885,7 +885,7 @@ def test_route_prof_goes_to_the_trace_not_the_response(monkeypatch):
     _gate_future(monkeypatch)
     monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
     _clear_route_cache()
-    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1})())
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1, "version": "v1"})())
 
     async def fake_resolve(value):
         return {"P": (0.0, 0.0, 0.0), "Q": (0.0, 0.0, 10.0)}[value], value, None, None

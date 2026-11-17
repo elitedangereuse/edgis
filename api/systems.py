@@ -4037,7 +4037,7 @@ async def _solve_route_cached(
 
     cache_key = (
         f"{from_.strip().lower()}|{to.strip().lower()}"
-        f"|{jump_range:g}|{beam_width}|sc{supercharge:g}|v{_neutron_index.count}"
+        f"|{jump_range:g}|{beam_width}|sc{supercharge:g}|v{_neutron_index.version}"
         # Only append when opted in, so the default path keeps its existing key
         # (no cache fragmentation / one-time miss on the common route).
         + (f"|cml{companion_max_ls:g}" if companion_max_ls > 0 else "")
