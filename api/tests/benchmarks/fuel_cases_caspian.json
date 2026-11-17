@@ -7,7 +7,7 @@
       "from": "Sol",
       "to": "Colonia",
       "range": 50,
-      "our": 85,
+      "our": 58,
       "safe": true
     },
     {
@@ -16,7 +16,7 @@
       "from": "Celaeno",
       "to": "Sagittarius A*",
       "range": 50,
-      "our": 112,
+      "our": 69,
       "safe": true
     },
     {
@@ -25,7 +25,7 @@
       "from": "Bishan",
       "to": "Praae Aick AS-B d13-0",
       "range": 70,
-      "our": 361,
+      "our": 266,
       "safe": true
     },
     {
@@ -34,7 +34,7 @@
       "from": "Calennero",
       "to": "Sagittarius A*",
       "range": 30,
-      "our": 177,
+      "our": 67,
       "safe": true
     },
     {
@@ -43,7 +43,7 @@
       "from": "Sol",
       "to": "Beagle Point",
       "range": 50,
-      "our": 590,
+      "our": 356,
       "safe": true
     },
     {
@@ -52,7 +52,7 @@
       "from": "SU Cassiopeiae",
       "to": "Synuefae CC-A b6-0",
       "range": 50,
-      "our": 107,
+      "our": 25,
       "safe": true
     },
     {
@@ -61,7 +61,7 @@
       "from": "Celaeno",
       "to": "Colonia",
       "range": 80,
-      "our": 81,
+      "our": 54,
       "safe": false
     },
     {
@@ -70,7 +70,7 @@
       "from": "Cubeo",
       "to": "Col 173 Sector LJ-F c12-0",
       "range": 50,
-      "our": 14,
+      "our": 8,
       "safe": true
     },
     {
@@ -79,7 +79,7 @@
       "from": "Sol",
       "to": "Maia",
       "range": 80,
-      "our": 5,
+      "our": 4,
       "safe": false
     },
     {
@@ -88,7 +88,7 @@
       "from": "Graea Hypue HX-S d4-268",
       "to": "Graea Hypue YB-M b11-6",
       "range": 20,
-      "our": 12,
+      "our": 5,
       "safe": true
     },
     {
@@ -106,7 +106,7 @@
       "from": "Sol",
       "to": "Maia",
       "range": 50,
-      "our": 8,
+      "our": 6,
       "safe": true
     },
     {
@@ -115,7 +115,7 @@
       "from": "Maia",
       "to": "Lu Benzai",
       "range": 50,
-      "our": 8,
+      "our": 4,
       "safe": true
     },
     {
@@ -124,7 +124,7 @@
       "from": "Star of India",
       "to": "Stafkarl",
       "range": 60.45,
-      "our": 16,
+      "our": 12,
       "safe": true
     },
     {
@@ -133,7 +133,7 @@
       "from": "Stafkarl",
       "to": "Star of India",
       "range": 60.45,
-      "our": 16,
+      "our": 11,
       "safe": true
     },
     {
@@ -142,7 +142,7 @@
       "from": "Colonia",
       "to": "Sagittarius A*",
       "range": 50,
-      "our": 45,
+      "our": 30,
       "safe": true
     },
     {
@@ -151,7 +151,7 @@
       "from": "Col 173 Sector LJ-F c12-0",
       "to": "HIP 26176",
       "range": 50,
-      "our": 34,
+      "our": 10,
       "safe": true
     },
     {
@@ -160,7 +160,7 @@
       "from": "Cubeo",
       "to": "Sagittarius A*",
       "range": 50,
-      "our": 110,
+      "our": 74,
       "safe": true
     },
     {
@@ -187,7 +187,7 @@
       "from": "Lave",
       "to": "Maia",
       "range": 20,
-      "our": 22,
+      "our": 13,
       "safe": true
     },
     {
@@ -196,7 +196,7 @@
       "from": "Beagle Point",
       "to": "Colonia",
       "range": 80,
-      "our": 215,
+      "our": 143,
       "safe": false
     },
     {
@@ -205,7 +205,7 @@
       "from": "Pru Aeb DA-H b11-0",
       "to": "Synuefae AA-A h31",
       "range": 80,
-      "our": 168,
+      "our": 154,
       "safe": false
     }
   ]
