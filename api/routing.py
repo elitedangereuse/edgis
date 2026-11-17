@@ -2079,7 +2079,7 @@ def _finalize(
     width: int,
     start_time: float,
 ) -> dict:
-    # Drop zero-distance hops — you don't "jump" to where you already are
+    # Drop zero-distance hops: you don't "jump" to where you already are
     # (e.g. from == to, or coincident systems). spansh counts these as 0 jumps.
     legs = [leg for leg in legs if leg["distance_jumped"] > 1e-6]
     # Neutron hops carry no catalogued spectral type here; they are, by

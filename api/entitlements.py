@@ -5,7 +5,7 @@ endpoint behind a time-boxed, Patreon-style access window:
 
 * Before a feature's ``public_after`` date the caller must prove entitlement
   (access key today; a Patreon session in Layer 2).
-* On/after that date the feature opens to everyone automatically — no deploy,
+* On/after that date the feature opens to everyone automatically, no deploy,
   no intervention.
 
 Layer 1 (this file) ships an **access-key** backend so the route plotter can
