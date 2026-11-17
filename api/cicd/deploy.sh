@@ -23,8 +23,8 @@ case "$TARGET" in
         TARGET_PATH="${REMOTE_PATH_STAGING:-$REMOTE_PATH}"
         TARGET_PORT="${REMOTE_PORT_STAGING:-$REMOTE_PORT}"
         TARGET_SERVICE="${REMOTE_SERVICE_STAGING:-edgis-staging.service}"
+        # Gitignored staging-only files the git-derived list below can't see.
         EXTRA_FILES=(
-            systems_staging.py
             static/index-staging.html
         )
         ;;
@@ -36,54 +36,24 @@ esac
 
 TMP_CHANGED_FILE_LIST=$(mktemp)
 {
-    echo systems.py
-    echo routing.py
-    # NOTE: the native Rust kernel (edgis_route.abi3.so) is intentionally NOT
-    # auto-shipped. It must be built ON the prod platform (rust/build.sh) and
-    # enabled deliberately after a live validation pass; routing.py falls back to
-    # Python when it is absent. Shipping a cross-built .so silently flips the
-    # routing engine, so keep it a manual step.
-    echo fsd.py
-    echo entitlements.py
-    echo patreon_auth.py
-    echo permit_zones.py
-    echo requirements.txt
-    echo static/route.html
-    echo static/route-panel.css
-    echo static/route-panel.js
-    echo static/index.html
-    echo static/admin.html
-    echo static/galaxymap.html
-    echo static/neutron-cloud.html
-    echo static/neutron-cloud-worker.js
-    echo static/sysmap.html
-    echo static/sysmap-body-palette.html
-    echo static/sysmap.css
-    echo static/tailwind.css
-    echo static/milkyway.css
-    echo static/js/panzoom.js
-    echo static/js/galaxymap.js
-    echo static/ed3d/js/components/hud.class.js
-    echo static/js/sysmap_roots.js
-    echo static/js/sysmap_materials.js
-    echo static/js/sysmap.js
-    echo static/assets/spansh.png
-    echo static/edgislogo.svg
-    echo static/assets/fleetcarrierstation.svg
-    echo static/assets/fleetcarrierstack.svg
-    echo static/assets/installationstation.svg
-    echo static/assets/squadroncarrierstation.svg
-    echo static/assets/spaceconstructiondepot.svg
-    echo "static/assets/materials/1-very common.svg"
-    echo static/assets/materials/2-common.svg
-    echo static/assets/materials/3-standard.svg
-    echo static/assets/materials/4-rare.svg
-    echo "static/assets/materials/5-very rare.svg"
-    echo static/assets/synthesis/off.svg
-    echo static/assets/synthesis/basic.svg
-    echo static/assets/synthesis/standard.svg
-    echo static/assets/synthesis/premium.svg
-    echo static/fixtures/sysmap-body-palette.json
+    # Ship what git ships: tracked files plus untracked-but-not-ignored ones,
+    # so a NEW file deploys without being hand-listed (the old hardcoded
+    # allowlist silently dropped new files and caused live regressions).
+    # Exclusions:
+    #   - tests/, cicd/, tools/: not needed at runtime
+    #   - edts: submodule, deployed manually on the rare occasion it changes
+    #   - gitignored files are absent by construction. That keeps secrets
+    #     (.env) off the ship list AND keeps the native Rust kernel
+    #     (edgis_route.abi3.so) a deliberate build-on-prod step
+    #     (rust/build.sh): routing.py falls back to Python when it is absent,
+    #     and a cross-built .so silently flipping the engine was a real
+    #     incident.
+    git -c core.quotepath=off ls-files --cached --others --exclude-standard |
+        grep -Ev '^(tests/|cicd/|tools/|edts($|/)|Makefile$|\.coveragerc$)' |
+        while IFS= read -r f; do
+            # Tracked-but-deleted files would abort rsync before the restart.
+            if [[ -f "$f" ]]; then printf '%s\n' "$f"; fi
+        done
     # Extra files may be untracked (index-staging.html is gitignored): skip the
     # missing ones so rsync does not abort the deploy before the restart.
     for file in "${EXTRA_FILES[@]}"; do
