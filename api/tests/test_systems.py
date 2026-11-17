@@ -1180,7 +1180,7 @@ async def test_fetch_neighbors_from_db_parses_rows(monkeypatch):
     )  # type: ignore[attr-defined]
     assert rows == [
         {
-            "id64": 99,
+            "id64": "99",
             "name": "Sol",
             "mainstar": "G",
             "coords": {"x": 1.0, "y": 2.0, "z": 3.0},
@@ -1264,7 +1264,7 @@ async def test_fetch_neighbors_page_from_db_with_cursor_uses_keyset(monkeypatch)
         0, 0, 0, 10, 2, 5.2, "Achenar", 100
     )  # type: ignore[attr-defined]
 
-    assert payload["items"][0]["id64"] == 101
+    assert payload["items"][0]["id64"] == "101"
     select_query, select_params = cursor.executed[-1]
     assert "WHERE (\n                    distance > %s" in select_query
     assert select_params == (0, 0, 0, 10, 5.2, 5.2, "Achenar", 5.2, "Achenar", 100, 3)
@@ -1280,7 +1280,7 @@ async def test_fetch_neighbors_from_db_applies_optional_filters(monkeypatch):
     rows = await systems.fetch_neighbors_from_db.__wrapped__(  # type: ignore[attr-defined]
         0, 0, 0, 10, 25, "Argon", "Selenium"
     )
-    assert rows[0]["id64"] == 99
+    assert rows[0]["id64"] == "99"
     select_query, select_params = cursor.executed[-1]
     assert "body_atmospheres" in select_query
     assert "body_materials" in select_query
