@@ -124,10 +124,15 @@ def main():
     print(header + "\n  " + "-" * (len(header) - 2))
 
     regress = improve = fail = 0
+    # The nonce must differ BETWEEN runs, not just between cases: a fixed
+    # 1 + (i % 100) re-used the same cache keys on every --fresh run, so a
+    # second run against an unchanged index silently measured cache hits
+    # (caught because the fresh-solve-only sc= trace field went missing).
+    # beam_width is capped at 100; a per-run offset keeps keys fresh unless
+    # two runs start in the same second.
+    offset = int(time.time()) if args.fresh else 0
     for i, c in enumerate(cases):
-        # beam_width is capped at 100; 1..100 is enough to bust the cache since
-        # each case is a distinct route.
-        nonce = (1 + (i % 100)) if args.fresh else None
+        nonce = (1 + ((i + offset) % 100)) if args.fresh else None
         r = plot(args.base_url, args.key, c, args.timeout, nonce,
                  loadout=loadout, scoop_max_ls=args.scoop_max_ls)
         expected = c.get("status", "ok")
