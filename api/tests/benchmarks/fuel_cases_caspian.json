@@ -1,0 +1,212 @@
+{
+  "_comment": "Fuel-aware (POST + caspian SLEF, scoop_max_ls=1000) baselines. Same routes/ranges as route_cases.json minus expected-fail cases. 'our' = total_jumps, 'safe' = fuel verdict; both are baselined via --update and compared on later runs. No spansh column: these trace-mined spansh numbers are neutron-plotter (ship-agnostic) and not comparable to fuel-aware jumps.",
+  "cases": [
+    {
+      "cat": "flagship-win",
+      "name": "sol-colonia",
+      "from": "Sol",
+      "to": "Colonia",
+      "range": 50,
+      "our": 85,
+      "safe": true
+    },
+    {
+      "cat": "win",
+      "name": "celaeno-sgra",
+      "from": "Celaeno",
+      "to": "Sagittarius A*",
+      "range": 50,
+      "our": 112,
+      "safe": true
+    },
+    {
+      "cat": "win-big",
+      "name": "bishan-praae",
+      "from": "Bishan",
+      "to": "Praae Aick AS-B d13-0",
+      "range": 70,
+      "our": 361,
+      "safe": true
+    },
+    {
+      "cat": "win-lowrange",
+      "name": "calennero-sgra",
+      "from": "Calennero",
+      "to": "Sagittarius A*",
+      "range": 30,
+      "our": 177,
+      "safe": true
+    },
+    {
+      "cat": "win-rim-slow",
+      "name": "sol-beagle-50",
+      "from": "Sol",
+      "to": "Beagle Point",
+      "range": 50,
+      "our": 590,
+      "safe": true
+    },
+    {
+      "cat": "win",
+      "name": "su-cas-synuefae",
+      "from": "SU Cassiopeiae",
+      "to": "Synuefae CC-A b6-0",
+      "range": 50,
+      "our": 107,
+      "safe": true
+    },
+    {
+      "cat": "win",
+      "name": "celaeno-colonia-80",
+      "from": "Celaeno",
+      "to": "Colonia",
+      "range": 80,
+      "our": 81,
+      "safe": false
+    },
+    {
+      "cat": "win-close",
+      "name": "cubeo-col173",
+      "from": "Cubeo",
+      "to": "Col 173 Sector LJ-F c12-0",
+      "range": 50,
+      "our": 14,
+      "safe": true
+    },
+    {
+      "cat": "win-close",
+      "name": "sol-maia-80",
+      "from": "Sol",
+      "to": "Maia",
+      "range": 80,
+      "our": 5,
+      "safe": false
+    },
+    {
+      "cat": "obstacle-tie",
+      "name": "graea-pair-20",
+      "from": "Graea Hypue HX-S d4-268",
+      "to": "Graea Hypue YB-M b11-6",
+      "range": 20,
+      "our": 12,
+      "safe": true
+    },
+    {
+      "cat": "obstacle-win",
+      "name": "graea-pair-80",
+      "from": "Graea Hypue HX-S d4-268",
+      "to": "Graea Hypue YB-M b11-6",
+      "range": 80,
+      "our": 2,
+      "safe": true
+    },
+    {
+      "cat": "tie",
+      "name": "sol-maia-50",
+      "from": "Sol",
+      "to": "Maia",
+      "range": 50,
+      "our": 8,
+      "safe": true
+    },
+    {
+      "cat": "tie",
+      "name": "maia-lubenzai",
+      "from": "Maia",
+      "to": "Lu Benzai",
+      "range": 50,
+      "our": 8,
+      "safe": true
+    },
+    {
+      "cat": "bidir-win",
+      "name": "starindia-stafkarl",
+      "from": "Star of India",
+      "to": "Stafkarl",
+      "range": 60.45,
+      "our": 16,
+      "safe": true
+    },
+    {
+      "cat": "bidir-win",
+      "name": "stafkarl-starindia",
+      "from": "Stafkarl",
+      "to": "Star of India",
+      "range": 60.45,
+      "our": 16,
+      "safe": true
+    },
+    {
+      "cat": "loss-close",
+      "name": "colonia-sgra",
+      "from": "Colonia",
+      "to": "Sagittarius A*",
+      "range": 50,
+      "our": 45,
+      "safe": true
+    },
+    {
+      "cat": "loss-short",
+      "name": "col173-hip26176",
+      "from": "Col 173 Sector LJ-F c12-0",
+      "to": "HIP 26176",
+      "range": 50,
+      "our": 34,
+      "safe": true
+    },
+    {
+      "cat": "loss",
+      "name": "cubeo-sgra",
+      "from": "Cubeo",
+      "to": "Sagittarius A*",
+      "range": 50,
+      "our": 110,
+      "safe": true
+    },
+    {
+      "cat": "loss-lowrange",
+      "name": "sol-maia-20",
+      "from": "Sol",
+      "to": "Maia",
+      "range": 20,
+      "our": 19,
+      "safe": true
+    },
+    {
+      "cat": "loss-lowrange",
+      "name": "riedquat-asterope-20",
+      "from": "Riedquat",
+      "to": "Asterope",
+      "range": 20,
+      "our": 22,
+      "safe": true
+    },
+    {
+      "cat": "loss-lowrange",
+      "name": "lave-maia-20",
+      "from": "Lave",
+      "to": "Maia",
+      "range": 20,
+      "our": 22,
+      "safe": true
+    },
+    {
+      "cat": "loss-drift",
+      "name": "beagle-colonia-80",
+      "from": "Beagle Point",
+      "to": "Colonia",
+      "range": 80,
+      "our": 215,
+      "safe": false
+    },
+    {
+      "cat": "loss-drift",
+      "name": "pruaeb-synuefae-80",
+      "from": "Pru Aeb DA-H b11-0",
+      "to": "Synuefae AA-A h31",
+      "range": 80,
+      "our": 168,
+      "safe": false
+    }
+  ]
+}
