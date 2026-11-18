@@ -1864,6 +1864,13 @@ _B2_TIME_BUDGET = 60.0
 # Sag A*) and excludes the deep rim (Beagle).
 _B2_MAX_LY = 30000.0
 
+# Straight-line distance (ly) below which the B2 branch also realizes the B1
+# coarse path and keeps the fewer-jumps of the two. Range growth's benefit scales
+# with route length, so short routes are where B2 can LOSE to B1 (cobra 4x
+# 76 Sigma Ceti->V2079: B2 18 vs B1 14); longer routes reliably favour B2 and
+# realizing their long B1 path would roughly double realization time for nothing.
+_B2_BASELINE_MAX_LY = float(_os.environ.get("EDGIS_B2_BASELINE_MAX_LY") or "8000")
+
 
 def _thin_corridor(
     index: NeutronIndex, seq_ids: list[int], radius: float
@@ -2160,34 +2167,55 @@ def graph_route(
         )
         if coarse:
             b1seq = list(reversed(coarse)) if flip else coarse
+
+            def _realize_coarse():
+                """Realize the B1 coarse path at fixed reach (no range growth)."""
+                legs, _f = _realize_graph(
+                    index,
+                    src,
+                    dst,
+                    J,
+                    b1seq,
+                    fetch_stars_within,
+                    fetch_stars_near_segment,
+                    fetch_stars_toward,
+                    is_locked=is_locked,
+                    boost_mult=boost_mult,
+                    inject_mult=inject_mult,
+                )
+                if legs is None:
+                    return None
+                return _finalize(legs, src, dst, J, boost, straight, 0, start_time)
+
+            # Range growth (B2) chains FEWER, longer hops late in a tank -- a win
+            # that GROWS with route length (more refuel cycles). On SHORT routes
+            # with a small tank it can instead LOSE neutron boosts to the
+            # thin-corridor approximation and ship MORE jumps than plain B1 (a
+            # cobra mkV at 4x plotted 18 via B2 vs 14 via B1). So on short routes
+            # realize the B1 coarse as a baseline and keep whichever plan has
+            # fewer jumps; on long routes (where B2 reliably wins and realizing
+            # the long B1 path would roughly double realization time) trust B2
+            # and only realize the coarse as a fallback if B2 misses.
+            compare_b1 = straight < _B2_BASELINE_MAX_LY
+            b1_res = _realize_coarse() if compare_b1 else None
+
+            b2_res = None
             tc = _filter(_thin_corridor(index, b1seq, _B2_THIN_CORRIDOR_LY))
-            if len(tc):
+            if len(tc) and time.perf_counter() < deadline:
                 # Bound the flown search so a slow one (long/dense route) can't
                 # eat the whole deadline and starve the fallback below.
                 b2_dl = min(deadline, time.perf_counter() + _B2_TIME_BUDGET)
-                res = _solve(False, cand_set=tc, range_search=True, dl=b2_dl)
-                if res is not None:
-                    return res
-            # B2 missed (timeout / unrealizable): realize the coarse B1 path we
-            # already have directly -- no second B1 search -- so default-on B2
-            # never regresses below B1 and never wastes a full extra solve.
-            legs, _f = _realize_graph(
-                index,
-                src,
-                dst,
-                J,
-                b1seq,
-                fetch_stars_within,
-                fetch_stars_near_segment,
-                fetch_stars_toward,
-                is_locked=is_locked,
-                boost_mult=boost_mult,
-                inject_mult=inject_mult,
-            )
-            if legs is not None:
-                return _finalize(
-                    legs, src, dst, J, boost, straight, 0, start_time
-                )
+                b2_res = _solve(False, cand_set=tc, range_search=True, dl=b2_dl)
+
+            # Keep the fewer-jumps realized route (B2 only when it actually wins).
+            cands = [r for r in (b1_res, b2_res) if r is not None]
+            if cands:
+                return min(cands, key=lambda r: r["total_jumps"])
+            # B2 missed and we skipped the baseline (long route): realize the
+            # coarse B1 path directly rather than waste a second full B1 search.
+            b1_res = _realize_coarse()
+            if b1_res is not None:
+                return b1_res
 
     result = _solve(flip)
     if result is None and flip:
