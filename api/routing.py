@@ -136,6 +136,51 @@ class NeutronIndex:
             return float("inf")
         return float(self.scoop_ls[self._id64_order[pos]])
 
+    # Snapshot format version; bump if the on-disk layout changes so a stale
+    # snapshot is rejected rather than mis-read.
+    _SNAPSHOT_FORMAT = 1
+
+    def save(self, path: str) -> None:
+        """Serialize the index to ``path`` (a .npz) so it can be reloaded in
+        seconds instead of the ~3 min DB build. Stores the raw inputs (coords,
+        id64, names, companion/scoop arrays); :meth:`load` rebuilds the KD-tree
+        and sorted views, so the loaded index is identical to a freshly built
+        one. Names go in as one newline-joined blob (ED system names contain no
+        newline) to avoid object-array pickling."""
+        names_blob = "\n".join(self.names).encode("utf-8")
+        tmp = f"{path}.tmp-{_os.getpid()}"
+        np.savez(
+            tmp,
+            fmt=np.asarray(self._SNAPSHOT_FORMAT, dtype=np.int64),
+            coords=np.ascontiguousarray(self.coords, dtype=np.float64),
+            id64=self._id64_arr,
+            arrival=self.arrival_ls,
+            scoop=self.scoop_ls,
+            names_blob=np.frombuffer(names_blob, dtype=np.uint8),
+        )
+        # np.savez appends .npz; rename into place atomically so a reader never
+        # sees a half-written file.
+        _os.replace(f"{tmp}.npz", path)
+
+    @classmethod
+    def load(cls, path: str) -> "NeutronIndex":
+        """Reconstruct an index from a :meth:`save` snapshot. Raises on a
+        missing file, a format mismatch, or a corrupt archive (caller falls
+        back to building from the DB)."""
+        with np.load(path) as z:
+            if int(z["fmt"]) != cls._SNAPSHOT_FORMAT:
+                raise ValueError(
+                    f"snapshot format {int(z['fmt'])} != {cls._SNAPSHOT_FORMAT}"
+                )
+            coords = np.ascontiguousarray(z["coords"], dtype=np.float64)
+            id64 = z["id64"]
+            arrival = z["arrival"]
+            scoop = z["scoop"]
+            names = z["names_blob"].tobytes().decode("utf-8").split("\n")
+        if len(names) != len(id64):
+            raise ValueError("snapshot names/id64 length mismatch")
+        return cls(coords, id64, names, arrival_ls=arrival, scoop_ls=scoop)
+
     @classmethod
     def build(cls, fetch_neutron_rows: FetchNeutrons) -> "NeutronIndex":
         rows = list(fetch_neutron_rows())

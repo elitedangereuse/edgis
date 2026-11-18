@@ -630,3 +630,32 @@ def test_scoop_ls_for_matches_planner_model():
     assert idx.scoop_ls_for(2) == 50.0
     assert idx.scoop_ls_for(0) == float("inf")   # no scoopable companion
     assert idx.scoop_ls_for(999) == float("inf")  # not in the index
+
+
+def test_index_snapshot_roundtrip(tmp_path):
+    # A saved snapshot reloads to an identical index: same content version,
+    # same scoop lookups, working KD-tree. This is the fast-restart path.
+    idx = make_scoop_index(_SCOOP_PTS, _SCOOP_LS)
+    snap = str(tmp_path / "idx.npz")
+    idx.save(snap)
+    loaded = routing.NeutronIndex.load(snap)
+    assert loaded.count == idx.count
+    assert loaded.version == idx.version            # content digest matches
+    assert list(loaded.names) == list(idx.names)
+    assert loaded.scoop_ls_for(2) == 50.0
+    assert loaded.scoop_ls_for(0) == float("inf")
+    # KD-tree works (nearest-neighbour query returns the same point).
+    import numpy as _np
+    d, i = loaded.tree.query(_np.asarray(_SCOOP_PTS[1]))
+    assert i == 1
+
+
+def test_index_snapshot_rejects_bad_format(tmp_path):
+    import numpy as _np
+    bad = str(tmp_path / "bad.npz")
+    _np.savez(bad.replace(".npz", ""), fmt=_np.asarray(999), coords=_np.zeros((1, 3)),
+              id64=_np.zeros(1, dtype=_np.int64), arrival=_np.zeros(1),
+              scoop=_np.zeros(1), names_blob=_np.frombuffer(b"x", dtype=_np.uint8))
+    import pytest as _pytest
+    with _pytest.raises(ValueError):
+        routing.NeutronIndex.load(bad)

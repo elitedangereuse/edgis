@@ -3281,6 +3281,49 @@ def _index_build_progress() -> dict[str, Any] | None:
     }
 
 
+def _index_snapshot_fresh(path: str) -> bool:
+    """True if the snapshot at ``path`` exists and is within the max age.
+    A stale snapshot is ignored so the index is rebuilt from the (current) DB;
+    neutron data drifts slowly, so a day-old snapshot is an acceptable restart
+    shortcut (matches the scoopable_neutrons cron cadence)."""
+    try:
+        age_h = (time.time() - os.path.getmtime(path)) / 3600.0
+    except OSError:
+        return False
+    max_age = float(os.getenv("EDGIS_INDEX_SNAPSHOT_MAX_AGE_H") or "24")
+    return age_h <= max_age
+
+
+def _load_or_build_index(fetch_rows) -> "routing.NeutronIndex":
+    """Load the neutron index from a fresh on-disk snapshot in ~seconds, else
+    build it from the DB (~3 min) and save a snapshot for next time. Keyed off
+    EDGIS_INDEX_SNAPSHOT (a .npz path); unset = always build from DB (the
+    default / test behaviour). With gunicorn --preload this is what makes the
+    master's startup fast, shrinking the restart window from ~2.5 min to ~15 s;
+    it also lets a k8s pod start from the snapshot instead of a full DB build."""
+    snap = os.getenv("EDGIS_INDEX_SNAPSHOT") or None
+    if snap and os.path.exists(snap) and _index_snapshot_fresh(snap):
+        try:
+            t0 = time.monotonic()
+            index = routing.NeutronIndex.load(snap)
+            logger.info(
+                "Neutron index loaded from snapshot: %d stars in %.1fs",
+                index.count,
+                time.monotonic() - t0,
+            )
+            return index
+        except Exception:  # corrupt / incompatible -> rebuild from DB
+            logger.exception("snapshot load failed; building from DB")
+    index = routing.NeutronIndex.build(fetch_rows)
+    if snap:
+        try:
+            index.save(snap)
+            logger.info("Neutron index snapshot saved: %s", snap)
+        except Exception:
+            logger.warning("snapshot save failed", exc_info=True)
+    return index
+
+
 def _build_neutron_index() -> None:
     global _neutron_index, _neutron_index_error, _neutron_index_building
     global _neutron_index_build_started, _neutron_index_build_stage
@@ -3304,7 +3347,7 @@ def _build_neutron_index() -> None:
             logger.exception(
                 "Permit id64 load failed; using name/sector rules only"
             )
-        index = routing.NeutronIndex.build(fetch_rows)
+        index = _load_or_build_index(fetch_rows)
         _neutron_index = index
         _neutron_index_error = None
         seconds = time.monotonic() - _neutron_index_build_started
