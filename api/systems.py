@@ -1,6 +1,7 @@
 import os
 import asyncio
 import logging
+import socket
 import time
 import math
 import hmac
@@ -260,6 +261,9 @@ DB_NAME = os.getenv("DB_NAME")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 UVICORN_PORT = int(os.getenv("UVICORN_PORT") or "8383")
+# Identifies the worker that resolves a solve, for the route trace. braben
+# leaves it as the hostname; a k8s burst pod sets EDGIS_WORKER_LABEL=k8s:<pod>.
+_WORKER_LABEL = os.getenv("EDGIS_WORKER_LABEL") or socket.gethostname()
 INDEX_HTML_FILENAME = os.path.basename(
     os.getenv("INDEX_HTML_FILENAME") or "index.html"
 )
@@ -3465,6 +3469,11 @@ def _solve_route_sync(
             "db_rows": prof["db_rows"],
             "wait_ms": round(max(0.0, wall - cpu - prof["db_ms"]), 1),
         }
+        # Which worker resolved this. Stamped by the process that actually ran
+        # the solve, so it is correct whether that is braben or a k8s burst pod
+        # (EDGIS_WORKER_LABEL="k8s:<pod>"). Travels in the cached result, so a
+        # cache hit's trace still shows where it was ORIGINALLY resolved.
+        result["resolver"] = _WORKER_LABEL
     return result
 
 
@@ -4137,6 +4146,7 @@ async def _solve_route_cached(
             access=access_via,
             caller=caller,
             engine=cached.get("engine"),
+            resolver=cached.get("resolver"),
         )
         return cached
 
@@ -4166,6 +4176,7 @@ async def _solve_route_cached(
             access=access_via,
             caller=caller,
             engine=out.get("engine"),
+            resolver=out.get("resolver"),
         )
         return out
 
@@ -4268,6 +4279,7 @@ async def _solve_route_cached(
             access=access_via,
             caller=caller,
             engine=result.get("engine"),
+            resolver=result.get("resolver"),
             **({"prof": prof} if prof else {}),
         )
         to_cache = dict(result)
