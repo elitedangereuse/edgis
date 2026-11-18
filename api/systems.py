@@ -4796,6 +4796,24 @@ def close_db_pool() -> None:
     _db_pool.closeall()
 
 
+# gunicorn --preload path (multi-worker scaling for concurrent cold solves).
+# Build the neutron index in the MASTER at import time -- synchronously, not the
+# startup-event thread -- so gunicorn forks workers that COPY-ON-WRITE share the
+# one ~3.4 GB index instead of each rebuilding its own (which would not fit in
+# RAM at 3-4 workers). Opt-in via EDGIS_PRELOAD_INDEX=1 (the gunicorn launch sets
+# it); the plain `python3 systems.py` / uvicorn launch and the tests
+# (ROUTE_PREBUILD=0) are untouched -- they still build lazily in the startup
+# thread, and the per-worker startup event no-ops because the index already
+# exists. The DB pool is emptied after the build so NO psycopg connections are
+# inherited across fork (sharing a socket across processes corrupts it); each
+# worker opens its own on first use (closeall resets _open_count to 0).
+if os.getenv("EDGIS_PRELOAD_INDEX") == "1" and (
+    os.getenv("ROUTE_PREBUILD") or "1"
+).strip() in ("1", "true", "yes"):
+    _build_neutron_index()
+    _db_pool.closeall()
+
+
 if __name__ == "__main__":
     import uvicorn
 
