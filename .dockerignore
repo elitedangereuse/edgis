@@ -1,0 +1,49 @@
+# Keep secrets and local cruft OUT of the build context so a code-only image
+# can never bake in credentials. The repo is public and images may be pushed to
+# a registry, so this is a hard security boundary: api/.env holds the DB
+# password + SSH/deploy target, and route_trace.jsonl holds commander data.
+# Verify after building: no .env, no route_trace, no secret strings under /app.
+
+# Secrets / local config
+**/.env
+**/.env.*
+**/.env~
+**/.envrc
+**/.direnv/
+**/*.key
+**/*.pem
+**/id_rsa*
+**/id_ed25519*
+**/*.har
+
+# Commander / route data
+**/route_trace*.jsonl
+**/*.log
+
+# Deploy tooling (not needed at runtime; may reference the host)
+api/cicd/
+
+# Tests + fixtures (not needed in a solve pod)
+api/tests/
+api/tools/
+
+# Virtualenvs, caches, build artifacts
+**/.venv/
+**/venv/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+**/.coverage
+**/coverage.xml
+**/htmlcov/
+**/*.abi3.so
+
+# VCS / docs / scratch
+.git/
+.gitignore
+docs/
+*.md
+spanshmap/
+pdf/
