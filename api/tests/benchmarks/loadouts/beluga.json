@@ -1,0 +1,32 @@
+{
+  "Ship": "belugaliner",
+  "ShipName": "bench beluga",
+  "UnladenMass": 520.0,
+  "FuelCapacity": {
+    "Main": 128.0,
+    "Reserve": 0.5
+  },
+  "MaxJumpRange": 50.99995,
+  "Modules": [
+    {
+      "Slot": "FrameShiftDrive",
+      "Item": "int_hyperdrive_overcharge_size5_class5",
+      "Engineering": {
+        "Modifiers": [
+          {
+            "Label": "FSDOptimalMass",
+            "Value": 2274.91
+          }
+        ]
+      }
+    },
+    {
+      "Slot": "GuardianFSDBooster",
+      "Item": "int_guardianfsdbooster_size5"
+    },
+    {
+      "Slot": "FuelScoop",
+      "Item": "int_fuelscoop_size6_class5"
+    }
+  ]
+}

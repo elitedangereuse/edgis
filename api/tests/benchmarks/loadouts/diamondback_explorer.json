@@ -1,0 +1,32 @@
+{
+  "Ship": "diamondbackxl",
+  "ShipName": "bench diamondback_explorer",
+  "UnladenMass": 190.0,
+  "FuelCapacity": {
+    "Main": 16.0,
+    "Reserve": 0.5
+  },
+  "MaxJumpRange": 70.99988,
+  "Modules": [
+    {
+      "Slot": "FrameShiftDrive",
+      "Item": "int_hyperdrive_overcharge_size5_class5",
+      "Engineering": {
+        "Modifiers": [
+          {
+            "Label": "FSDOptimalMass",
+            "Value": 1080.33
+          }
+        ]
+      }
+    },
+    {
+      "Slot": "GuardianFSDBooster",
+      "Item": "int_guardianfsdbooster_size5"
+    },
+    {
+      "Slot": "FuelScoop",
+      "Item": "int_fuelscoop_size6_class5"
+    }
+  ]
+}
