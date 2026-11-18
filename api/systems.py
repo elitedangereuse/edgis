@@ -4074,6 +4074,80 @@ def _log_route_trace(kind: str, **fields: Any) -> None:
         pass
 
 
+# --- k8s burst-tier offload (flag-guarded; default OFF = no behaviour change) --
+# When EDGIS_SOLVE_POOL_URL is set (the API-server proxy base for the edgis-solve
+# Service), braben offloads a COLD ship-agnostic geometry solve to the pool via
+# the limited ServiceAccount token, and FALLS BACK to a local solve on any error
+# or timeout. WHEN=busy (default) only offloads when all local solve slots are
+# taken (burst overflow); WHEN=always offloads every eligible cold solve. The pod
+# logs its own kind="route" trace (resolver=k8s:<pod>), so braben logs a distinct
+# kind="route-offload" marker to avoid double-counting the resolver panel.
+_SOLVE_POOL_URL = os.getenv("EDGIS_SOLVE_POOL_URL") or None
+_SOLVE_POOL_WHEN = (os.getenv("EDGIS_SOLVE_POOL_WHEN") or "busy").lower()
+_SOLVE_POOL_TIMEOUT = float(os.getenv("EDGIS_SOLVE_POOL_TIMEOUT") or "90")
+
+
+def _offload_token() -> "str | None":
+    f = os.getenv("EDGIS_SOLVE_POOL_TOKEN_FILE")
+    try:
+        if f:
+            return open(f).read().strip()
+    except OSError:
+        return None
+    return os.getenv("EDGIS_SOLVE_POOL_TOKEN") or None
+
+
+def _should_offload() -> bool:
+    """Offload eligible when the pool is configured AND (WHEN=always, or WHEN=busy
+    and every local solve slot is in use -- true burst overflow)."""
+    if not _SOLVE_POOL_URL:
+        return False
+    if _SOLVE_POOL_WHEN == "always":
+        return True
+    sem = _route_solve_semaphore
+    return sem is not None and sem._value <= 0  # best-effort; a race is harmless
+
+
+async def _offload_geometry_solve(
+    frm, to, jump_range, supercharge, beam_width, companion_max_ls, inject_mult
+) -> "dict | None":
+    """Run a SHIP-AGNOSTIC geometry solve on the k8s pool (its GET /route) via the
+    API proxy. Returns the route dict, or None so the caller solves locally. Only
+    the ship-agnostic path is offloaded (the pod's GET /route takes no derived
+    fuel params); fuel-aware POST offload is a later extension."""
+    import urllib.parse as _up
+
+    tok = _offload_token()
+    if not tok:
+        return None
+    params = {"from": frm, "to": to, "range": jump_range, "supercharge": supercharge}
+    if beam_width:
+        params["beam_width"] = beam_width
+    if companion_max_ls and companion_max_ls > 0:
+        params["companion_max_ls"] = companion_max_ls
+    if inject_mult and inject_mult > 1.0:
+        params["inject_mult"] = inject_mult
+    url = _SOLVE_POOL_URL.rstrip("/") + "/route?" + _up.urlencode(params)
+    headers = {"Authorization": "Bearer " + tok}
+    rk = os.getenv("EDGIS_SOLVE_POOL_ROUTE_KEY")
+    if rk:
+        headers["x-route-key"] = rk
+    ca = os.getenv("EDGIS_SOLVE_POOL_CA_FILE")
+    try:
+        async with httpx.AsyncClient(
+            verify=ca or True, timeout=_SOLVE_POOL_TIMEOUT
+        ) as client:
+            r = await client.get(url, headers=headers)
+        if r.status_code != 200:
+            logger.warning("offload pool returned %s; local fallback", r.status_code)
+            return None
+        d = r.json()
+        return d if d.get("total_jumps") is not None else None
+    except Exception:  # timeout / proxy blip / bad response -> local fallback
+        logger.warning("offload to k8s pool failed; local fallback", exc_info=True)
+        return None
+
+
 async def _solve_route_cached(
     from_: str,
     to: str,
@@ -4223,7 +4297,23 @@ async def _solve_route_cached(
             _route_solve_semaphore = asyncio.Semaphore(
                 max(1, int(os.getenv("ROUTE_CONCURRENCY") or "2"))
             )
-        async with _route_solve_semaphore:
+
+        # Burst overflow: offload a cold SHIP-AGNOSTIC geometry solve to the k8s
+        # pool when configured + eligible, freeing a local core. Any failure
+        # falls through to the local solve below, so this never breaks a route.
+        result = None
+        offloaded = False
+        if tank_jumps == 0 and not reach_by_r and _should_offload():
+            pool = await _offload_geometry_solve(
+                src_name, dst_name, jump_range, supercharge,
+                beam_width, companion_max_ls, inject_mult,
+            )
+            if pool is not None:
+                result = pool
+                offloaded = True
+
+        if not offloaded:
+          async with _route_solve_semaphore:
             try:
                 result = await _run_db_task(
                     _solve_route_sync,
@@ -4273,26 +4363,42 @@ async def _solve_route_cached(
         result["source_coords"] = {"x": src[0], "y": src[1], "z": src[2]}
         result["source_id64"] = src_id64
         result["access"] = access_via
-        _log_route_trace(
-            "route",
-            tool="edgis",
-            frm=src_name,
-            to=dst_name,
-            range=jump_range,
-            status="ok",
-            sc=supercharge,
-            total_jumps=result["total_jumps"],
-            neutron=result["neutron_jumps"],
-            bridge=result["bridge_jumps"],
-            eff=round(result["efficiency"], 4),
-            solve_ms=round(result["solve_ms"], 1),
-            duration_s=round(result["solve_ms"] / 1000, 3),
-            access=access_via,
-            caller=caller,
-            engine=result.get("engine"),
-            resolver=result.get("resolver"),
-            **({"prof": prof} if prof else {}),
-        )
+        if offloaded:
+            # The pod already logged the authoritative kind="route" trace
+            # (resolver=k8s:<pod>); log a DISTINCT marker here so the resolver
+            # panel is not double-counted.
+            _log_route_trace(
+                "route-offload",
+                tool="edgis",
+                frm=src_name,
+                to=dst_name,
+                range=jump_range,
+                status="ok",
+                total_jumps=result.get("total_jumps"),
+                access=access_via,
+                caller=caller,
+            )
+        else:
+            _log_route_trace(
+                "route",
+                tool="edgis",
+                frm=src_name,
+                to=dst_name,
+                range=jump_range,
+                status="ok",
+                sc=supercharge,
+                total_jumps=result["total_jumps"],
+                neutron=result["neutron_jumps"],
+                bridge=result["bridge_jumps"],
+                eff=round(result["efficiency"], 4),
+                solve_ms=round(result["solve_ms"], 1),
+                duration_s=round(result["solve_ms"] / 1000, 3),
+                access=access_via,
+                caller=caller,
+                engine=result.get("engine"),
+                resolver=result.get("resolver"),
+                **({"prof": prof} if prof else {}),
+            )
         to_cache = dict(result)
         to_cache.pop("access", None)
         if not inflight.done():

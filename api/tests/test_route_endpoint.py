@@ -917,3 +917,20 @@ def test_route_prof_goes_to_the_trace_not_the_response(monkeypatch):
     lines = [json.loads(line) for line in buf.getvalue().splitlines()]
     ok = [line for line in lines if line.get("kind") == "route" and line.get("status") == "ok"]
     assert ok and ok[-1]["prof"]["db_calls"] == 2
+
+
+def test_offload_gating_default_off(monkeypatch):
+    # No pool URL -> never offloads (default behaviour unchanged).
+    monkeypatch.setattr(systems, "_SOLVE_POOL_URL", None)
+    assert systems._should_offload() is False
+    # WHEN=always + a URL -> eligible.
+    monkeypatch.setattr(systems, "_SOLVE_POOL_URL", "https://pool/proxy")
+    monkeypatch.setattr(systems, "_SOLVE_POOL_WHEN", "always")
+    assert systems._should_offload() is True
+    # WHEN=busy -> only when the local semaphore is saturated.
+    monkeypatch.setattr(systems, "_SOLVE_POOL_WHEN", "busy")
+    import asyncio
+    monkeypatch.setattr(systems, "_route_solve_semaphore", asyncio.Semaphore(2))
+    assert systems._should_offload() is False      # slots free
+    monkeypatch.setattr(systems, "_route_solve_semaphore", asyncio.Semaphore(0))
+    assert systems._should_offload() is True       # saturated
