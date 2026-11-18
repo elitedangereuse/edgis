@@ -4047,6 +4047,17 @@ if not _route_trace_logger.handlers:
         _route_trace_logger.addHandler(_rt_handler)
     except Exception:  # pragma: no cover - tracing must never break startup
         pass
+    # In a k8s solve pod there is no file-shipping promtail, so EDGIS_TRACE_STDOUT
+    # mirrors the bare-JSON trace to stdout where a promtail DaemonSet scrapes the
+    # container log and ships it to the SAME Loki job as braben's file trace,
+    # unifying braben + k8s:<pod> on one dashboard. Off by default (braben ships
+    # the file); the pod image sets it.
+    if os.getenv("EDGIS_TRACE_STDOUT") == "1":
+        import sys as _sys
+
+        _rt_stdout = logging.StreamHandler(_sys.stdout)
+        _rt_stdout.setFormatter(logging.Formatter("%(message)s"))
+        _route_trace_logger.addHandler(_rt_stdout)
 
 
 def _log_route_trace(kind: str, **fields: Any) -> None:
