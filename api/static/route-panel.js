@@ -507,6 +507,27 @@ function copyText(text, btn) {
 // Bootstrap "fuel-pump" icon (https://icons.getbootstrap.com/icons/fuel-pump/).
 const FUEL = `<svg class="fuel" width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><title>Fuel-scoopable (KGBFOAM)</title><path d="M3 2.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5v5a.5.5 0 0 1-.5.5h-5a.5.5 0 0 1-.5-.5z"/><path d="M1 2a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v8a2 2 0 0 1 2 2v.5a.5.5 0 0 0 1 0V8h-.5a.5.5 0 0 1-.5-.5V4.375a.5.5 0 0 1 .5-.5h1.495c-.011-.476-.053-.894-.201-1.222a.97.97 0 0 0-.394-.458c-.184-.11-.464-.195-.9-.195a.5.5 0 0 1 0-1q.846-.002 1.412.336c.383.228.634.551.794.907.295.655.294 1.465.294 2.081v3.175a.5.5 0 0 1-.5.501H15v4.5a1.5 1.5 0 0 1-3 0V12a1 1 0 0 0-1-1v4h.5a.5.5 0 0 1 0 1H.5a.5.5 0 0 1 0-1H1zm9 0a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v13h8z"/></svg>`;
 
+// Little vertical fuel tank for the per-leg fuel column: liquid fills from the bottom
+// to the tank level and shades green -> amber -> red as fuel runs down (a quick
+// at-a-glance read next to the tonnage). `max` is the tank capacity; level clamps 0..1.
+function fuelTank(v, max) {
+  const lvl = max > 0 ? Math.max(0, Math.min(1, v / max)) : 0;
+  const col = lvl > 0.5 ? "var(--ok)" : lvl > 0.2 ? "var(--warn)" : "var(--err)";
+  // Cylinder: elliptical top rim + curved bottom, straight sides (a tank, not a battery).
+  const cx = 6, rx = 3.7, ry = 1.4, topY = 2.2, botY = 13.8, Lx = cx - rx, Rx = cx + rx;
+  const fy = (botY - lvl * (botY - topY)).toFixed(2);       // liquid surface height
+  const body = `M${Lx},${topY} V${botY} A${rx},${ry} 0 0 0 ${Rx},${botY} V${topY}`;
+  const liquid = lvl > 0.003                                 // surface meniscus down to the base
+    ? `<path d="M${Lx},${fy} V${botY} A${rx},${ry} 0 0 0 ${Rx},${botY} V${fy} A${rx},${ry} 0 0 1 ${Lx},${fy} Z" fill="${col}"/>`
+    : "";
+  return `<svg class="fueltank" width="12" height="16" viewBox="0 0 12 16" aria-hidden="true">`
+    + `<title>Tank ~${Math.round(lvl * 100)}%</title>`
+    + `<path d="${body}Z" fill="currentColor" fill-opacity="0.07"/>`
+    + liquid
+    + `<path d="${body}" fill="none" stroke="currentColor" stroke-opacity="0.45" stroke-linejoin="round"/>`
+    + `<ellipse cx="${cx}" cy="${topY}" rx="${rx}" ry="${ry}" fill="currentColor" fill-opacity="0.1" stroke="currentColor" stroke-opacity="0.45"/></svg>`;
+}
+
 // FSD synthesis injection grade icons: an upward delta with a dot inside and
 // 1/2/3 horizontal lines below = basic/standard/premium (the in-game synthesis
 // motif). currentColor so CSS tints them.
@@ -1300,13 +1321,18 @@ function renderRoute(r) {
   // Per-leg fuel (fuel_in_tank after the jump) is present when a ship was
   // loaded; the column only renders then, so ship-less tables are unchanged.
   const hasFuel = Array.isArray(r.jumps) && r.jumps.some(j => j && j.fuel_in_tank != null);
+  // Tank capacity for the battery gauge: the ship's tank, else the route's fuel report,
+  // else the fullest leg seen (routes start full / scoop to full, so that is ~capacity).
+  const tankMax = (shipInfo && shipInfo.tank_size)
+    || (r.fuel && r.fuel.tank_size)
+    || (hasFuel ? Math.max(1, ...r.jumps.map(j => (j && j.fuel_in_tank) || 0)) : 0);
   const fuelHead = hasFuel ? `<th class="num" title="Fuel in the tank after arriving here (tonnes)">fuel</th>` : "";
   const fuelCell = (j) => {
     if (!hasFuel) return "";
     const v = j ? j.fuel_in_tank : null;
     if (v == null) return `<td class="num"></td>`;
     const refuel = !!(j.must_refuel || j.inflight_scoop);
-    return `<td class="num${refuel ? " refuel" : ""}"${refuel ? ` title="Tank topped up here"` : ""}>${fmt(v, 1)}</td>`;
+    return `<td class="num fuelcell${refuel ? " refuel" : ""}"${refuel ? ` title="Tank topped up here"` : ""}>${v.toFixed(1)}${fuelTank(v, tankMax)}</td>`;
   };
   if (compactMode) {
     const wps = compactRows(r);

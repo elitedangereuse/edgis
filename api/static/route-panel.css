@@ -222,6 +222,10 @@
 #panel-route .arrls.scoop-ls { color:var(--ok); }
 /* Fuel column: tank level after the jump; green where the tank was topped up. */
 #panel-route .result-table td.refuel { color:var(--ok); font-weight:600; }
+/* Fuel-tank gauge in the fuel column: inline-block (tailwind's preflight makes
+   every svg display:block, which would drop the tonnage onto its own line) so it
+   sits on the same line just before the number. */
+#panel-route .fuelcell .fueltank { display:inline-block; vertical-align:-4px; margin-left:5px; }
 /* FSD synthesis injection: violet delta icon (distinct from neutron-amber and
    fuel-green) on a jump that needs it, and
    the summary bar listing how many of each grade the route requires. */
