@@ -98,6 +98,16 @@ NEIGHBORS_RESULT_LIMIT = max(
     NEIGHBORS_DEFAULT_LIMIT,
     int(os.getenv("NEIGHBORS_RESULT_LIMIT") or "100000"),
 )
+# Density admission control (2026-11-19 incident). A large radius in a dense region
+# (the galactic core) makes the main ST_3DDWithin + ORDER BY ST_3DDistance query match
+# and sort a huge set (30s+, memory pressure, contributed to a braben outage). Before
+# running it we probe cheaply -- a LIMIT-bounded count the SP-GiST index scan
+# short-circuits (~12 ms even at Sag A*, where an un-bounded count times out) -- and
+# reject a radius that covers more systems than we will serve. The void stays fine: a
+# big radius there just matches the few stars present. 0 disables the guard.
+NEIGHBORS_MAX_RESULTS = max(
+    0, int(os.getenv("NEIGHBORS_MAX_RESULTS") or "20000")
+)
 NEIGHBORS_PAGE_SIZE_DEFAULT = max(
     1, int(os.getenv("NEIGHBORS_PAGE_SIZE_DEFAULT") or "100")
 )
@@ -531,6 +541,32 @@ def _fetch_coords_for_systems_sync(
         }
 
     return coords_map
+
+
+def _neighbors_density_probe_sync(
+    x: float, y: float, z: float, radius: float, cap: int
+) -> int:
+    """How many systems fall within `radius` of (x,y,z), counted only up to `cap`+1.
+
+    No ORDER BY, so the SP-GiST index scan STOPS after cap+1 matches: ~12 ms even at
+    the galactic core, where an un-bounded count times out. Used by /neighbors to cheaply
+    reject a radius covering more systems than we will serve, before the expensive
+    ORDER BY ST_3DDistance sort. Returns the capped count (cap+1 means "at least cap+1").
+    """
+    with _db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT count(*) FROM ("
+                "SELECT 1 FROM systems_big "
+                "WHERE ST_3DDWithin(coords, ST_MakePoint(%s, %s, %s), %s) "
+                "LIMIT %s) q",
+                (x, y, z, radius, cap + 1),
+            )
+            row = cursor.fetchone()
+            return int(row[0]) if row else 0
+        finally:
+            cursor.close()
 
 
 AUTOCOMPLETE_QUERY = """
@@ -1430,6 +1466,26 @@ async def get_neighbors(
         return JSONResponse(
             content={"error": "cursor requires page_size"}, status_code=400
         )
+
+    # Density admission control: cheaply reject a radius covering more systems than we
+    # will serve, before the expensive ordered query sorts them all (see
+    # NEIGHBORS_MAX_RESULTS / _neighbors_density_probe_sync). A big radius in the sparse
+    # void passes (few matches); a big radius in the dense core is bounced fast.
+    if NEIGHBORS_MAX_RESULTS:
+        covered = await _run_db_task(
+            _neighbors_density_probe_sync, x, y, z, radius, NEIGHBORS_MAX_RESULTS
+        )
+        if covered > NEIGHBORS_MAX_RESULTS:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": (
+                        f"Too many systems within {radius:g} ly of this point "
+                        f"(over {NEIGHBORS_MAX_RESULTS}). Reduce the radius or page "
+                        "through results with page_size."
+                    )
+                },
+            )
 
     paged = page_size is not None
     normalized_atmosphere_gas = _normalize_optional_filter(atmosphere_gas)
@@ -4457,7 +4513,10 @@ async def _solve_route_cached(
 async def plot_route(
     from_: str = Query(..., alias="from", min_length=1),
     to: str = Query(..., min_length=1),
-    jump_range: float = Query(50.0, alias="range", gt=0, le=200),
+    # Cap 120: ~115 ly (Mandalay) is the max real ship base range; higher was a DoS
+    # vector (range=160 realized a ~22 GB graph, took braben down 2026-11-19). Neutron/
+    # Caspian supercharge is the separate `supercharge` param, not a bigger base range.
+    jump_range: float = Query(50.0, alias="range", gt=0, le=120),
     beam_width: Optional[int] = Query(None, ge=1, le=100),
     supercharge: float = Query(
         4.0,
@@ -4506,7 +4565,7 @@ class ShipImportRequest(BaseModel):
 class RouteRequest(BaseModel):
     from_: str = Field(..., alias="from", min_length=1)
     to: str = Field(..., min_length=1)
-    jump_range: float = Field(50.0, alias="range", gt=0, le=200)
+    jump_range: float = Field(50.0, alias="range", gt=0, le=120)  # cap: see GET /route
     beam_width: Optional[int] = Field(None, ge=1, le=100)
     # None = derive from the loadout (6x for a Caspian Mk II SCO drive, else
     # 4x). A client that pins a value keeps it; clients that do not know about
@@ -4738,7 +4797,10 @@ async def plot_route_post(
 async def spansh_route(
     from_: str = Query(..., alias="from", min_length=1),
     to: str = Query(..., min_length=1),
-    jump_range: float = Query(50.0, alias="range", gt=0, le=200),
+    # Cap 120: ~115 ly (Mandalay) is the max real ship base range; higher was a DoS
+    # vector (range=160 realized a ~22 GB graph, took braben down 2026-11-19). Neutron/
+    # Caspian supercharge is the separate `supercharge` param, not a bigger base range.
+    jump_range: float = Query(50.0, alias="range", gt=0, le=120),
     efficiency: int = Query(60, ge=1, le=100),
     supercharge: float = Query(4.0, ge=1.0, le=6.0),
     access: dict = Depends(entitlements.require_entitlement("route")),
