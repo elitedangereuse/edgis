@@ -1677,15 +1677,19 @@ $("out").addEventListener("change", (e) => {
   }
 });
 
-// Mouse wheel over a number option steps it (Shift: x10), within min/max. Page
-// scroll is only taken over the field itself. The value moves on every notch;
-// "change" (which saves, and re-reads the ship for cargo) fires once the
-// wheel stops, so a fast scroll doesn't send a request per notch.
+// Mouse wheel over a FOCUSED number option steps it (Shift: x10), within
+// min/max. Only when focused: otherwise wheeling past the field while reading
+// the page silently changed values (reported by users). Unfocused, we bail
+// before preventDefault so the page scrolls normally and the value is left
+// alone. The value moves on every notch; "change" (which saves, and re-reads
+// the ship for cargo) fires once the wheel stops, so a fast scroll doesn't send
+// a request per notch.
 ["range", "companionLs", "scoopLs", "cargo"].forEach((id) => {
   const el = $(id);
   let changeTimer;
   el.addEventListener("wheel", (e) => {
     if (el.readOnly || el.disabled) return;
+    if (document.activeElement !== el) return;  // focus-gated: don't steal page scroll
     const dir = Math.sign(e.deltaY || e.deltaX);  // Shift+wheel scrolls X in some browsers
     if (!dir) return;
     e.preventDefault();
