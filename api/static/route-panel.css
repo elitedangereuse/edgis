@@ -188,6 +188,11 @@
    a translucent header (--head) with accent-blue text, bottom borders only.
    The table itself inherits milkyway's .result-table rules. */
 #panel-route .tablewrap { overflow-x:auto; margin-top:8px; }
+/* Show the whole route at once: drop milkyway's 60vh cap on .result-table so the
+   table grows to its full height and the page scrolls, instead of an inner
+   scrollbar hiding most of the legs. Scoped to the plotter; the index
+   search/neighbors results keep their own scroll. */
+#panel-route .result-table { max-height:none; }
 /* Full-width table (the own `table{width:100%}` rule is dropped in favour of
    milkyway's .result-table, which doesn't set width). */
 #panel-route .tablewrap table { width:100%; font-size:12px; }
