@@ -496,6 +496,8 @@ const shareIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height=
 // Bootstrap "exclamation-triangle-fill" -- marks a leg that puts the CMDR at
 // fuel risk (strand / over-range) directly in the results table.
 const warnIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5m.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2"/></svg>`;
+// Bootstrap "flag" -- report an issue with the plotted itinerary.
+const reportIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M14.778.085A.5.5 0 0 1 15 .5V8a.5.5 0 0 1-.314.464L14.5 8l.186.464-.003.001-.006.003-.023.009a12 12 0 0 1-.397.15c-.264.095-.631.223-1.047.35-.816.252-1.879.523-2.71.523-.847 0-1.548-.28-2.158-.525l-.028-.01C7.68 9.075 7.14 8.86 6.5 8.86c-.65 0-1.424.193-2 .35v4.29a.5.5 0 0 1-1 0V.5a.5.5 0 0 1 1 0v.1l.5-.01c.65 0 1.424.193 2 .35l.028.01C7.68 1.075 8.22 1.29 8.86 1.29c.65 0 1.424-.193 2-.35z"/></svg>`;
 function copyText(text, btn) {
   navigator.clipboard.writeText(text).then(() => {
     const prev = btn.innerHTML; btn.innerHTML = '<span class="good" style="font-size:11px">Copied</span>';
@@ -682,6 +684,62 @@ function routeSystems() {
   if (!lastOurs) return [];
   if (compactMode) return compactRows(lastOurs).map(w => w.dest ? lastOurs.destination : w.system).filter(Boolean);
   return lastOurs.jumps.map((j, i) => j.system ?? (i === lastOurs.jumps.length - 1 ? lastOurs.destination : null)).filter(Boolean);
+}
+
+// "Report issue" -> opens a GitHub issue pre-filled with everything needed to
+// reproduce the plotted itinerary (systems, range, supercharge, fuel-safe,
+// synthesis, companion/scoop Ls, cargo, and the SLEF loadout), a result summary,
+// and a reproduction deep link. The access key is NEVER included.
+const REPORT_REPO = "elitedangereuse/edgis";
+async function openReport() {
+  if (!lastQuery) return;
+  const q = lastQuery, r = lastOurs || {};
+  const loadout = q.loadout || "";   // the SLEF actually plotted, not the live field
+  const inj = q.inject || 1;
+  let cmdr = "(not signed in)";
+  try {
+    const me = await fetch("/auth/me", { credentials: "include" }).then((x) => x.json());
+    if (me && me.name) cmdr = me.name;
+  } catch (e) {}
+  const _strandSys = r.fuel && ((r.jumps || [])[r.fuel.stranded_at] || {}).system;
+  const fuel = !r.fuel ? "n/a (no ship / geometry plot)"
+    : r.fuel.stranded ? `UNSAFE: may strand near ${_strandSys || ("jump " + (r.fuel.stranded_at + 1))}`
+    : !r.fuel.safe ? `tight: ${r.fuel.max_dry_jumps} dry jumps, min fuel ${r.fuel.min_fuel} t`
+    : `safe (longest dry run ${r.fuel.max_dry_jumps} jumps)`;
+  const summary = r.total_jumps
+    ? `${r.total_jumps} jumps (${r.neutron_jumps || 0} neutron, ${r.bridge_jumps || 0} bridge), efficiency ${r.efficiency != null ? (r.efficiency * 100).toFixed(1) + "%" : "?"}, engine ${r.engine || "?"}, ${r.solve_ms != null ? Math.round(r.solve_ms) + " ms" : "?"}`
+    : "(no route returned)";
+  const rows = [
+    ["From", q.from], ["To", q.to], ["Jump range", `${q.range} ly`],
+    ["Supercharge", `${q.supercharge || 4}x`],
+    ["Fuel-safe requested", q.fuelSafe ? "yes" : "no"],
+    ["FSD synthesis", inj > 1 ? `${INJECT_NAMES[String(inj)] || inj} (x${inj})` : "off"],
+    ["Companion max Ls", q.companionLs > 0 ? q.companionLs : "off"],
+    ["Scoop max Ls", q.scoop || "default"],
+    ["Cargo", `${q.cargo || 0} t`],
+    ["Ship (SLEF)", loadout ? shipLabel(loadout) : "(none)"],
+    ["Commander", cmdr],
+    ["Result", summary],
+    ["Fuel verdict", fuel],
+  ];
+  const table = "| Field | Value |\n|---|---|\n" + rows.map(([k, v]) => `| ${k} | ${v} |`).join("\n");
+  const SLEF_CAP = 4000;  // keep the pre-fill URL to a sane length
+  const slef = !loadout
+    ? "_(no ship imported; this was a geometry-only plot)_"
+    : loadout.length <= SLEF_CAP
+      ? "<details><summary>Ship loadout (SLEF)</summary>\n\n```\n" + loadout + "\n```\n</details>"
+      : "_(SLEF loadout too large to pre-fill; please paste it here if the issue is fuel-related)_";
+  const body =
+    "**Describe the issue with this itinerary:**\n\n" +
+    "<!-- What went wrong? e.g. a bridge star that wasn't needed, an unsafe fuel\n" +
+    "step, a worse route than another plotter, a wrong jump count, etc. -->\n\n\n\n" +
+    "---\n_Auto-filled route details (please keep so we can reproduce it):_\n\n" +
+    table + "\n\n" +
+    `[Reproduce this route](${shareUrl()}) (geometry only; a fuel-aware route needs the SLEF below)\n\n` +
+    slef + "\n";
+  const title = `[Route report] ${q.from} -> ${q.to}`;
+  const url = `https://github.com/${REPORT_REPO}/issues/new?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
+  window.open(url, "_blank", "noopener");
 }
 
 // Which access method is currently granting entry, mirroring the backend's
@@ -1010,11 +1068,20 @@ async function importCurrentShip() {
   }
 }
 
-function fuelVerdict(f) {
+function fuelVerdict(f, r) {
   const tank = `tank ≈ ${f.tank_jumps} jumps`;
   const added = f.scoop_stops ? ` · ${f.scoop_stops} scoop stop${f.scoop_stops === 1 ? "" : "s"} added` : "";
+  // Name the SYSTEM at the risk leg, not a jump number: compact mode renumbers
+  // rows (waypoint order, not jump index), so "jump 137" has no matching row
+  // there. A system name is unambiguous in both views.
+  const sysAt = (i) => {
+    const js = (r && r.jumps) || [];
+    const name = (i != null && js[i] && js[i].system)
+      || (r && js.length && i === js.length - 1 ? r.destination : null);
+    return name ? escapeHtml(name) : (i != null ? `jump ${i + 1}` : "a leg");
+  };
   if (f.stranded) {
-    return `<span class="bad">⚠ Fuel: may strand near jump ${f.stranded_at + 1}</span> `
+    return `<span class="bad">⚠ Fuel: may strand near ${sysAt(f.stranded_at)}</span> `
       + `<span class="tiny">no scoopable star within range (${tank})`
       + `${f.enforced ? ", couldn't insert a refuel detour there (sparse region)" : ""}.</span>`;
   }
@@ -1286,7 +1353,7 @@ function renderRoute(r) {
         ly: r.total_distance_ly, eff: r.efficiency, solve: r.solve_ms })}</div>
       <div id="cmpOut"></div>
     </div>
-    ${r.fuel ? `<div class="fuelbar">${fuelVerdict(r.fuel)}</div>` : ""}
+    ${r.fuel ? `<div class="fuelbar">${fuelVerdict(r.fuel, r)}</div>` : ""}
     ${injectSummary(r)}
     <div class="summary-actions">
       <label class="switch" title="Compact: only the waypoints you plot in-game. Off: every jump.">
@@ -1302,6 +1369,7 @@ function renderRoute(r) {
       </span>
       <button id="copyRoute" class="ghost" title="Copy the route systems, one per line">${copyIconSvg} Copy route</button>
       <button id="shareRoute" class="ghost" title="Copy a link that reproduces this route">${shareIconSvg} Share</button>
+      <button id="reportIssue" class="ghost" title="Report an issue with this itinerary (opens a pre-filled GitHub issue)">${reportIconSvg} Report issue</button>
     </div>
     <div class="tablewrap result-table">
       <table><thead><tr>${header}</tr></thead>
@@ -1468,7 +1536,15 @@ async function compareGalaxy() {
   finally { $("cmpGalaxy").classList.remove("querying"); updateCompareButton(); setBusy(false); }
 }
 
-async function plot() {
+// Frontend plotting queue: on a 429 (server shed the solve under heavy load)
+// show the user their place in line and auto-retry, rather than failing. A
+// manual plot resets the attempt counter; the countdown's auto-retry is plot(true).
+let _queueTimer = null, _queueAttempts = 0;
+const _QUEUE_MAX_ATTEMPTS = 6;
+function clearQueueRetry() { if (_queueTimer) { clearInterval(_queueTimer); _queueTimer = null; } }
+
+async function plot(isRetry = false) {
+  if (!isRetry) { _queueAttempts = 0; clearQueueRetry(); }
   await shipImport;
   const from = $("from").value.trim(), to = $("to").value.trim();
   if (!from || !to) { $("out").innerHTML = `<div class="msg warn">Enter both a start and destination system.</div>`; return; }
@@ -1477,7 +1553,8 @@ async function plot() {
   const companionLs = companionMaxLs();
   // Fuel-aware plotting (POST with the loadout) kicks in once a ship is imported.
   const loadout = shipInfo ? activeLoadout() : "";
-  lastQuery = { from, to, range, supercharge, companionLs, inject: injectMult() };
+  lastQuery = { from, to, range, supercharge, companionLs, inject: injectMult(),
+    fuelSafe: $("fuelSafe").checked, cargo: cargoTons(), scoop: scoopMaxLs(), loadout };
   plotSeq++;  // comparisons started from now on belong to this plot
   lastOurs = null;  // so a post-failure spansh compare doesn't show a stale "ours"
   $("go").disabled = true; setBusy(true); $("out").innerHTML = `<div class="msg">Plotting…</div>`;
@@ -1513,8 +1590,25 @@ async function plot() {
       if (res.status === 503) { $("out").innerHTML = `<div class="msg warn">Route index is warming up. The Plot button re-enables automatically when it's ready.</div>`; setPlotWarming(true); return; }
     if (res.status === 404) { $("out").innerHTML = `<div class="msg err">${escapeHtml((await res.json()).detail || "System not found.")}</div>`; return; }
     if (res.status === 422) { const d = (await res.json()).detail || {}; $("out").innerHTML = `<div class="msg err">No route: ${escapeHtml(d.error || "")} ${escapeHtml(d.message || "")}</div>`; return; }
+    if (res.status === 429) {
+      // Server shed the solve under heavy load. Show the queue + auto-retry.
+      const d = (await res.json().catch(() => ({}))).detail || {};
+      if (++_queueAttempts > _QUEUE_MAX_ATTEMPTS) {
+        _queueAttempts = 0;
+        $("out").innerHTML = `<div class="msg warn">The plotter is still under heavy load. Please try again in a few minutes.</div>`;
+        return;
+      }
+      const pos = Number(d.position) || 0;
+      let left = Math.max(3, Number(d.retry_after) || 10);
+      const render = () => { $("out").innerHTML = `<div class="msg warn">⏳ <b>Heavy load right now.</b> You're in the plotting queue${pos ? ` (about ${pos} ahead of you)` : ""}. Retrying in ${left}s… <button type="button" class="linkbtn" id="qCancel">cancel</button></div>`; };
+      render();
+      clearQueueRetry();
+      _queueTimer = setInterval(() => { if (--left <= 0) { clearQueueRetry(); plot(true); } else render(); }, 1000);
+      return;
+    }
     if (!res.ok) { $("out").innerHTML = `<div class="msg err">Error ${res.status}.</div>`; return; }
     renderRoute(await res.json());
+    _queueAttempts = 0;
   } catch (e) { $("out").innerHTML = `<div class="msg err">${escapeHtml(e.message || String(e))}</div>`; }
   finally {
     // Keep the button disabled if we entered the warming state (503).
@@ -1544,7 +1638,11 @@ $("out").addEventListener("click", (e) => {
   const share = e.target.closest("#shareRoute");
   if (share && lastQuery) { copyText(shareUrl(), share); return; }
   const exportBtn = e.target.closest("#exportBtn");
-  if (exportBtn && lastOurs) { downloadRoute(exportFmt); }
+  if (exportBtn && lastOurs) { downloadRoute(exportFmt); return; }
+  const report = e.target.closest("#reportIssue");
+  if (report && lastQuery) { openReport(); return; }
+  const qCancel = e.target.closest("#qCancel");
+  if (qCancel) { clearQueueRetry(); _queueAttempts = 0; $("out").innerHTML = `<div class="msg">Plotting cancelled.</div>`; $("go").disabled = false; }
 });
 // The compact switch and export-format picker both change on input.
 $("out").addEventListener("change", (e) => {
