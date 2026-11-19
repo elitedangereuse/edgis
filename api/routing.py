@@ -2180,7 +2180,11 @@ def graph_route(
     dens_s = len(index.tree.query_ball_point(sv, entry_r))
     dens_d = len(index.tree.query_ball_point(dv, entry_r))
     flip = (
-        straight < _ORIENT_MAX_LY
+        # Kill-switch for A/B-ing the orientation flip's real benefit now that the
+        # Rust B1 kernel independently speeds these searches. EDGIS_ROUTE_FLIP=0
+        # disables it everywhere.
+        _os.environ.get("EDGIS_ROUTE_FLIP", "1") != "0"
+        and straight < _ORIENT_MAX_LY
         and dens_d >= _ORIENT_DENSITY_FLOOR
         and dens_s > dens_d * _ORIENT_FLIP_RATIO
     )
