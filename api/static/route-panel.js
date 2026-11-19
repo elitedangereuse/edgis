@@ -620,9 +620,10 @@ function inflightScoopMarker(ls) {
 function spectralCell(j) {
   if (!j.spectral) return "";
   // Green fuel-pump when you can scoop here (primary scoopable, or a scoopable
-  // companion in range); placed to the RIGHT of the star.
-  const scoop = scoopable(j.spectral) ? FUEL
-    : (j.inflight_scoop ? inflightScoopMarker(j.scoop_ls) : "");
+  // companion in range). Grouped with the green scoop-Ls (after the blue neutron
+  // info) so the cell reads blue-blue then green-green, not blue-green-blue-green.
+  const scoop = scoopable(j.spectral) ? ` ${FUEL}`
+    : (j.inflight_scoop ? ` ${inflightScoopMarker(j.scoop_ls)}` : "");
   // Companion (secondary) neutron: how far in-system you supercruise to it (blue).
   const companion = (j.neutron_star && j.arrival_ls > 0)
     ? ` <span class="arrls" title="Companion neutron ${escapeHtml(fmt(j.arrival_ls, 0))} Ls from arrival (supercruise to it, then supercharge)">@${escapeHtml(fmt(j.arrival_ls, 0))} Ls</span>`
@@ -633,7 +634,7 @@ function spectralCell(j) {
     : "";
   // Neutron star class letter shown in neutron-blue (neutron steps are blue).
   const spec = `<span class="spec${j.neutron_star ? " neutron" : ""}" title="${escapeHtml(starName(j.spectral))}">${escapeHtml(starShort(j.spectral))}</span>`;
-  return `<span class="starcell">${spec}${scoop}${companion}${scoopLs}</span>`;
+  return `<span class="starcell">${spec}${companion}${scoop}${scoopLs}</span>`;
 }
 function legLabel(j, last) {
   if (last) return "arrive";
