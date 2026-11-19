@@ -128,6 +128,40 @@ def test_route_success_path(monkeypatch):
     assert body["source_coords"] == {"x": 0.0, "y": 0.0, "z": 0.0}
 
 
+def test_route_load_shed_429_when_queue_full(monkeypatch):
+    # With the solve backlog already at the cap, a fresh cold solve is shed with
+    # 429 (+ position + Retry-After) BEFORE the solver runs -- protecting the
+    # shared DB from an unbounded pile-up.
+    _gate_future(monkeypatch)
+    monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
+    _clear_route_cache()
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1, "version": "v1"})())
+
+    async def fake_resolve(value):
+        coords = {"Sol": (0.0, 0.0, 0.0), "Colonia": (0.0, 0.0, 1000.0)}
+        return coords[value], value, None, None
+
+    monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
+    monkeypatch.setattr(systems, "_route_waiters", systems._ROUTE_MAX_QUEUE)
+
+    def must_not_solve(*a, **k):
+        raise AssertionError("solver reached despite a full queue")
+
+    monkeypatch.setattr(systems, "_solve_route_sync", must_not_solve)
+
+    resp = client.get(
+        "/route",
+        params={"from": "Sol", "to": "Colonia", "range": 50},
+        headers={"x-route-key": "k"},
+    )
+    assert resp.status_code == 429, resp.text
+    assert int(resp.headers["Retry-After"]) >= 5
+    detail = resp.json()["detail"]
+    assert detail["error"] == "busy"
+    assert detail["position"] == systems._ROUTE_MAX_QUEUE
+    assert detail["retry_after"] >= 5
+
+
 def test_route_companion_max_ls_threaded_and_arrival_ls_passthrough(monkeypatch):
     _gate_future(monkeypatch)
     monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
@@ -588,6 +622,95 @@ def test_route_post_fuel_safe_inserts_scoop_stops(monkeypatch):
     assert body["fuel"]["safe"] is True            # no longer strands
     assert body["total_jumps"] > 20                # detours added
     assert any(j["system"] == "ScoopK" for j in body["jumps"])
+
+
+def test_route_post_fuel_reserve_replan_on_strand(monkeypatch):
+    # FUEL-RESERVE GUARD: when the full-tank plan strands and enforcement can't
+    # insert a refuel (scoopable-sparse region), the handler re-plans with
+    # tank_jumps - 1 and ships that route if it verifies safe.
+    _gate_future(monkeypatch)
+    monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
+    _clear_route_cache()
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1, "version": "v1"})())
+
+    async def fake_resolve(value):
+        coords = {"A": (0.0, 0.0, 0.0), "B": (1200.0, 0.0, 0.0)}
+        return coords[value], value, None, None
+
+    monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
+
+    seen_tanks = []
+
+    def fake_solve(src, dst, jump_range, beam_width, boost_mult=4.0, companion_max_ls=0.0, inject_mult=1.0, tank_jumps=0, scoop_max_ls=0.0, reach_by_r=None):
+        seen_tanks.append(tank_jumps)
+        if len(seen_tanks) == 1:
+            # Full-tank plan: a 20-boost neutron chain that strands the tank.
+            legs, x = [], 0.0
+            for i in range(20):
+                x += 60.0
+                legs.append({"system": f"N{i}", "id64": None, "x": x, "y": 0.0,
+                             "z": 0.0, "spectral": "N", "type": "boost",
+                             "neutron_star": True, "distance_jumped": 60.0,
+                             "distance_left": 1200.0 - x})
+            return {
+                "jump_range": jump_range, "boost_range": 4 * jump_range,
+                "straight_line_ly": 1200.0, "total_jumps": 20,
+                "neutron_jumps": 20, "bridge_jumps": 0,
+                "total_distance_ly": 1200.0, "efficiency": 1.0,
+                "beam_width": 3, "solve_ms": 1.0, "jumps": legs,
+            }
+        # Reserve re-plan (tank_jumps - 1): a short route the tank covers dry.
+        legs, x = [], 0.0
+        for i in range(5):
+            x += 240.0
+            legs.append({"system": f"R{i}", "id64": None, "x": x, "y": 0.0,
+                         "z": 0.0, "spectral": "K", "type": "regular",
+                         "neutron_star": False, "distance_jumped": 40.0,
+                         "distance_left": 1200.0 - x})
+        return {
+            "jump_range": jump_range, "boost_range": 4 * jump_range,
+            "straight_line_ly": 1200.0, "total_jumps": 5, "neutron_jumps": 0,
+            "bridge_jumps": 5, "total_distance_ly": 1200.0, "efficiency": 1.0,
+            "beam_width": 3, "solve_ms": 1.0, "jumps": legs,
+        }
+
+    monkeypatch.setattr(systems, "_solve_route_sync", fake_solve)
+
+    class _NoScoopCursor:
+        def execute(self, sql, params):
+            self._rows = []  # scoopable-sparse: enforcement can't insert
+
+        def fetchall(self):
+            return self._rows
+
+        def close(self):
+            pass
+
+    class _FakeCtx:
+        def __enter__(self):
+            return type("C", (), {"cursor": lambda self: _NoScoopCursor()})()
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(systems, "_db_connection", lambda: _FakeCtx())
+
+    resp = client.post(
+        "/route",
+        # range_growth off isolates the reserve guard (otherwise the B2-unsafe
+        # guard fires first and its B1 re-solve consumes the second fake).
+        json={"from": "A", "to": "B", "range": 50, "loadout": COBRA_SLEF,
+              "fuel_safe": True, "range_growth": False},
+        headers={"x-route-key": "k"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # The guard re-planned with one jump of reserve and shipped the safe route.
+    assert len(seen_tanks) == 2
+    assert seen_tanks[1] == seen_tanks[0] - 1
+    assert body["fuel"]["safe"] is True
+    assert body["fuel"]["stranded"] is False
+    assert body["total_jumps"] == 5
 
 
 def test_route_post_without_loadout_has_no_fuel(monkeypatch):

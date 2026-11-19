@@ -3144,6 +3144,15 @@ _neutron_index_error: str | None = None
 _neutron_index_building = False
 _neutron_index_lock = Lock()
 _route_solve_semaphore: asyncio.Semaphore | None = None
+# Load shedding: coroutines currently waiting on (or holding) the solve
+# semaphore. Past ROUTE_MAX_QUEUE we return 429 instead of letting cold solves
+# pile up -- an unbounded backlog holds connections and drags the shared
+# Postgres (and prod) down (measured: a VUS=200 cold flood hung prod cache hits
+# for ~48 s). 429 sheds BEFORE the heavy realization queries, with a queue
+# position + Retry-After so the client can wait and auto-retry. Per worker, so
+# the effective box-wide cap is ROUTE_MAX_QUEUE x gunicorn workers.
+_route_waiters = 0
+_ROUTE_MAX_QUEUE = max(1, int(os.getenv("ROUTE_MAX_QUEUE") or "12"))
 # In-flight route solves, keyed by cache_key: a second identical request awaits
 # the first instead of launching a duplicate (a 90 s rim route must not run
 # twice concurrently). Holds the cacheable result dict (no caller "access").
@@ -4171,7 +4180,7 @@ async def _solve_route_cached(
     ship-specific routes don't collide with the shared ones. GET /route and
     loadout-less POST pass ``tank_jumps == 0`` and keep the shared key."""
 
-    global _route_solve_semaphore
+    global _route_solve_semaphore, _route_waiters
     if _neutron_index is None:
         _kick_neutron_index_build()
         _log_route_trace(
@@ -4313,7 +4322,31 @@ async def _solve_route_cached(
                 offloaded = True
 
         if not offloaded:
-          async with _route_solve_semaphore:
+          # Load shed: if the solve backlog is already at the cap, reject with
+          # 429 (+ queue position and Retry-After) instead of piling on. This
+          # fires only for genuine cold solves (cache hits and coalesced waiters
+          # returned above) and before the heavy realization, so a flood can't
+          # exhaust the shared DB. The client shows a queue and auto-retries.
+          if _route_waiters >= _ROUTE_MAX_QUEUE:
+              retry = min(45, 5 + _route_waiters * 3)
+              _log_route_trace(
+                  "route", tool="edgis", frm=src_name, to=dst_name,
+                  range=jump_range, status="shed", queued=_route_waiters,
+                  access=access_via, caller=caller,
+              )
+              raise HTTPException(
+                  status_code=429,
+                  detail={
+                      "error": "busy",
+                      "message": "The plotter is under heavy load.",
+                      "position": _route_waiters,
+                      "retry_after": retry,
+                  },
+                  headers={"Retry-After": str(retry)},
+              )
+          _route_waiters += 1
+          try:
+           async with _route_solve_semaphore:
             try:
                 result = await _run_db_task(
                     _solve_route_sync,
@@ -4343,6 +4376,8 @@ async def _solve_route_cached(
                     status_code=422,
                     detail={"error": exc.status, "message": exc.detail},
                 )
+          finally:
+              _route_waiters -= 1
 
         # The final leg is the arrival at the destination: label it with the
         # destination's name, spectral type and id64 (for the spansh export).
@@ -4626,6 +4661,51 @@ async def plot_route_post(
                 supercharge,
                 req.scoop_max_ls,
             )
+        # FUEL-RESERVE GUARD: the B1 planner budgets dry runs to the EXACT tank
+        # edge (tank_capacity_jumps = floor(tank/max_fuel_per_jump), zero margin;
+        # Cobra Mk V: 32 t / 3.2 t = 10 dry jumps burn 100.0% of the tank). In a
+        # scoopable-SPARSE stretch the enforcer then can't insert the missing
+        # refuel and the route strands by ~one jump's fuel (measured: Sag A* ->
+        # Clookae, max_dry 10 == tank 10, min_fuel -3.2 == one max-burn). When a
+        # fuel-safe route still strands, re-plan with ONE JUMP OF RESERVE
+        # (tank_jumps - 1): the search then threads scoopables a jump tighter --
+        # exactly what the safe opposite-direction route does (max_dry 9). Keep
+        # the re-plan only if it verifies safe; else keep the honest stranded
+        # route. Fires only on strands, so no cost or change for safe routes.
+        if (
+            req.fuel_safe
+            and tank_jumps >= 2
+            and (result.get("fuel") or {}).get("stranded")
+        ):
+            try:
+                reserved = await _solve_route_cached(
+                    req.from_, req.to, req.jump_range, req.beam_width,
+                    supercharge, access.get("via"), caller=access.get("caller"),
+                    companion_max_ls=req.companion_max_ls,
+                    inject_mult=req.inject_mult,
+                    tank_jumps=tank_jumps - 1,
+                    scoop_max_ls=req.scoop_max_ls,
+                    reach_by_r=None,
+                )
+                enf = await _run_db_task(
+                    _enforce_fuel_sync, reserved, params, req.fuel_safe,
+                    supercharge, req.scoop_max_ls,
+                )
+                if (enf.get("fuel") or {}).get("safe"):
+                    _log_route_trace(
+                        "route-fuel-reserve",
+                        frm=enf.get("source"), to=enf.get("destination"),
+                        range=req.jump_range,
+                        stranded_jumps=result.get("total_jumps"),
+                        total_jumps=enf.get("total_jumps"),
+                        caller=access.get("caller"),
+                    )
+                    result = enf
+            except Exception:  # keep the honest stranded route on any failure
+                logger.warning(
+                    "fuel-reserve re-plan failed; keeping stranded verdict",
+                    exc_info=True,
+                )
         # Parameters block for the spansh-exact export (ship build + fuel model).
         result["spansh_params"] = fsd.spansh_params(
             params, supercharge, req.inject_mult
