@@ -272,7 +272,7 @@
 #panel-route .help-tip .tip b { color:var(--text); font-weight:600; }
 
 /* Icons inherit gray-100 (#f3f4f6); .55 at rest, full on row/icon hover. */
-#panel-route .copy-btn { all:unset; cursor:pointer; color:#f3f4f6; opacity:.55; margin-left:8px;
+#panel-route .copy-btn { all:unset; cursor:pointer; color:#f3f4f6; opacity:.55; margin-right:8px;
             vertical-align:-2px; transition:opacity .15s; }
 #panel-route tr:hover .copy-btn, #panel-route .copy-btn:hover, #panel-route .copy-btn:focus { opacity:1; }
 

@@ -644,7 +644,7 @@ function legLabel(j, last) {
   return j.inject_grade ? `${base} + inject` : base;
 }
 function copyBtn(name) {
-  return name ? ` <button class="copy-btn" data-copy="${escapeHtml(name)}" title="Copy system name">${copyIconSvg}</button>` : "";
+  return name ? `<button class="copy-btn" data-copy="${escapeHtml(name)}" title="Copy system name">${copyIconSvg}</button>` : "";
 }
 
 // Per-row action icons, identical to the neighbors search results on the index.
@@ -1298,7 +1298,7 @@ function sourceRow(r, compact, hasFuel) {
   return `<tr class="src-row${doneSet.has(r.source) ? " done" : ""}">
       ${doneBox(r.source)}
       <td class="num">0</td>
-      <td class="sys">${escapeHtml(r.source)}${copyBtn(r.source)}</td>
+      <td class="sys">${copyBtn(r.source)}${escapeHtml(r.source)}</td>
       <td></td>
       ${nums}
       ${fuel}
@@ -1343,7 +1343,7 @@ function renderRoute(r) {
       return `<tr class="${risk ? "risk-row " : ""}${doneSet.has(cname) ? "done" : ""}">
       ${doneBox(cname)}
       <td class="num">${i + 1}</td>
-      <td class="sys ${w.neutron ? "boost" : ""}">${escapeHtml(w.system)}${injectBadge(injectInRange(r, w.i0, w.i1))}${riskBadge(risk)}${copyBtn(cname)}</td>
+      <td class="sys ${w.neutron ? "boost" : ""}">${copyBtn(cname)}${escapeHtml(w.system)}${injectBadge(injectInRange(r, w.i0, w.i1))}${riskBadge(risk)}</td>
       <td>${spectralCell({ spectral: w.spectral, neutron_star: w.neutron, inflight_scoop: w.inflight_scoop, scoop_ls: w.scoop_ls, arrival_ls: w.arrival_ls })}</td>
       <td class="num">${fmt(w.jumps)}</td>
       <td class="num">${fmt(w.ly, 0)}</td>
@@ -1362,7 +1362,7 @@ function renderRoute(r) {
       return `<tr class="${risk ? "risk-row " : ""}${doneSet.has(name) ? "done" : ""}">
       ${doneBox(name)}
       <td class="num">${i + 1}</td>
-      <td class="sys ${j.neutron_star ? "boost" : ""}">${escapeHtml(name)}${injectBadge(j.inject_grade)}${riskBadge(risk)}${copyBtn(j.system ?? r.destination)}</td>
+      <td class="sys ${j.neutron_star ? "boost" : ""}">${copyBtn(j.system ?? r.destination)}${escapeHtml(name)}${injectBadge(j.inject_grade)}${riskBadge(risk)}</td>
       <td>${spectralCell(j)}</td>
       <td class="num">${fmt(j.distance_jumped, 1)}</td>
       <td class="num">${fmt(j.distance_left, 0)}</td>
