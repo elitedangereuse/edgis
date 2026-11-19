@@ -852,10 +852,10 @@ function accessSchedule(obj) {
   if (by.supporter) bits.push(`Patreon tier 1 from <b>${fmtWaveDate(by.supporter)}</b>`);
   const f = by.follower, h = by.hunter;
   if (f && h && f === h) {
-    bits.push(`free followers and Galactic Hunters (5+ confirmed submissions) from <b>${fmtWaveDate(f)}</b>`);
+    bits.push(`free followers and <a href="https://elitedangereuse.fr/en/galactic-hunt.php" target="_blank" rel="noopener">Galactic Hunters</a> (5+ confirmed submissions) from <b>${fmtWaveDate(f)}</b>`);
   } else {
     if (f) bits.push(`free followers from <b>${fmtWaveDate(f)}</b>`);
-    if (h) bits.push(`Galactic Hunters (5+ confirmed submissions) from <b>${fmtWaveDate(h)}</b>`);
+    if (h) bits.push(`<a href="https://elitedangereuse.fr/en/galactic-hunt.php" target="_blank" rel="noopener">Galactic Hunters</a> (5+ confirmed submissions) from <b>${fmtWaveDate(h)}</b>`);
   }
   bits.push(`everyone from <b>${fmtWaveDate(obj.public_after)}</b>`);
   return bits.join(" · ");
