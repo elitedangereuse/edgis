@@ -619,22 +619,30 @@ function inflightScoopMarker(ls) {
 }
 function spectralCell(j) {
   if (!j.spectral) return "";
-  // Green fuel-pump when you can scoop here (primary scoopable, or a scoopable
-  // companion in range). Grouped with the green scoop-Ls (after the blue neutron
-  // info) so the cell reads blue-blue then green-green, not blue-green-blue-green.
-  const scoop = scoopable(j.spectral) ? ` ${FUEL}`
-    : (j.inflight_scoop ? ` ${inflightScoopMarker(j.scoop_ls)}` : "");
-  // Companion (secondary) neutron: how far in-system you supercruise to it (blue).
-  const companion = (j.neutron_star && j.arrival_ls > 0)
-    ? ` <span class="arrls" title="Companion neutron ${escapeHtml(fmt(j.arrival_ls, 0))} Ls from arrival (supercruise to it, then supercharge)">@${escapeHtml(fmt(j.arrival_ls, 0))} Ls</span>`
-    : "";
-  // In-system refuel companion distance (green), shown inline like the neutron one.
-  const scoopLs = (!scoopable(j.spectral) && j.inflight_scoop && j.scoop_ls != null)
-    ? ` <span class="arrls scoop-ls" title="In-system scoop: scoopable companion ${escapeHtml(fmt(j.scoop_ls, 0))} Ls from arrival (refuel without leaving the route)">@${escapeHtml(fmt(j.scoop_ls, 0))} Ls</span>`
-    : "";
-  // Neutron star class letter shown in neutron-blue (neutron steps are blue).
-  const spec = `<span class="spec${j.neutron_star ? " neutron" : ""}" title="${escapeHtml(starName(j.spectral))}">${escapeHtml(starShort(j.spectral))}</span>`;
-  return `<span class="starcell">${spec}${companion}${scoop}${scoopLs}</span>`;
+  // Layout: PRIMARY (the arrival/main star) on the left, COMPANION (the side-trip)
+  // on the right. When the neutron is a companion (arrival_ls>0), the main star is
+  // not the neutron -- it's `primary_spectral` (often the scoopable arrival star you
+  // refuel at), so show its letter + pump on the left and the neutron on the right.
+  const compNeutron = !!(j.neutron_star && j.arrival_ls > 0
+    && j.primary_spectral && !/^(N|Neutron Star)$/i.test(j.primary_spectral));
+  const primClass = compNeutron ? j.primary_spectral : j.spectral;
+  const primIsNeutron = j.neutron_star && !compNeutron;   // the main star itself is the neutron
+  const primScoopable = scoopable(primClass);
+  const primLetter = `<span class="spec${primIsNeutron ? " neutron" : ""}" title="${escapeHtml(starName(primClass))}">${escapeHtml(starShort(primClass))}</span>`;
+  const primPump = primScoopable ? ` ${FUEL}` : "";       // scoopable arrival star -> green pump
+  const arrLs = (ls) => ` <span class="arrls" title="Companion neutron ${escapeHtml(fmt(ls, 0))} Ls from arrival (supercruise to it, then supercharge)">@${escapeHtml(fmt(ls, 0))} Ls</span>`;
+  const scoopLsTag = (ls) => ` <span class="arrls scoop-ls" title="In-system scoop: scoopable companion ${escapeHtml(fmt(ls, 0))} Ls from arrival (refuel without leaving the route)">@${escapeHtml(fmt(ls, 0))} Ls</span>`;
+  // Companion on the right.
+  let comp = "";
+  if (compNeutron) {                                      // the neutron is the companion
+    comp = ` <span class="spec neutron" title="Companion neutron">N</span>${arrLs(j.arrival_ls)}`;
+  } else if (j.neutron_star && j.arrival_ls > 0) {        // fallback (no primary_spectral): keep the note
+    comp = arrLs(j.arrival_ls);
+  }
+  if (!primScoopable && j.inflight_scoop && j.scoop_ls != null) {  // a scoopable companion (green)
+    comp += ` ${inflightScoopMarker(j.scoop_ls)}${j.scoop_ls > 0 ? scoopLsTag(j.scoop_ls) : ""}`;
+  }
+  return `<span class="starcell">${primLetter}${primPump}${comp}</span>`;
 }
 function legLabel(j, last) {
   if (last) return "arrive";
@@ -682,6 +690,7 @@ function compactRows(r) {
     const last = i === r.jumps.length - 1;
     if (j.neutron_star || last) {
       out.push({ system: j.system ?? (last ? r.destination : "?"), spectral: j.spectral,
+                 primary_spectral: j.primary_spectral,
                  jumps, ly, left: j.distance_left, neutron: j.neutron_star, dest: last,
                  inflight_scoop: j.inflight_scoop, scoop_ls: j.scoop_ls, arrival_ls: j.arrival_ls,
                  x: j.x, y: j.y, z: j.z, i0: start, i1: i });  // i0..i1 = this leg group
@@ -1350,7 +1359,7 @@ function renderRoute(r) {
       ${doneBox(cname)}
       <td class="num">${i + 1}</td>
       <td class="sys ${w.neutron ? "boost" : ""}">${copyBtn(cname)}${sysName(w.system)}${injectBadge(injectInRange(r, w.i0, w.i1))}${riskBadge(risk)}</td>
-      <td>${spectralCell({ spectral: w.spectral, neutron_star: w.neutron, inflight_scoop: w.inflight_scoop, scoop_ls: w.scoop_ls, arrival_ls: w.arrival_ls })}</td>
+      <td>${spectralCell({ spectral: w.spectral, primary_spectral: w.primary_spectral, neutron_star: w.neutron, inflight_scoop: w.inflight_scoop, scoop_ls: w.scoop_ls, arrival_ls: w.arrival_ls })}</td>
       <td class="num">${fmt(w.jumps)}</td>
       <td class="num">${fmt(w.ly, 0)}</td>
       <td class="num">${fmt(w.left, 0)}</td>

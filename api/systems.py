@@ -3759,6 +3759,42 @@ def _annotate_inflight_scoops(
     return count
 
 
+def _fetch_mainstars_sync(id64s: list) -> dict:
+    with _db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT id64, mainstar FROM systems_big WHERE id64 = ANY(%s)",
+                (id64s,),
+            )
+            return {int(r[0]): r[1] for r in cursor.fetchall()}
+        finally:
+            cursor.close()
+
+
+async def _annotate_primary_star(legs: list) -> None:
+    """Attach each neutron leg's MAIN (arrival) star class as ``primary_spectral``.
+
+    A neutron hop's ``spectral`` is forced to "N" (the star you supercharge at); for a
+    companion-neutron system the main star is the scoopable arrival star you refuel at,
+    which the UI wants to show. One batched lookup over the neutron legs that lack it --
+    no bloat to the 120 MB neutron index, and a no-op for routes with no neutron hops.
+    """
+    ids = sorted({
+        int(leg["id64"]) for leg in legs
+        if leg.get("neutron_star") and leg.get("id64") is not None
+        and not leg.get("primary_spectral")
+    })
+    if not ids:
+        return
+    mains = await _run_db_task(_fetch_mainstars_sync, ids)
+    for leg in legs:
+        if leg.get("neutron_star") and leg.get("id64") is not None:
+            ms = mains.get(int(leg["id64"]))
+            if ms:
+                leg["primary_spectral"] = ms
+
+
 def _enforce_fuel_sync(
     base_result: dict,
     params,
@@ -3992,6 +4028,11 @@ class RouteJump(BaseModel):
     fuel_in_tank: Optional[float] = None
     fuel_used: Optional[float] = None
     must_refuel: Optional[bool] = None
+    # The system's MAIN (arrival) star class. For a neutron hop `spectral` is forced
+    # to "N" (the star you supercharge at); `primary_spectral` keeps the actual main
+    # star, which for a companion-neutron system is the scoopable arrival star you
+    # refuel at (so the UI can show e.g. "F + pump" then the companion neutron).
+    primary_spectral: Optional[str] = None
 
 
 class RouteResponse(BaseModel):
@@ -4544,7 +4585,7 @@ async def plot_route(
 ):
     """Plot a neutron-boosted route (ship-agnostic). For fuel-aware plotting,
     POST the same parameters plus an EDSY/SLEF ``loadout``."""
-    return await _solve_route_cached(
+    result = await _solve_route_cached(
         from_,
         to,
         jump_range,
@@ -4555,6 +4596,8 @@ async def plot_route(
         companion_max_ls=companion_max_ls,
         inject_mult=inject_mult,
     )
+    await _annotate_primary_star(result.get("jumps") or [])
+    return result
 
 
 class ShipImportRequest(BaseModel):
@@ -4790,6 +4833,7 @@ async def plot_route_post(
         access=access.get("via"),
         caller=access.get("caller"),
     )
+    await _annotate_primary_star(result.get("jumps") or [])
     return result
 
 
