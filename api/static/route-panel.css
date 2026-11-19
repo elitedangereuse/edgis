@@ -50,13 +50,15 @@
    [hidden] rule, so hidden buttons (vs Galaxy before a ship is set) still
    showed. Re-assert it. */
 #panel-route button[hidden] { display:none; }
-/* Actions sit on their own row above the table; wrap (never clip the compact
-   switch) and keep the Export/Copy utility buttons compact. */
-#panel-route .summary-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center;
+/* Actions sit on their own row above the table, split into two groups: secondary
+   (compact toggle + Report issue) on the left, the route actions (Export/Copy/Share)
+   on the right. Each group wraps internally so Report issue never strands on its own
+   right-aligned line. */
+#panel-route .summary-actions { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center;
                    gap:8px 12px; margin:10px 0 4px; }
-#panel-route .summary-actions .switch { margin-right:auto; }   /* compact toggle stays left */
-#panel-route #exportBtn, #panel-route #copyRoute, #panel-route #shareRoute { padding:.4rem .7rem; font-size:.8rem; }
-#panel-route #copyRoute svg, #panel-route #exportBtn svg, #panel-route #shareRoute svg { width:14px; height:14px; vertical-align:-2px; margin-right:2px; }
+#panel-route .sa-left, #panel-route .sa-right { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; }
+#panel-route #exportBtn, #panel-route #copyRoute, #panel-route #shareRoute, #panel-route #reportIssue { padding:.4rem .7rem; font-size:.8rem; }
+#panel-route #copyRoute svg, #panel-route #exportBtn svg, #panel-route #shareRoute svg, #panel-route #reportIssue svg { width:14px; height:14px; vertical-align:-2px; margin-right:2px; }
 /* Export format picker sits next to the Export button in the actions row. */
 #panel-route .export-group { display:inline-flex; align-items:center; gap:6px; }
 #panel-route #exportFmt { background:rgba(255,255,255,.04); color:var(--text);
@@ -275,6 +277,9 @@
 #panel-route .copy-btn { all:unset; cursor:pointer; color:#f3f4f6; opacity:.55; margin-right:8px;
             vertical-align:-2px; transition:opacity .15s; }
 #panel-route tr:hover .copy-btn, #panel-route .copy-btn:hover, #panel-route .copy-btn:focus { opacity:1; }
+/* The system name copies on click too; hint it on hover. */
+#panel-route .sysname { cursor:pointer; }
+#panel-route .sysname:hover { text-decoration:underline; text-decoration-style:dotted; text-underline-offset:2px; }
 
 /* Trailing per-row actions, same set as the neighbors search results.
    Full brightness (no dimming) -- the icons read too faint otherwise. */

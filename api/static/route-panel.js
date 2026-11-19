@@ -647,6 +647,11 @@ function legLabel(j, last) {
 function copyBtn(name) {
   return name ? `<button class="copy-btn" data-copy="${escapeHtml(name)}" title="Copy system name">${copyIconSvg}</button>` : "";
 }
+// The system name itself copies on click too (same as the button beside it).
+function sysName(name) {
+  const n = escapeHtml(name || "");
+  return name ? `<span class="sysname" data-copy="${n}" title="Click to copy">${n}</span>` : n;
+}
 
 // Per-row action icons, identical to the neighbors search results on the index.
 const systemMapIconSvg = `<svg width="15" height="15" version="1.1" viewBox="0 0 24.77 24.77" xmlns="http://www.w3.org/2000/svg"><path d="m18.976 12.385a6.5907 6.5907 0 0 1-6.5907 6.5907 6.5907 6.5907 0 0 1-6.5907-6.5907 6.5907 6.5907 0 0 1 6.5907-6.5907 6.5907 6.5907 0 0 1 6.5907 6.5907zm5.2941 0a11.885 11.885 0 0 1-11.885 11.885 11.885 11.885 0 0 1-11.885-11.885 11.885 11.885 0 0 1 11.885-11.885 11.885 11.885 0 0 1 11.885 11.885z" fill="none" stroke="currentColor" style="paint-order:stroke markers fill"></path><path d="m14.495 12.305a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm-10.089 6.7178a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm11.794-0.30414a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm-0.25378-12.724a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm7.9976-0.53351a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898z" fill="currentColor" style="paint-order:stroke markers fill"></path></svg>`;
@@ -1299,7 +1304,7 @@ function sourceRow(r, compact, hasFuel) {
   return `<tr class="src-row${doneSet.has(r.source) ? " done" : ""}">
       ${doneBox(r.source)}
       <td class="num">0</td>
-      <td class="sys">${copyBtn(r.source)}${escapeHtml(r.source)}</td>
+      <td class="sys">${copyBtn(r.source)}${sysName(r.source)}</td>
       <td></td>
       ${nums}
       ${fuel}
@@ -1344,7 +1349,7 @@ function renderRoute(r) {
       return `<tr class="${risk ? "risk-row " : ""}${doneSet.has(cname) ? "done" : ""}">
       ${doneBox(cname)}
       <td class="num">${i + 1}</td>
-      <td class="sys ${w.neutron ? "boost" : ""}">${copyBtn(cname)}${escapeHtml(w.system)}${injectBadge(injectInRange(r, w.i0, w.i1))}${riskBadge(risk)}</td>
+      <td class="sys ${w.neutron ? "boost" : ""}">${copyBtn(cname)}${sysName(w.system)}${injectBadge(injectInRange(r, w.i0, w.i1))}${riskBadge(risk)}</td>
       <td>${spectralCell({ spectral: w.spectral, neutron_star: w.neutron, inflight_scoop: w.inflight_scoop, scoop_ls: w.scoop_ls, arrival_ls: w.arrival_ls })}</td>
       <td class="num">${fmt(w.jumps)}</td>
       <td class="num">${fmt(w.ly, 0)}</td>
@@ -1363,7 +1368,7 @@ function renderRoute(r) {
       return `<tr class="${risk ? "risk-row " : ""}${doneSet.has(name) ? "done" : ""}">
       ${doneBox(name)}
       <td class="num">${i + 1}</td>
-      <td class="sys ${j.neutron_star ? "boost" : ""}">${copyBtn(j.system ?? r.destination)}${escapeHtml(name)}${injectBadge(j.inject_grade)}${riskBadge(risk)}</td>
+      <td class="sys ${j.neutron_star ? "boost" : ""}">${copyBtn(j.system ?? r.destination)}${sysName(name)}${injectBadge(j.inject_grade)}${riskBadge(risk)}</td>
       <td>${spectralCell(j)}</td>
       <td class="num">${fmt(j.distance_jumped, 1)}</td>
       <td class="num">${fmt(j.distance_left, 0)}</td>
@@ -1383,20 +1388,24 @@ function renderRoute(r) {
     ${r.fuel ? `<div class="fuelbar">${fuelVerdict(r.fuel, r)}</div>` : ""}
     ${injectSummary(r)}
     <div class="summary-actions">
-      <label class="switch" title="Compact: only the waypoints you plot in-game. Off: every jump.">
-        <input type="checkbox" id="compactToggle" ${compactMode ? "checked" : ""} />
-        <span class="track"></span><span>compact</span>
-      </label>
-      <span class="export-group">
-        <select id="exportFmt" title="Export format" aria-label="Export format">
-          <option value="json"${exportFmt === "json" ? " selected" : ""}>spansh (Galaxy) JSON</option>
-          <option value="csv"${exportFmt === "csv" ? " selected" : ""}>CSV</option>
-        </select>
-        <button id="exportBtn" class="ghost" title="Download this route in the selected format">${downloadIconSvg} Export</button>
-      </span>
-      <button id="copyRoute" class="ghost" title="Copy the route systems, one per line">${copyIconSvg} Copy route</button>
-      <button id="shareRoute" class="ghost" title="Copy a link that reproduces this route">${shareIconSvg} Share</button>
-      <button id="reportIssue" class="ghost" title="Report an issue with this itinerary (opens a pre-filled GitHub issue)">${reportIconSvg} Report issue</button>
+      <div class="sa-left">
+        <label class="switch" title="Compact: only the waypoints you plot in-game. Off: every jump.">
+          <input type="checkbox" id="compactToggle" ${compactMode ? "checked" : ""} />
+          <span class="track"></span><span>compact</span>
+        </label>
+        <button id="reportIssue" class="ghost" title="Report an issue with this itinerary (opens a pre-filled GitHub issue)">${reportIconSvg} Report issue</button>
+      </div>
+      <div class="sa-right">
+        <span class="export-group">
+          <select id="exportFmt" title="Export format" aria-label="Export format">
+            <option value="json"${exportFmt === "json" ? " selected" : ""}>spansh (Galaxy) JSON</option>
+            <option value="csv"${exportFmt === "csv" ? " selected" : ""}>CSV</option>
+          </select>
+          <button id="exportBtn" class="ghost" title="Download this route in the selected format">${downloadIconSvg} Export</button>
+        </span>
+        <button id="copyRoute" class="ghost" title="Copy the route systems, one per line">${copyIconSvg} Copy route</button>
+        <button id="shareRoute" class="ghost" title="Copy a link that reproduces this route">${shareIconSvg} Share</button>
+      </div>
     </div>
     <div class="tablewrap result-table">
       <table><thead><tr>${header}</tr></thead>
@@ -1650,7 +1659,7 @@ async function plot(isRetry = false) {
 
 // Delegated clicks: per-row copy, row actions, copy-all, and the compact toggle.
 $("out").addEventListener("click", (e) => {
-  const cb = e.target.closest(".copy-btn");
+  const cb = e.target.closest("[data-copy]");   // copy button or the system name itself
   if (cb) { copyText(cb.dataset.copy, cb); return; }
   const act = e.target.closest(".act-btn");
   if (act) {
