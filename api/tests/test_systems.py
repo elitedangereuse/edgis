@@ -189,6 +189,11 @@ def test_get_neighbors_success(monkeypatch, expected):
     monkeypatch.setattr(
         systems, "fetch_neighbors_from_db", fake_fetch_neighbors_from_db
     )
+    # The density admission probe (DoS guard) runs before the fetch: stub it
+    # off the real DB.
+    monkeypatch.setattr(
+        systems, "_neighbors_density_probe_sync", lambda *a: 0
+    )
 
     response = client.get(
         "/neighbors",
@@ -244,6 +249,9 @@ def test_get_neighbors_paged_success(monkeypatch):
         "fetch_neighbors_seeded_page_from_db",
         fake_fetch_neighbors_seeded_page_from_db,
     )
+    monkeypatch.setattr(
+        systems, "_neighbors_density_probe_sync", lambda *a: 0
+    )
 
     response = client.get(
         "/neighbors",
@@ -273,6 +281,9 @@ def test_get_neighbors_forwards_optional_filters(monkeypatch):
 
     monkeypatch.setattr(
         systems, "fetch_neighbors_from_db", fake_fetch_neighbors_from_db
+    )
+    monkeypatch.setattr(
+        systems, "_neighbors_density_probe_sync", lambda *a: 0
     )
 
     response = client.get(
@@ -1131,6 +1142,9 @@ def test_get_neighbors_returns_500_on_error(monkeypatch):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(systems, "fetch_neighbors_from_db", boom)
+    monkeypatch.setattr(
+        systems, "_neighbors_density_probe_sync", lambda *a: 0
+    )
 
     response = client.get(
         "/neighbors",
@@ -1138,7 +1152,8 @@ def test_get_neighbors_returns_500_on_error(monkeypatch):
     )
 
     assert response.status_code == 500
-    assert response.json() == {"error": "boom"}
+    # Generic error only: the exception text ("boom") must never leak.
+    assert response.json() == {"error": "Neighbors query failed"}
 
 
 @pytest.mark.anyio("asyncio")
@@ -1397,13 +1412,27 @@ async def test_proxy_edsm_bodies_success(monkeypatch):
             return False
 
         async def get(self, url, params):
+            # The inner fetcher receives the CANONICAL stored name.
             assert params == {"systemName": "Sol"}
             return DummyResponse()
 
     monkeypatch.setattr(systems.httpx, "AsyncClient", DummyClient)
 
-    payload = await systems.proxy_edsm_bodies.__wrapped__(systemName="Sol")  # type: ignore[attr-defined]
+    payload = await systems._fetch_edsm_bodies_cached.__wrapped__("Sol")  # type: ignore[attr-defined]
     assert payload == {"status": "ok"}
+
+
+def test_proxy_edsm_bodies_unknown_system_404(monkeypatch):
+    # Unknown systems never reach EDSM: the proxy is not an open relay, and the
+    # 1-day Redis cache stays keyed by real systems only.
+    monkeypatch.setattr(systems, "_canonical_system_name_sync", lambda n: None)
+
+    def must_not_proxy(*a, **k):
+        raise AssertionError("EDSM reached for an unknown system")
+
+    monkeypatch.setattr(systems.httpx, "AsyncClient", must_not_proxy)
+    response = client.get("/edsm/bodies", params={"systemName": "NopeNope"})
+    assert response.status_code == 404
 
 
 @pytest.mark.anyio("asyncio")
@@ -1435,8 +1464,8 @@ async def test_proxy_edsm_bodies_non_200(monkeypatch):
     )
 
     with pytest.raises(HTTPException) as excinfo:
-        await systems.proxy_edsm_bodies.__wrapped__(systemName="Sol")  # type: ignore[attr-defined]
-    assert excinfo.value.status_code == 500
+        await systems._fetch_edsm_bodies_cached.__wrapped__("Sol")  # type: ignore[attr-defined]
+    assert excinfo.value.status_code == 502
 
 
 @pytest.mark.anyio("asyncio")
@@ -1462,7 +1491,7 @@ async def test_proxy_edsm_bodies_timeout(monkeypatch):
     )
 
     with pytest.raises(HTTPException) as excinfo:
-        await systems.proxy_edsm_bodies.__wrapped__(systemName="Sol")  # type: ignore[attr-defined]
+        await systems._fetch_edsm_bodies_cached.__wrapped__("Sol")  # type: ignore[attr-defined]
     assert excinfo.value.status_code == 504
 
 
@@ -1490,78 +1519,14 @@ def test_coords_predict_exception(monkeypatch):
 
     response = client.get("/coords/predict", params={"q": "Alioth"})
     assert response.status_code == 500
-    assert response.json()["error"] == "fail"
+    # Generic error only: the exception text ("fail") must never leak.
+    assert response.json() == {"error": "Prediction failed"}
 
 
-@pytest.mark.anyio("asyncio")
-async def test_proxy_spansh_system_success(monkeypatch):
-    class DummyResponse:
-        def __init__(self, data):
-            self._data = data
-
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return self._data
-
-    class DummyClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-    async def _aexit(self, exc_type, exc, tb):
-        return False
-
-    async def _get(self, url):
-        return DummyResponse({"record": {"bodies": ["a"]}})
-
-    DummyClient.__aexit__ = _aexit  # type: ignore[attr-defined]
-    DummyClient.get = _get  # type: ignore[attr-defined]
-
-    monkeypatch.setattr(
-        systems.httpx, "AsyncClient", lambda *args, **kwargs: DummyClient()
-    )
-
-    payload = await systems.proxy_spansh_system(system_id=1)
-    assert payload == ["a"]
-
-
-@pytest.mark.anyio("asyncio")
-async def test_proxy_spansh_system_http_error(monkeypatch):
-    class DummyResponse:
-        def raise_for_status(self):
-            raise systems.httpx.HTTPStatusError(
-                "fail",
-                request=None,
-                response=type("R", (), {"status_code": 403})(),
-            )
-
-    class DummyClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-    async def _aexit(self, exc_type, exc, tb):
-        return False
-
-    async def _get(self, url):
-        return DummyResponse()
-
-    DummyClient.__aexit__ = _aexit  # type: ignore[attr-defined]
-    DummyClient.get = _get  # type: ignore[attr-defined]
-
-    monkeypatch.setattr(
-        systems.httpx, "AsyncClient", lambda *args, **kwargs: DummyClient()
-    )
-
-    with pytest.raises(HTTPException) as excinfo:
-        await systems.proxy_spansh_system(system_id=1)
-    assert excinfo.value.status_code == 403
+def test_proxy_spansh_system_removed():
+    # Dead endpoint deleted (declutter + it was an uncached open relay).
+    response = client.get("/spansh/system/1")
+    assert response.status_code == 404
 
 
 @pytest.mark.anyio("asyncio")
@@ -1655,20 +1620,43 @@ async def test_proxy_spansh_autocomplete_controlling_minor_faction(
         lambda *args, **kwargs: DummyClient(),
     )
 
-    payload = await systems.proxy_spansh_autocomplete_controlling_minor_faction.__wrapped__(  # type: ignore[attr-defined]
-        q=" med "
+    payload = await systems._fetch_faction_autocomplete_cached.__wrapped__(  # type: ignore[attr-defined]
+        "med"
     )
     assert payload == {"values": ["Med"]}
 
 
 @pytest.mark.anyio("asyncio")
-async def test_proxy_spansh_autocomplete_controlling_minor_faction_empty_query():
-    with pytest.raises(HTTPException) as excinfo:
-        await systems.proxy_spansh_autocomplete_controlling_minor_faction.__wrapped__(  # type: ignore[attr-defined]
-            q="  "
-        )
+async def test_proxy_spansh_autocomplete_normalizes_and_bounds(monkeypatch):
+    seen = {}
 
+    async def fake_cached(query):
+        seen["q"] = query
+        return {"values": []}
+
+    monkeypatch.setattr(
+        systems, "_fetch_faction_autocomplete_cached", fake_cached
+    )
+    # Endpoint lowercases + strips before the cache, so case variants share one
+    # Redis entry.
+    await systems.proxy_spansh_autocomplete_controlling_minor_faction(q=" MeD ")
+    assert seen["q"] == "med"
+
+    # Whitespace-padded short fragment: strips below the minimum -> 400.
+    with pytest.raises(HTTPException) as excinfo:
+        await systems.proxy_spansh_autocomplete_controlling_minor_faction(q="a ")
     assert excinfo.value.status_code == 400
+
+
+def test_proxy_spansh_autocomplete_bounds_enforced():
+    # FastAPI validation: too-short and too-long fragments never reach spansh.
+    assert client.get(
+        "/spansh/autocomplete_controlling_minor_faction", params={"q": "a"}
+    ).status_code == 422
+    assert client.get(
+        "/spansh/autocomplete_controlling_minor_faction",
+        params={"q": "x" * 65},
+    ).status_code == 422
 
 
 def test_admin_page_route():

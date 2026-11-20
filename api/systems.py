@@ -186,6 +186,29 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
+# Hard cap on request-body size: neither FastAPI nor uvicorn impose one, so a
+# multi-hundred-MB POST (e.g. a crafted `loadout`) would be buffered in RAM on
+# a box that has already been OOMed once. The largest legitimate body is a
+# /body-counts batch (~0.5 MB of 20k string ids); real SLEFs are < 100 KB.
+MAX_REQUEST_BODY_BYTES = int(os.getenv("MAX_REQUEST_BODY") or str(2 * 1024 * 1024))
+
+
+@app.middleware("http")
+async def _limit_request_body(request: Request, call_next):
+    cl = request.headers.get("content-length")
+    if cl is not None:
+        try:
+            if int(cl) > MAX_REQUEST_BODY_BYTES:
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": "Request body too large"},
+                )
+        except ValueError:
+            return JSONResponse(
+                status_code=400, content={"detail": "Bad Content-Length"}
+            )
+    return await call_next(request)
+
 
 def _truncate_header_value(value: str | None, max_length: int = 300) -> str:
     if not value:
@@ -1566,8 +1589,13 @@ async def get_neighbors(
             return JSONResponse(content=results)
         except HTTPException:
             raise
-        except Exception as e:
-            return JSONResponse(content={"error": str(e)}, status_code=500)
+        except Exception:
+            # Generic: exception text can leak internals (SQL, paths). The
+            # traceback still lands in the server log.
+            logger.exception("neighbors query failed")
+            return JSONResponse(
+                content={"error": "Neighbors query failed"}, status_code=500
+            )
 
 
 @cached(
@@ -2832,7 +2860,23 @@ def delete_admin_key(key_id: str, request: Request):
     return {"revoked": key_id}
 
 
-@app.get("/edsm/bodies", include_in_schema=False)
+def _canonical_system_name_sync(name: str) -> Optional[str]:
+    """The stored (canonical) name for a system, or None if unknown. Cheap:
+    the lower(name) prefix index serves the equality lookup."""
+    with _db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT name FROM systems_big "
+                "WHERE lower(name) = lower(%s) LIMIT 1",
+                (name,),
+            )
+            row = cursor.fetchone()
+            return row[0] if row else None
+        finally:
+            cursor.close()
+
+
 @cached(
     cache=RedisCache,
     endpoint=REDIS_HOST,
@@ -2841,39 +2885,53 @@ def delete_admin_key(key_id: str, request: Request):
     namespace="edsm_bodies",
     serializer=PickleSerializer(),
 )
-async def proxy_edsm_bodies(
-    systemName: str = Query(..., description="The name of the system")
-):
-    url = "https://www.edsm.net/api-system-v1/bodies"
-
+async def _fetch_edsm_bodies_cached(system_name: str):
+    """EDSM bodies for a CANONICAL system name (the caller validated it exists
+    in our DB, so the Redis key space is bounded by real systems, not by
+    arbitrary input strings)."""
     headers = {"User-Agent": EXTERNAL_USER_AGENT}
     try:
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(30.0), headers=headers
         ) as client:
-            response = await client.get(url, params={"systemName": systemName})
-
+            response = await client.get(
+                "https://www.edsm.net/api-system-v1/bodies",
+                params={"systemName": system_name},
+            )
         if response.status_code != 200:
             raise HTTPException(
-                status_code=response.status_code,
+                status_code=502,
                 detail="Failed to fetch system bodies from EDSM",
             )
-
         return response.json()
-
     except httpx.ReadTimeout:
-        # EDSM took too long to respond
         raise HTTPException(
-            status_code=504,
-            detail=f"Upstream timeout when querying system '{systemName}' from EDSM",
+            status_code=504, detail="Upstream timeout querying EDSM"
+        )
+    except httpx.RequestError:
+        # No exception detail in the response: it can leak internals.
+        raise HTTPException(
+            status_code=502, detail="Error connecting to EDSM"
         )
 
-    except httpx.RequestError as exc:
-        # Any other network error (DNS, connection refused, etc.)
-        raise HTTPException(
-            status_code=502,
-            detail=f"Error connecting to EDSM: {exc}",
-        )
+
+@app.get("/edsm/bodies", include_in_schema=False)
+async def proxy_edsm_bodies(
+    systemName: str = Query(
+        ..., min_length=1, max_length=64,
+        description="The name of the system",
+    )
+):
+    """Proxy EDSM's bodies endpoint, restricted to systems WE know: arbitrary
+    strings would turn this into an open relay to EDSM and let a bot flood the
+    1-day Redis cache with junk keys. Resolving to the canonical stored name
+    also collapses case variants into one cache entry."""
+    canonical = await _run_db_task(
+        _canonical_system_name_sync, systemName.strip()
+    )
+    if not canonical:
+        raise HTTPException(status_code=404, detail=SYSTEM_NOT_FOUND)
+    return await _fetch_edsm_bodies_cached(canonical)
 
 
 @app.get("/coords")
@@ -2937,8 +2995,13 @@ async def get_coords_predict(name_or_id: str = Query(..., alias="q")):
             ),
             prediction=True,
         )
-    except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=500)
+    except Exception:
+        # Generic: exception text can leak internals (paths, SQL, library
+        # state). The full traceback still lands in the server log.
+        logger.exception("coords/predict failed for %r", name_or_id)
+        return JSONResponse(
+            content={"error": "Prediction failed"}, status_code=500
+        )
 
 
 @app.get("/nearest-neutron-star", response_model=list[NeutronStarResponse])
@@ -2979,23 +3042,6 @@ async def get_nearest_neutron_star_from_coords(
             content={"error": "No neutron star found"}, status_code=404
         )
     return result
-
-
-@app.get("/spansh/system/{system_id}", include_in_schema=False)
-async def proxy_spansh_system(system_id: int):
-    url = f"https://spansh.co.uk/api/system/{system_id}"
-    headers = {"User-Agent": EXTERNAL_USER_AGENT}
-    try:
-        async with httpx.AsyncClient(timeout=10, headers=headers) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            data = response.json()
-            # If you want only bodies, extract here:
-            return data.get("record", {}).get("bodies", data)
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/spansh/faction_presence", include_in_schema=False)
@@ -3088,10 +3134,6 @@ async def proxy_spansh_faction_presence(
     return {"results": simplified_results}
 
 
-@app.get(
-    "/spansh/autocomplete_controlling_minor_faction",
-    include_in_schema=False,
-)
 @cached(
     cache=RedisCache,
     endpoint=REDIS_HOST,
@@ -3100,20 +3142,14 @@ async def proxy_spansh_faction_presence(
     namespace="controlling_faction_autocomplete",
     serializer=PickleSerializer(),
 )
-async def proxy_spansh_autocomplete_controlling_minor_faction(
-    q: str = Query(
-        ..., description="Search fragment for the controlling faction name"
-    ),
-):
-    query = q.strip()
-    if not query:
-        raise HTTPException(status_code=400, detail="Query must not be empty")
-
+async def _fetch_faction_autocomplete_cached(query: str):
+    """Spansh faction autocomplete for a NORMALIZED (lowercased) fragment, so
+    case variants share one cache entry. Errors are generic: exception detail
+    in a response can leak internals."""
     url = (
         "https://spansh.co.uk/api/systems/field_values/"
         "autocomplete_controlling_minor_faction"
     )
-
     headers = {"User-Agent": EXTERNAL_USER_AGENT}
     try:
         async with httpx.AsyncClient(timeout=10, headers=headers) as client:
@@ -3129,9 +3165,33 @@ async def proxy_spansh_autocomplete_controlling_minor_faction(
     except HTTPException:
         raise
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail="Faction autocomplete failed upstream",
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=502, detail="Faction autocomplete failed"
+        )
+
+
+@app.get(
+    "/spansh/autocomplete_controlling_minor_faction",
+    include_in_schema=False,
+)
+async def proxy_spansh_autocomplete_controlling_minor_faction(
+    q: str = Query(
+        ..., min_length=2, max_length=64,
+        description="Search fragment for the controlling faction name",
+    ),
+):
+    # Bounded fragment (2..64 chars): this relays to spansh under our UA, so
+    # arbitrary unbounded input is both an abuse vector toward them and a
+    # 1-day-TTL Redis cache flood here.
+    query = q.strip()
+    if len(query) < 2:
+        raise HTTPException(status_code=400, detail="Query too short")
+    return await _fetch_faction_autocomplete_cached(query.lower())
 
 
 @app.get("/systems/autocomplete")

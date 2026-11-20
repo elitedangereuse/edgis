@@ -320,13 +320,16 @@ def _configured_keys() -> list[str]:
 
 
 def _extract_key(request: Request) -> str:
+    # Headers only. A ``?key=`` query param used to be accepted too, but keys in
+    # URLs leak into access logs, browser history and shared links; nothing in
+    # the frontend or the EDMC plugin ever used it (both send x-route-key).
     header = (request.headers.get("x-route-key") or "").strip()
     if header:
         return header
     bearer = (request.headers.get("authorization") or "").strip()
     if bearer.lower().startswith("bearer "):
         return bearer[7:].strip()
-    return (request.query_params.get("key") or "").strip()
+    return ""
 
 
 def _key_is_valid(provided: str) -> bool:
