@@ -104,6 +104,38 @@ var Action = {
     );
   },
 
+  /**
+   * Pick the clickable, visible system closest to the pointer ON SCREEN.
+   *
+   * THREE sorts Points raycast hits by distance ALONG the ray (depth from the
+   * camera), so the FIRST clickable hit is the one nearest the camera. In a
+   * dense sphere that is a system on the near edge, not the one the user is
+   * pointing at -- the long-standing "it selects the wrong star" bug. Instead
+   * score each hit by its angular deviation from the ray, distanceToRay /
+   * distance (perpendicular world distance / depth ~= screen-space offset for a
+   * perspective camera), and keep the smallest. Returns the vertex index, or
+   * null when no clickable+visible system was hit.
+   */
+  'bestClickableIndex' : function (intersects) {
+    var bestIndex = null;
+    var bestMetric = Infinity;
+    for ( var i = 0; i < intersects.length; i++ ) {
+      var intersection = intersects[ i ];
+      if(!intersection.object || !intersection.object.clickable) continue;
+      var indexPoint = intersection.index;
+      var selPoint = System.particleGeo.vertices[indexPoint];
+      if(!selPoint || !selPoint.visible) continue;
+      var dtr = (intersection.distanceToRay != null) ? intersection.distanceToRay : 0;
+      var dist = (intersection.distance != null && intersection.distance > 0) ? intersection.distance : 1;
+      var metric = dtr / dist;
+      if(metric < bestMetric) {
+        bestMetric = metric;
+        bestIndex = indexPoint;
+      }
+    }
+    return bestIndex;
+  },
+
   'getHoveredIndexFromEvent' : function (e, obj) {
     obj.mouseVector = obj.getMouseVectorFromEvent(e);
     obj.mouseVector.unproject(camera);
@@ -111,20 +143,7 @@ var Action = {
     obj.raycaster.params.Points.threshold = obj.pointCastRadius;
 
     var intersects = obj.raycaster.intersectObjects(scene.children);
-    if (intersects.length > 0) {
-      for ( var i = 0; i < intersects.length; i++ ) {
-        var intersection = intersects[ i ];
-        if(intersection.object.clickable) {
-          var indexPoint = intersection.index;
-          var selPoint = System.particleGeo.vertices[indexPoint];
-          if(selPoint && selPoint.visible) {
-            return indexPoint;
-          }
-        }
-      }
-    }
-
-    return null;
+    return obj.bestClickableIndex(intersects);
   },
 
   /**
@@ -251,22 +270,10 @@ var Action = {
 
     // create an array containing all objects in the scene with which the ray intersects
     var intersects = obj.raycaster.intersectObjects(scene.children);
-    if (intersects.length > 0) {
-
-      for( var i = 0; i < intersects.length; i++ ) {
-        var intersection = intersects[ i ];
-        if(intersection.object.clickable) {
-
-          var indexPoint = intersection.index;
-          var selPoint = System.particleGeo.vertices[indexPoint];
-
-          if(selPoint.visible) {
-            Action.hoverOnObj(indexPoint);
-            return;
-          }
-        }
-      }
-
+    var hoverIndex = obj.bestClickableIndex(intersects);
+    if(hoverIndex !== null) {
+      Action.hoverOnObj(hoverIndex);
+      return;
     }
 
     Action.outOnObj();
@@ -371,26 +378,18 @@ var Action = {
     obj.raycaster.params.Points.threshold = obj.pointCastRadius;
 
     var intersects = obj.raycaster.intersectObjects(scene.children);
-    if (intersects.length > 0) {
+    var clickIndex = obj.bestClickableIndex(intersects);
+    if(clickIndex !== null) {
+      var selPoint = System.particleGeo.vertices[clickIndex];
+      if(obj.selectPoint(clickIndex, selPoint, obj)) return;
+    }
 
-      for( var i = 0; i < intersects.length; i++ ) {
-        var intersection = intersects[ i ];
-        if(intersection.object.clickable) {
-
-          var indexPoint = intersection.index;
-          var selPoint = System.particleGeo.vertices[indexPoint];
-
-          if(selPoint.visible) {
-            if(obj.selectPoint(indexPoint, selPoint, obj)) return;
-          }
-
-        }
-
-        if(intersection.object.showCoord) {
-          $('#debug').html(Math.round(intersection.point.x)+' , '+Math.round(-intersection.point.z));
-        }
+    //-- Keep the debug coord readout (floor plane), scanning for a showCoord hit.
+    for( var i = 0; i < intersects.length; i++ ) {
+      if(intersects[i].object && intersects[i].object.showCoord) {
+        $('#debug').html(Math.round(intersects[i].point.x)+' , '+Math.round(-intersects[i].point.z));
+        break;
       }
-
     }
 
     obj.disableSelection();
