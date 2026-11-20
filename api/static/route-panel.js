@@ -681,6 +681,12 @@ const fromIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="
 const toIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 2.6461 2.1167"><g fill-rule="evenodd" stroke-width=".26458"><path d="m-0.0023 1.0583a0.13229 0.13229 0 0 1 0.13229-0.13229h1.7973l-0.56806-0.5678a0.13246 0.13246 0 1 1 0.18732-0.18732l0.79375 0.79375a0.13229 0.13229 0 0 1 0 0.18732l-0.79375 0.79375a0.13246 0.13246 0 0 1-0.18732-0.18732l0.56806-0.5678h-1.7973a0.13229 0.13229 0 0 1-0.13229-0.13229"/><path d="m2.5112 6.6e-6a0.13229 0.13229 0 0 1 0.13229 0.13229v1.8521a0.13229 0.13229 0 0 1-0.26458 0v-1.8521a0.13229 0.13229 0 0 1 0.13229-0.13229"/></g></svg>`;
 const fromMarker = `<span class="ep-from" title="Departure (your starting system)">${fromIconSvg}</span>`;
 const toMarker = `<span class="ep-to" title="Destination (your route's end)">${toIconSvg}</span>`;
+// Marker + star class on ONE flex row. white-space:nowrap is NOT enough here:
+// line breaks around atomic inlines (the svg marker, the inline-flex starcell)
+// are allowed regardless of whitespace, so a narrow star column stacked them.
+// A flex container never line-wraps its children.
+const epWrap = (marker, cell) =>
+  (marker || cell) ? `<span class="ep-wrap">${marker}${cell}</span>` : "";
 
 function actsCell(name, x, y, z) {
   const hasCoords = [x, y, z].every(v => typeof v === "number");
@@ -1334,7 +1340,7 @@ function sourceRow(r, compact, hasFuel) {
       ${doneBox(r.source)}
       <td class="num">0</td>
       <td class="sys">${copyBtn(r.source)}${sysName(r.source)}</td>
-      <td class="starcell-ep">${fromMarker}</td>
+      <td>${epWrap(fromMarker, "")}</td>
       ${nums}
       ${fuel}
       ${actsCell(r.source, sc.x, sc.y, sc.z)}
@@ -1379,7 +1385,7 @@ function renderRoute(r) {
       ${doneBox(cname)}
       <td class="num">${i + 1}</td>
       <td class="sys ${w.neutron ? "boost" : ""}">${copyBtn(cname)}${sysName(w.system)}${injectBadge(injectInRange(r, w.i0, w.i1))}${riskBadge(risk)}</td>
-      <td class="${w.dest ? "starcell-ep" : ""}">${w.dest ? toMarker : ""}${spectralCell({ spectral: w.spectral, primary_spectral: w.primary_spectral, neutron_star: w.neutron, inflight_scoop: w.inflight_scoop, scoop_ls: w.scoop_ls, arrival_ls: w.arrival_ls })}</td>
+      <td>${epWrap(w.dest ? toMarker : "", spectralCell({ spectral: w.spectral, primary_spectral: w.primary_spectral, neutron_star: w.neutron, inflight_scoop: w.inflight_scoop, scoop_ls: w.scoop_ls, arrival_ls: w.arrival_ls }))}</td>
       <td class="num">${fmt(w.jumps)}</td>
       <td class="num">${fmt(w.ly, 0)}</td>
       <td class="num">${fmt(w.left, 0)}</td>
@@ -1398,7 +1404,7 @@ function renderRoute(r) {
       ${doneBox(name)}
       <td class="num">${i + 1}</td>
       <td class="sys ${j.neutron_star ? "boost" : ""}">${copyBtn(j.system ?? r.destination)}${sysName(name)}${injectBadge(j.inject_grade)}${riskBadge(risk)}</td>
-      <td class="${last ? "starcell-ep" : ""}">${last ? toMarker : ""}${spectralCell(j)}</td>
+      <td>${epWrap(last ? toMarker : "", spectralCell(j))}</td>
       <td class="num">${fmt(j.distance_jumped, 1)}</td>
       <td class="num">${fmt(j.distance_left, 0)}</td>
       ${fuelCell(j)}

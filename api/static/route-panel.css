@@ -76,10 +76,11 @@
 #panel-route tr.src-row .sys { color:var(--accent); }
 
 /* Journey-endpoint markers in the star column, reusing the From/To input-field
-   label icons (same accent blue) so the table ties back to the fields. */
-#panel-route .starcell-ep { white-space:nowrap; }
-#panel-route .ep-from, #panel-route .ep-to { color:var(--accent); vertical-align:middle; margin-right:4px; }
-#panel-route .ep-from svg, #panel-route .ep-to svg { vertical-align:-2px; }
+   label icons (same accent blue) so the table ties back to the fields. The
+   ep-wrap flex row keeps marker + star class on ONE line: nowrap alone fails
+   because breaks around atomic inlines (svg, inline-flex) ignore whitespace. */
+#panel-route .ep-wrap { display:inline-flex; align-items:center; gap:5px; }
+#panel-route .ep-from, #panel-route .ep-to { color:var(--accent); display:inline-flex; align-items:center; }
 
 /* Per-row "done" progress checkboxes (manual tracking, like spansh). */
 #panel-route th.chk-head, #panel-route td.chk { width:26px; text-align:center; padding-left:6px; padding-right:2px; }
