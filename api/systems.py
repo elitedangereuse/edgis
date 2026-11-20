@@ -3832,27 +3832,36 @@ def _fetch_mainstars_sync(id64s: list) -> dict:
             cursor.close()
 
 
-async def _annotate_primary_star(legs: list) -> None:
-    """Attach each neutron leg's MAIN (arrival) star class as ``primary_spectral``.
+async def _annotate_primary_star(result: dict) -> None:
+    """Attach the star classes the solved geometry doesn't carry:
 
-    A neutron hop's ``spectral`` is forced to "N" (the star you supercharge at); for a
-    companion-neutron system the main star is the scoopable arrival star you refuel at,
-    which the UI wants to show. One batched lookup over the neutron legs that lack it --
-    no bloat to the 120 MB neutron index, and a no-op for routes with no neutron hops.
+    - each neutron leg's MAIN (arrival) star as ``primary_spectral`` -- a neutron
+      hop's ``spectral`` is forced to "N" (the star you supercharge at), so for a
+      companion-neutron system the UI shows the scoopable arrival star instead;
+    - the DEPARTURE system's star as ``source_mainstar`` -- row #0 in the UI is
+      synthesised from the source name/coords/id64 only, so its star column was
+      blank.
+
+    One batched ``mainstar`` lookup covering both; a no-op when there is nothing
+    to fill. Cosmetic: never fail a solved route (or a cache hit) over it.
     """
-    ids = sorted({
+    legs = result.get("jumps") or []
+    ids = {
         int(leg["id64"]) for leg in legs
         if leg.get("neutron_star") and leg.get("id64") is not None
         and not leg.get("primary_spectral")
-    })
+    }
+    src_id = result.get("source_id64")
+    need_src = src_id is not None and not result.get("source_mainstar")
+    if need_src:
+        ids.add(int(src_id))
     if not ids:
         return
     try:
-        mains = await _run_db_task(_fetch_mainstars_sync, ids)
+        mains = await _run_db_task(_fetch_mainstars_sync, sorted(ids))
     except Exception:
-        # Cosmetic annotation: never fail a solved route (or a cache hit) over
-        # it. A solve-time miss caches the legs without the field, and the
-        # endpoint fallback retries on a later hit -- self-healing.
+        # A solve-time miss caches without the fields and the endpoint fallback
+        # retries on a later hit -- self-healing.
         logger.warning("primary-star annotation failed; skipping", exc_info=True)
         return
     for leg in legs:
@@ -3860,6 +3869,10 @@ async def _annotate_primary_star(legs: list) -> None:
             ms = mains.get(int(leg["id64"]))
             if ms:
                 leg["primary_spectral"] = ms
+    if need_src:
+        ms = mains.get(int(src_id))
+        if ms:
+            result["source_mainstar"] = ms
 
 
 def _enforce_fuel_sync(
@@ -4125,6 +4138,10 @@ class RouteResponse(BaseModel):
     # id64 of the source system (the source leg otherwise carries none); for the
     # spansh-exact export's leading entry + parameters.source_system.
     source_id64: Optional[int] = None
+    # The DEPARTURE system's main star class (the source row is synthesised from
+    # name/coords only, so its star column would otherwise be blank). Filled by
+    # the same batched mainstar lookup as the legs' primary_spectral.
+    source_mainstar: Optional[str] = None
     # Present only on POST /route when a ship loadout was supplied: the fuel
     # simulation verdict (safe/stranded, refuels, tank capacity in jumps).
     fuel: Optional[dict] = None
@@ -4602,7 +4619,7 @@ async def _solve_route_cached(
         # cache HIT is a pure Redis read (the route cache pickles, so a hit
         # returns a fresh dict -- annotating after the cache returns would re-run
         # the mainstar DB lookup on every hit). Fresh solve only, once.
-        await _annotate_primary_star(result.get("jumps") or [])
+        await _annotate_primary_star(result)
         to_cache = dict(result)
         to_cache.pop("access", None)
         if not inflight.done():
@@ -4671,7 +4688,7 @@ async def plot_route(
     # Fresh solves are already annotated inside _solve_route_cached (baked into
     # the cache). This is the fallback for pre-existing cache entries written
     # before that change: a no-op (zero DB) once every neutron leg has it.
-    await _annotate_primary_star(result.get("jumps") or [])
+    await _annotate_primary_star(result)
     return result
 
 
@@ -4910,7 +4927,7 @@ async def plot_route_post(
     )
     # Fallback for pre-change cache entries; a no-op once legs are baked in
     # (fresh solves annotate inside _solve_route_cached, before the cache write).
-    await _annotate_primary_star(result.get("jumps") or [])
+    await _annotate_primary_star(result)
     return result
 
 

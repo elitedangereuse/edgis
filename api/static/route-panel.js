@@ -1339,7 +1339,7 @@ function sourceRow(r, compact, hasFuel) {
       ${doneBox(r.source)}
       <td class="num">0</td>
       <td class="sys">${copyBtn(r.source)}${sysName(r.source)}</td>
-      <td>${epWrap(fromMarker, "")}</td>
+      <td>${epWrap(fromMarker, r.source_mainstar ? spectralCell({ spectral: r.source_mainstar }) : "")}</td>
       ${nums}
       ${fuel}
       ${actsCell(r.source, sc.x, sc.y, sc.z)}
