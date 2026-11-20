@@ -342,14 +342,28 @@ def test_route_post_attaches_fuel_report(monkeypatch):
     monkeypatch.setattr(systems, "_fetch_mainstars_sync", lambda id64s: {})
     monkeypatch.setattr(systems, "_annotate_inflight_scoops", lambda *a, **k: None)
 
-    # fuel_safe off -> report-only path (enforcement insertion is unit-tested in
-    # test_fsd with a fake scoopable fetch).
-    resp = client.post(
-        "/route",
-        json={"from": "Sol", "to": "Near", "range": 50, "loadout": COBRA_SLEF,
-              "fuel_safe": False},
-        headers={"x-route-key": "k"},
-    )
+    # Capture the route traces this plot emits.
+    import json as _json
+    import logging as _logging
+    lines = []
+
+    class _Cap(_logging.Handler):
+        def emit(self, record):
+            lines.append(_json.loads(record.getMessage()))
+
+    cap = _Cap()
+    systems._route_trace_logger.addHandler(cap)
+    try:
+        # fuel_safe off -> report-only path (enforcement insertion is unit-tested
+        # in test_fsd with a fake scoopable fetch).
+        resp = client.post(
+            "/route",
+            json={"from": "Sol", "to": "Near", "range": 50, "loadout": COBRA_SLEF,
+                  "fuel_safe": False, "x-route-key": "k"},
+            headers={"x-route-key": "k"},
+        )
+    finally:
+        systems._route_trace_logger.removeHandler(cap)
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["total_jumps"] == 2
@@ -357,6 +371,17 @@ def test_route_post_attaches_fuel_report(monkeypatch):
     assert body["fuel"]["safe"] is True
     assert body["fuel"]["tank_jumps"] == 10
     assert body["fuel"]["enforced"] is False
+
+    # Exactly ONE user-facing "route" trace for the whole fuel-aware plot (the
+    # internal solves are trace=False), and it carries the caller + an end-to-end
+    # duration (not a single kernel's solve_ms, and never caller=None).
+    route_lines = [r for r in lines if r.get("kind") == "route"
+                   and r.get("status") == "ok"]
+    assert len(route_lines) == 1, route_lines
+    rt = route_lines[0]
+    assert rt.get("caller") == "env-key"
+    assert rt.get("duration_s") is not None
+    assert rt.get("total_jumps") == 2
 
 
 def _capture_solve(monkeypatch, captured):

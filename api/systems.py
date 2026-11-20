@@ -4351,6 +4351,7 @@ async def _solve_route_cached(
     tank_jumps: int = 0,
     scoop_max_ls: float = 0.0,
     reach_by_r: list | None = None,
+    trace: bool = True,
 ) -> dict:
     """Resolve + solve a route with the Redis cache and in-flight coalescing.
     Shared by GET and POST /route. The fuel REPORT always runs on top of the
@@ -4404,25 +4405,27 @@ async def _solve_route_cached(
         cached = None
     if cached is not None:
         cached["access"] = access_via
-        _log_route_trace(
-            "route",
-            tool="edgis",
-            frm=cached.get("source"),
-            to=cached.get("destination"),
-            range=jump_range,
-            status="ok",
-            total_jumps=cached.get("total_jumps"),
-            duration_s=(
-                round(cached["solve_ms"] / 1000, 3)
-                if cached.get("solve_ms") is not None
-                else None
-            ),
-            cached=True,
-            access=access_via,
-            caller=caller,
-            engine=cached.get("engine"),
-            resolver=cached.get("resolver"),
-        )
+        cached["_cached"] = True  # transient: lets a caller-owned trace report it
+        if trace:
+            _log_route_trace(
+                "route",
+                tool="edgis",
+                frm=cached.get("source"),
+                to=cached.get("destination"),
+                range=jump_range,
+                status="ok",
+                total_jumps=cached.get("total_jumps"),
+                duration_s=(
+                    round(cached["solve_ms"] / 1000, 3)
+                    if cached.get("solve_ms") is not None
+                    else None
+                ),
+                cached=True,
+                access=access_via,
+                caller=caller,
+                engine=cached.get("engine"),
+                resolver=cached.get("resolver"),
+            )
         return cached
 
     # In-flight coalescing: if an identical solve is already running, await its
@@ -4434,25 +4437,27 @@ async def _solve_route_cached(
         shared = await existing
         out = dict(shared)
         out["access"] = access_via
-        _log_route_trace(
-            "route",
-            tool="edgis",
-            frm=out.get("source"),
-            to=out.get("destination"),
-            range=jump_range,
-            status="ok",
-            total_jumps=out.get("total_jumps"),
-            duration_s=(
-                round(out["solve_ms"] / 1000, 3)
-                if out.get("solve_ms") is not None
-                else None
-            ),
-            coalesced=True,
-            access=access_via,
-            caller=caller,
-            engine=out.get("engine"),
-            resolver=out.get("resolver"),
-        )
+        out["_cached"] = True  # this request did no fresh solve
+        if trace:
+            _log_route_trace(
+                "route",
+                tool="edgis",
+                frm=out.get("source"),
+                to=out.get("destination"),
+                range=jump_range,
+                status="ok",
+                total_jumps=out.get("total_jumps"),
+                duration_s=(
+                    round(out["solve_ms"] / 1000, 3)
+                    if out.get("solve_ms") is not None
+                    else None
+                ),
+                coalesced=True,
+                access=access_via,
+                caller=caller,
+                engine=out.get("engine"),
+                resolver=out.get("resolver"),
+            )
         return out
 
     loop = asyncio.get_event_loop()
@@ -4579,6 +4584,7 @@ async def _solve_route_cached(
         result["source_coords"] = {"x": src[0], "y": src[1], "z": src[2]}
         result["source_id64"] = src_id64
         result["access"] = access_via
+        result["_cached"] = False  # transient: this request did a fresh solve
         if offloaded:
             # The pod already logged the authoritative kind="route" trace
             # (resolver=k8s:<pod>); log a DISTINCT marker here so the resolver
@@ -4594,7 +4600,7 @@ async def _solve_route_cached(
                 access=access_via,
                 caller=caller,
             )
-        else:
+        elif trace:
             _log_route_trace(
                 "route",
                 tool="edgis",
@@ -4622,6 +4628,7 @@ async def _solve_route_cached(
         await _annotate_primary_star(result)
         to_cache = dict(result)
         to_cache.pop("access", None)
+        to_cache.pop("_cached", None)  # transient trace flag, never cache it
         if not inflight.done():
             inflight.set_result(
                 to_cache
@@ -4753,6 +4760,12 @@ async def plot_route_post(
     When ``fuel_safe`` is set, ``_enforce_fuel_sync`` inserts scoop-stop detours
     (or an in-system companion scoop at a neutron waypoint) so the route never
     strands; otherwise fuel risk is only reported."""
+    # End-to-end timer: a fuel-aware plot can solve 2-3 times (B2 geometry, a B1
+    # re-solve when B2 reads unsafe, a reserve-guard re-plan) and runs the fuel
+    # enforcement DB task on top. The per-solve traces each report only their own
+    # kernel time, so the handler owns ONE authoritative "route" trace with the
+    # real wall-clock the caller waited (the internal solves are trace=False).
+    _t0 = time.monotonic()
     # Parse the loadout first: its tank capacity (consecutive boosted jumps on a
     # full tank) makes the corridor A* fuel-aware, threading scoopable neutrons
     # as free refuels so it avoids the +2 scoop-stop detours the fuel layer would
@@ -4786,7 +4799,9 @@ async def plot_route_post(
         tank_jumps=tank_jumps,
         scoop_max_ls=req.scoop_max_ls,
         reach_by_r=reach_by_r,
+        trace=False,  # the handler emits one end-to-end trace below
     )
+    _was_cached = bool(result.get("_cached"))
     if params is not None:
         # Fuel layer (enforcement + report) runs in a DB task: scoop-stop
         # insertion needs a scoopable-star query. Copies the cached geometry.
@@ -4841,12 +4856,15 @@ async def plot_route_post(
                 req.beam_width,
                 supercharge,
                 access.get("via"),
+                caller=access.get("caller"),
                 companion_max_ls=req.companion_max_ls,
                 inject_mult=req.inject_mult,
                 tank_jumps=tank_jumps,
                 scoop_max_ls=req.scoop_max_ls,
                 reach_by_r=None,
+                trace=False,
             )
+            _was_cached = _was_cached and bool(b1.get("_cached"))
             result = await _run_db_task(
                 _enforce_fuel_sync,
                 b1,
@@ -4880,7 +4898,9 @@ async def plot_route_post(
                     tank_jumps=tank_jumps - 1,
                     scoop_max_ls=req.scoop_max_ls,
                     reach_by_r=None,
+                    trace=False,
                 )
+                _was_cached = _was_cached and bool(reserved.get("_cached"))
                 enf = await _run_db_task(
                     _enforce_fuel_sync, reserved, params, req.fuel_safe,
                     supercharge, req.scoop_max_ls,
@@ -4904,6 +4924,34 @@ async def plot_route_post(
         result["spansh_params"] = fsd.spansh_params(
             params, supercharge, req.inject_mult
         )
+    # The authoritative user-facing "route" trace for a POST plot: ONE line per
+    # request (the internal solves above are trace=False), with the END-TO-END
+    # duration the caller actually waited -- geometry solve(s) + fuel enforcement
+    # + any re-solve -- not just a single kernel's solve_ms, and always the
+    # caller (the B2 re-solve used to drop it).
+    _dur = round(time.monotonic() - _t0, 3)
+    _log_route_trace(
+        "route",
+        tool="edgis",
+        frm=result.get("source"),
+        to=result.get("destination"),
+        range=req.jump_range,
+        status="ok",
+        sc=supercharge,
+        total_jumps=result.get("total_jumps"),
+        neutron=result.get("neutron_jumps"),
+        bridge=result.get("bridge_jumps"),
+        eff=round(result["efficiency"], 4) if result.get("efficiency") is not None else None,
+        solve_ms=round(result["solve_ms"], 1) if result.get("solve_ms") is not None else None,
+        duration_s=_dur,
+        # Only emit the label when TRUE: the dashboard treats "no cached field"
+        # as not-cached (cached!="true"), so a cached=false would be miscounted.
+        **({"cached": True} if _was_cached else {}),
+        access=access.get("via"),
+        caller=access.get("caller"),
+        engine=result.get("engine"),
+        resolver=result.get("resolver"),
+    )
     # Record the fuel mode on its own trace line: the shared geometry trace is
     # ship-agnostic, so without this the trace never shows whether a ship was
     # imported or whether fuel-safe enforcement ran.
