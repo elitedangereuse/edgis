@@ -36,6 +36,8 @@ class DummyCursor:
 class DummyConn:
     def __init__(self):
         self.cursors: list[DummyCursor] = []
+        self.rollbacks = 0
+        self.closed = False
 
     def cursor(self):
         cursor = DummyCursor()
@@ -43,10 +45,13 @@ class DummyConn:
         return cursor
 
     def close(self, *args, **kwargs):
-        pass
+        self.closed = True
 
     def commit(self):
         pass
+
+    def rollback(self):
+        self.rollbacks += 1
 
 
 class DummySocket:
@@ -193,6 +198,37 @@ def test_systems_upsert_rejects_duplicate_mapped_name(systems_module):
     assert "LOWER(existing.name) = LOWER(%s)" in query
     assert "FROM bodies b" in query
     assert params[-2:] == (12345, "Sol")
+
+
+def test_systems_recover_connection_rolls_back(systems_module):
+    # A DB error leaves the transaction aborted; recovery must roll it back so
+    # the SAME connection is reusable (not reconnect) and later upserts work.
+    original = systems_module.conn
+    systems_module._recover_connection()
+    assert systems_module.conn is original
+    assert original.rollbacks == 1
+    assert not original.closed
+
+
+def test_systems_recover_connection_reconnects_when_broken(
+    monkeypatch, systems_module
+):
+    # If rollback fails (the connection itself died, e.g. a DB restart), recovery
+    # must drop it and reconnect -- otherwise every later message fails forever
+    # and the feeder zombies without ever tripping the inactivity watchdog.
+    broken = systems_module.conn
+
+    def _raise():
+        raise RuntimeError("connection already closed")
+
+    monkeypatch.setattr(broken, "rollback", _raise)
+    fresh = DummyConn()
+    monkeypatch.setattr(systems_module, "_connect", lambda: fresh)
+
+    systems_module._recover_connection()
+
+    assert broken.closed
+    assert systems_module.conn is fresh
 
 
 def test_systems_recv_with_watchdog_timeout(systems_module):

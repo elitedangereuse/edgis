@@ -1,4 +1,5 @@
 import os
+import time
 import zmq
 import zlib
 import json
@@ -21,6 +22,7 @@ TRUSTED_CLIENTS = {
 MAX_XYZ = 70000  # Light years
 MAX_Y = 35000
 INACTIVITY_TIMEOUT_SECONDS = int(os.getenv("EDDN_INACTIVITY_TIMEOUT", "900"))
+RECONNECT_BACKOFF_SECONDS = int(os.getenv("EDDN_RECONNECT_BACKOFF", "5"))
 
 def is_valid_coordinates(x, y, z):
     """Check if coordinates are within plausible bounds and not suspicious test values."""
@@ -67,9 +69,42 @@ DB_NAME = os.getenv("DB_NAME")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 
-conn = psycopg.connect(
-    host=DB_HOST, port=5432, dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD
-)
+def _connect():
+    return psycopg.connect(
+        host=DB_HOST, port=5432, dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD
+    )
+
+
+conn = _connect()
+
+
+def _recover_connection() -> None:
+    """Return the shared connection to a clean, usable state after an error.
+
+    A failed statement leaves psycopg in an aborted transaction, so WITHOUT this
+    every later upsert raises InFailedSqlTransaction and the feeder silently
+    stops ingesting -- the watchdog never fires because EDDN messages keep
+    arriving, they just all fail. Roll back to clear the aborted state; if the
+    connection itself died (DB restart), reconnect so it doesn't zombie. On a
+    failed reconnect, back off briefly so a DB outage doesn't become a hot loop
+    burning one reconnect attempt per inbound message.
+    """
+    global conn
+    try:
+        conn.rollback()
+        return
+    except Exception:
+        pass
+    try:
+        conn.close()
+    except Exception:
+        pass
+    try:
+        conn = _connect()
+        print("Reconnected to the database after a connection error.")
+    except Exception as exc:
+        print(f"Database reconnect failed: {exc}")
+        time.sleep(RECONNECT_BACKOFF_SECONDS)
 
 def record_systems_processed(cur, amount=1, is_new=False):
     minute_bucket = datetime.now(timezone.utc).replace(second=0, microsecond=0)
@@ -355,6 +390,9 @@ def stream_events() -> None:
                 raise
             except Exception as e:
                 print(f"Error processing message: {e}")
+                # A DB error here left the transaction aborted; clear it (or
+                # reconnect) so the next message isn't doomed to fail too.
+                _recover_connection()
                 continue
     except StreamStalledError as stalled:
         print(f"Watchdog detected stalled EDDN systems feed: {stalled}")
