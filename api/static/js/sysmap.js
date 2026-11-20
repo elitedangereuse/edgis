@@ -852,7 +852,12 @@ void (async function(){
             s.includes("gas giant with water-based life") ||
             s.includes("gas giant with ammonia-based life")
         ) {
-            const minT = 50, maxT = 90;
+            // Floor at 20 K, not 50: cold class I giants run well below 50 K
+            // (the Galactic Hunt's class I band alone is 28-50 K) and the game
+            // visibly tints them apart -- a 35 K and a 48 K giant in the same
+            // system render differently in-game (colder = darker). With a 50 K
+            // floor both clamped to the same p=0 colour here (tester report).
+            const minT = 20, maxT = 90;
             const p = Math.min(Math.max((temp - minT)/(maxT - minT), 0), 1);
             return interpolateColor("#413981", "#efcba7", p); // dark purple → bright brown
         }
