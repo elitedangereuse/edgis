@@ -28,9 +28,13 @@ preload_app = True
 timeout = int(os.getenv("EDGIS_WORKER_TIMEOUT", "180"))
 graceful_timeout = 180
 
-# Bound slow drift of COW-private pages over a long-lived worker by recycling it
-# occasionally (re-forks from the master, re-sharing the index). 0 = off.
-_max_req = int(os.getenv("EDGIS_MAX_REQUESTS", "0"))
+# Recycle each worker after ~N requests so a big solve's retained private RSS is
+# released, not accumulated (2026-11-20: memory stayed pinned near 0 for ~40 min
+# AFTER a burst of galaxy-spanning solves finished, because the workers held the
+# freed-but-not-returned allocations). A recycled worker re-forks from the
+# master and COW-re-shares the index (NOT rebuilt), dropping only its private
+# RSS. Jitter staggers the recycles. 0 = off.
+_max_req = int(os.getenv("EDGIS_MAX_REQUESTS", "800"))
 if _max_req > 0:
     max_requests = _max_req
     max_requests_jitter = max(1, _max_req // 10)

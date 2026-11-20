@@ -8,7 +8,7 @@ import hmac
 import base64
 import json
 import re
-from contextlib import contextmanager
+from contextlib import AsyncExitStack, contextmanager
 from datetime import datetime, timezone
 from queue import Empty, LifoQueue
 from threading import Lock, Thread
@@ -3269,6 +3269,44 @@ _route_solve_semaphore: asyncio.Semaphore | None = None
 # the effective box-wide cap is ROUTE_MAX_QUEUE x gunicorn workers.
 _route_waiters = 0
 _ROUTE_MAX_QUEUE = max(1, int(os.getenv("ROUTE_MAX_QUEUE") or "12"))
+def _meminfo_mb(field: str) -> float | None:
+    """A /proc/meminfo field (e.g. MemAvailable / MemTotal) in MiB, or None when
+    unreadable (non-Linux / tests)."""
+    try:
+        with open("/proc/meminfo") as fh:
+            for line in fh:
+                if line.startswith(field + ":"):
+                    return int(line.split()[1]) / 1024.0
+    except Exception:
+        return None
+    return None
+
+
+# Memory-pressure admission guard: refuse to START a fresh solve when the box is
+# already low on free memory, so a burst of big realizations can't drive the
+# VM to OOM/thrash (2026-11-20: 9 concurrent Sol->Beagle range-sweep solves
+# pinned a swapless 36 GB box to 0 available -> thrash -> outage). Checked
+# before the heavy work; cache hits / coalesced waiters never reach it. The
+# default floor ADAPTS to total RAM (~8%, min 512 MB) so it is ~3 GB on braben
+# but does not shed every solve on a 4 GB k8s burst pod running the same code.
+_ROUTE_MIN_FREE_MB = int(
+    os.getenv("ROUTE_MIN_FREE_MB")
+    or max(512, round((_meminfo_mb("MemTotal") or 6400) * 0.08))
+)
+# A "heavy" solve = long straight-line distance: a Sol->Beagle-class route
+# (~65 kly) realizes a huge corridor graph. These are serialized through a tight
+# semaphore (default 1) so a range-sweep of the galaxy's longest route can't run
+# many realizations in parallel and exhaust memory; normal solves keep the
+# wider ROUTE_CONCURRENCY. The k8s burst tier can't take these (4 GB pods OOM +
+# 30 s ingress cap), so the gate serializes on braben rather than offloading.
+_ROUTE_HEAVY_LY = float(os.getenv("ROUTE_HEAVY_LY") or "20000")
+_route_heavy_semaphore: asyncio.Semaphore | None = None
+
+
+def _available_memory_mb() -> float | None:
+    """MemAvailable (MiB), or None when unreadable (non-Linux / tests) -- then
+    the memory guard is a no-op."""
+    return _meminfo_mb("MemAvailable")
 # In-flight route solves, keyed by cache_key: a second identical request awaits
 # the first instead of launching a duplicate (a 90 s rim route must not run
 # twice concurrently). Holds the cacheable result dict (no caller "access").
@@ -4362,7 +4400,7 @@ async def _solve_route_cached(
     ship-specific routes don't collide with the shared ones. GET /route and
     loadout-less POST pass ``tank_jumps == 0`` and keep the shared key."""
 
-    global _route_solve_semaphore, _route_waiters
+    global _route_solve_semaphore, _route_waiters, _route_heavy_semaphore
     if _neutron_index is None:
         _kick_neutron_index_build()
         _log_route_trace(
@@ -4492,6 +4530,19 @@ async def _solve_route_cached(
             _route_solve_semaphore = asyncio.Semaphore(
                 max(1, int(os.getenv("ROUTE_CONCURRENCY") or "2"))
             )
+        if _route_heavy_semaphore is None:
+            _route_heavy_semaphore = asyncio.Semaphore(
+                max(1, int(os.getenv("ROUTE_HEAVY_CONCURRENCY") or "1"))
+            )
+
+        # Heavy = long straight-line distance (Sol->Beagle class). Such solves
+        # realize a huge corridor graph; serialize them so a range-sweep can't
+        # run many in parallel and exhaust memory.
+        try:
+            straight_ly = math.dist(src, dst)
+        except Exception:
+            straight_ly = 0.0
+        heavy_solve = straight_ly >= _ROUTE_HEAVY_LY
 
         # Burst overflow: offload a cold SHIP-AGNOSTIC geometry solve to the k8s
         # pool when configured + eligible, freeing a local core. Any failure
@@ -4530,9 +4581,34 @@ async def _solve_route_cached(
                   },
                   headers={"Retry-After": str(retry)},
               )
+          # Memory-pressure shed: don't START a realization when the box is
+          # already low on free memory -- a big solve could tip it into
+          # OOM/thrash. 429 so the client retries once memory frees.
+          avail_mb = _available_memory_mb()
+          if avail_mb is not None and avail_mb < _ROUTE_MIN_FREE_MB:
+              _log_route_trace(
+                  "route", tool="edgis", frm=src_name, to=dst_name,
+                  range=jump_range, status="shed-mem", avail_mb=round(avail_mb),
+                  heavy=heavy_solve, access=access_via, caller=caller,
+              )
+              raise HTTPException(
+                  status_code=429,
+                  detail={
+                      "error": "busy",
+                      "message": "The plotter is low on memory; retry shortly.",
+                      "retry_after": 10,
+                  },
+                  headers={"Retry-After": "10"},
+              )
           _route_waiters += 1
           try:
-           async with _route_solve_semaphore:
+           # A heavy solve takes the heavy semaphore FIRST (outside the general
+           # one) so it waits for its serialized slot WITHOUT holding a general
+           # slot (which would starve normal solves). Normal solves skip it.
+           async with AsyncExitStack() as _sem_stack:
+            if heavy_solve:
+                await _sem_stack.enter_async_context(_route_heavy_semaphore)
+            await _sem_stack.enter_async_context(_route_solve_semaphore)
             try:
                 result = await _run_db_task(
                     _solve_route_sync,

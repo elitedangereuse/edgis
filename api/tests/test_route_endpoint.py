@@ -131,6 +131,72 @@ def test_route_success_path(monkeypatch):
     assert body["source_coords"] == {"x": 0.0, "y": 0.0, "z": 0.0}
 
 
+def test_route_sheds_on_low_memory(monkeypatch):
+    # A cold solve must not START when the box is low on free memory (prevents
+    # a big realization tipping the VM into OOM/thrash). 429, solver not reached.
+    _gate_future(monkeypatch)
+    monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
+    _clear_route_cache()
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1, "version": "v1"})())
+
+    async def fake_resolve(value):
+        return {"Sol": (0.0, 0.0, 0.0), "Colonia": (0.0, 0.0, 1000.0)}[value], value, None, None
+
+    monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
+    monkeypatch.setattr(systems, "_available_memory_mb", lambda: 500.0)  # below 3072
+
+    def must_not_solve(*a, **k):
+        raise AssertionError("solver reached despite low memory")
+
+    monkeypatch.setattr(systems, "_solve_route_sync", must_not_solve)
+
+    resp = client.get(
+        "/route", params={"from": "Sol", "to": "Colonia", "range": 50},
+        headers={"x-route-key": "k"},
+    )
+    assert resp.status_code == 429, resp.text
+    assert int(resp.headers["Retry-After"]) >= 1
+    assert resp.json()["detail"]["error"] == "busy"
+
+
+def test_route_heavy_distance_solve_succeeds(monkeypatch):
+    # A heavy (galaxy-spanning) solve goes through the heavy-serialization
+    # semaphore path; with memory available it still returns a route (the gate
+    # serializes, it does not reject).
+    _gate_future(monkeypatch)
+    monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
+    _clear_route_cache()
+    monkeypatch.setattr(systems, "_neutron_index", type("I", (), {"count": 1, "version": "v1"})())
+    monkeypatch.setattr(systems, "_available_memory_mb", lambda: 20000.0)  # ample
+
+    async def fake_resolve(value):
+        # ~65 kly apart -> straight_ly >= ROUTE_HEAVY_LY -> heavy path.
+        return {"Sol": (0.0, 0.0, 0.0), "Beagle": (0.0, 0.0, 65000.0)}[value], value, None, None
+
+    monkeypatch.setattr(systems, "_resolve_route_endpoint", fake_resolve)
+
+    def fake_solve(src, dst, jump_range, beam_width, boost_mult=4.0, companion_max_ls=0.0, inject_mult=1.0, tank_jumps=0, scoop_max_ls=0.0, reach_by_r=None):
+        assert systems.math.dist(src, dst) >= systems._ROUTE_HEAVY_LY
+        return {
+            "jump_range": jump_range, "boost_range": 4 * jump_range,
+            "straight_line_ly": 65000.0, "total_jumps": 1, "neutron_jumps": 0,
+            "bridge_jumps": 1, "total_distance_ly": 65000.0, "efficiency": 1.0,
+            "beam_width": 3, "solve_ms": 1.0,
+            "jumps": [{"system": "Beagle", "id64": None, "x": 0.0, "y": 0.0,
+                       "z": 65000.0, "type": "regular", "neutron_star": False,
+                       "distance_jumped": 65000.0, "distance_left": 0.0}],
+        }
+
+    monkeypatch.setattr(systems, "_solve_route_sync", fake_solve)
+
+    resp = client.get(
+        "/route", params={"from": "Sol", "to": "Beagle", "range": 50},
+        headers={"x-route-key": "k"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["total_jumps"] == 1
+
+
 def test_route_load_shed_429_when_queue_full(monkeypatch):
     # With the solve backlog already at the cap, a fresh cold solve is shed with
     # 429 (+ position + Retry-After) BEFORE the solver runs -- protecting the
