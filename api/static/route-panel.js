@@ -47,6 +47,10 @@ let shipError = "";    // why the active ship could not be read, if it couldn't
 // derived from the loadout, `range` the last plotting range read for it.
 const SHIPS_LS = "edgis_route_ships";
 const ACTIVE_SHIP_LS = "edgis_route_active_ship";
+// Recommended (PTN) builds state: declared up here because renderShips() --
+// which runs before the reco wiring below -- re-renders the reco list too.
+let recoBuilds = null;     // null = not fetched yet; [] = fetch failed
+let recoBusy = false;      // one add at a time
 function loadShips() { try { return JSON.parse(localStorage.getItem(SHIPS_LS)) || []; } catch (e) { return []; } }
 function saveShips(a) { localStorage.setItem(SHIPS_LS, JSON.stringify(a)); }
 function activeShip() {
@@ -341,7 +345,7 @@ function shipDisplayName(s) {
   return type && s.name.endsWith(suffix) && s.name !== suffix ? s.name.slice(0, -suffix.length) : s.name;
 }
 function renderShips() {
-  renderShipLibrary(); renderShipCard(); setShipSummary();
+  renderShipLibrary(); renderShipCard(); setShipSummary(); renderRecoList();
   // With a ship, its loadout sets the supercharge (on the card) and fuel-safe
   // applies; without one, the supercharge is picked by hand and fuel-safe idles.
   const hasShip = activeShip() >= 0;
@@ -1779,6 +1783,60 @@ $("shipLibrary").addEventListener("click", (ev) => {
     if (i === active) { clearShip(); return; }
     if (active > i) setActiveShip(active - 1);
     renderShips();
+  }
+});
+// Recommended exploration builds (Pilots Trade Network), below "Your ships".
+// Lazy: the SLEF list (~60 KB) is fetched once, on first expand. Clicking a
+// build adds it to the stored ships and makes it active -- the exact same path
+// as pasting its SLEF (fetchShipSummary validates, rememberShip dedupes by
+// shipKey, so re-adding an already-stored build just re-activates it).
+// recoBuilds/recoBusy are declared with the ship store (renderShips runs early).
+function renderRecoList() {
+  const el = $("recoList");
+  if (!el || recoBuilds === null) return;
+  if (!recoBuilds.length) {
+    el.innerHTML = `<li class="ship-empty tiny">Could not load the builds. Try again later.</li>`;
+    return;
+  }
+  const have = new Set(loadShips().map(s => shipKey(s.loadout)));
+  el.innerHTML = recoBuilds.map((b, i) => {
+    const stored = have.has(shipKey(b.loadout));
+    const tip = stored ? "Already in your ships: click to make it active"
+                       : "Add to your ships and make it active";
+    return `<li class="ship-row">`
+      + `<button type="button" class="reco-pick ship-pick" data-i="${i}"${recoBusy ? " disabled" : ""} title="${tip}">`
+      + `<span class="ship-row__name">${escapeHtml(b.type)}${stored ? `<span class="reco-have">stored</span>` : ""}</span>`
+      + `<span class="ship-row__sub">${fmt(b.range, 1)} LY full tank</span>`
+      + `</button></li>`;
+  }).join("");
+}
+$("recoBuilds").addEventListener("toggle", async () => {
+  if (!$("recoBuilds").open || recoBuilds !== null) return;
+  $("recoList").innerHTML = `<li class="ship-empty tiny">Loading builds…</li>`;
+  try {
+    const r = await fetch("/static/assets/ptn_builds.json");
+    if (!r.ok) throw new Error(String(r.status));
+    const d = await r.json();
+    recoBuilds = (d.builds || []).map(b =>
+      ({ type: b.type, range: b.range, loadout: JSON.stringify(b.slef) }));
+  } catch (e) {
+    recoBuilds = [];
+  }
+  renderRecoList();
+});
+$("recoList").addEventListener("click", async (ev) => {
+  const pick = ev.target.closest(".reco-pick");
+  if (!pick || recoBusy || !recoBuilds) return;
+  const b = recoBuilds[Number(pick.dataset.i)];
+  if (!b) return;
+  recoBusy = true;
+  renderRecoList();
+  try {
+    const err = await addShip(b.loadout);
+    if (err) $("shipInfo").innerHTML = `<span class="bad">${escapeHtml(err)}</span>`;
+  } finally {
+    recoBusy = false;
+    renderRecoList();  // addShip re-rendered on success; this clears the busy state on error too
   }
 });
 // Swap departure and arrival, then re-plot if both are set (tester: "to go back

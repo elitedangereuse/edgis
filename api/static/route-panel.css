@@ -171,6 +171,19 @@
         padding:9px 12px; font-size:13px; outline:none; }
 #panel-route .ship-add { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
 #panel-route .ship-add button { flex:1 1 auto; }
+/* Recommended (PTN) builds: a quiet collapsible under the ship buttons. */
+#panel-route .ship-reco { margin-top:10px; }
+#panel-route .ship-reco > summary { cursor:pointer; font-size:11px; text-transform:uppercase;
+        letter-spacing:.5px; color:var(--muted); list-style:none; }
+#panel-route .ship-reco > summary::before { content:"\25B8"; margin-right:6px; }
+#panel-route .ship-reco[open] > summary::before { content:"\25BE"; }
+#panel-route .ship-reco > summary::-webkit-details-marker { display:none; }
+#panel-route .ship-reco .ship-list { margin-top:6px; }
+#panel-route .reco-have { margin-left:6px; font-size:10px; color:var(--muted);
+        border:1px solid var(--line); border-radius:8px; padding:0 6px; }
+#panel-route .ship-reco__src { margin-top:6px; }
+#panel-route .ship-reco__src a { color:var(--accent); }
+#panel-route .ship-reco__src a:hover { color:var(--accent-white); text-decoration:underline; }
 #panel-route .paste-panel { margin-top:12px; }
 #panel-route .ship-msg:empty { display:none; }
 #panel-route .ship-msg { margin-top:8px; }
