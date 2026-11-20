@@ -200,6 +200,62 @@ def test_systems_upsert_rejects_duplicate_mapped_name(systems_module):
     assert params[-2:] == (12345, "Sol")
 
 
+def test_systems_upsert_has_freshness_guard(systems_module):
+    # A replayed or crafted old-timestamp message must never overwrite newer
+    # data: the DO UPDATE carries an updatetime freshness predicate.
+    q = systems_module.UPSERT_QUERY
+    assert "systems_big.updatetime <= EXCLUDED.updatetime" in q
+    assert "systems_big.updatetime IS NULL" in q
+
+
+def test_systems_rejects_far_future_timestamp(systems_module):
+    from datetime import datetime, timedelta, timezone
+    future = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+    assert systems_module._parse_timestamp(future, "test") is None
+    recent = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    assert systems_module._parse_timestamp(recent, "test") is not None
+
+
+def test_bodies_lookup_rejects_implausible_values(bodies_module):
+    conn = bodies_module.conn if hasattr(bodies_module, "conn") else DummyConn()
+    # Oversized / non-printable values never reach the lookup tables.
+    assert bodies_module.get_lookup_id("atmospheres", "x" * 65, conn) is None
+    assert bodies_module.get_lookup_id("atmospheres", "a\x00b", conn) is None
+    assert bodies_module.get_lookup_id("atmospheres", "", conn) is None
+
+
+def test_bodies_lookup_insert_no_commit_and_rollback_eviction(bodies_module):
+    class InsertCursor(DummyCursor):
+        def fetchone(self):
+            # SELECT misses -> None; INSERT RETURNING -> id. Alternate.
+            self._n = getattr(self, "_n", 0) + 1
+            return None if self._n == 1 else (77,)
+
+    class Conn(DummyConn):
+        def __init__(self):
+            super().__init__()
+            self.commits = 0
+
+        def cursor(self):
+            cur = InsertCursor()
+            self.cursors.append(cur)
+            return cur
+
+        def commit(self):
+            self.commits += 1
+
+    conn = Conn()
+    bodies_module.lookup_cache.setdefault("atmospheres", {}).clear()
+    got = bodies_module.get_lookup_id("atmospheres", "Argon", conn)
+    assert got == 77
+    # The helper must NOT commit mid-message (partial-batch corruption).
+    assert conn.commits == 0
+    assert bodies_module.lookup_cache["atmospheres"]["Argon"] == 77
+    # A rollback evicts the phantom id so later messages re-resolve it.
+    bodies_module.forget_uncommitted_lookups()
+    assert "Argon" not in bodies_module.lookup_cache["atmospheres"]
+
+
 def test_systems_recover_connection_rolls_back(systems_module):
     # A DB error leaves the transaction aborted; recovery must roll it back so
     # the SAME connection is reusable (not reconnect) and later upserts work.

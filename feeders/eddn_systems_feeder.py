@@ -4,7 +4,7 @@ import zmq
 import zlib
 import json
 import psycopg
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Callable
 from dotenv import load_dotenv
 
@@ -151,6 +151,11 @@ UPSERT_QUERY = """
         mainstar  = COALESCE(EXCLUDED.mainstar, systems_big.mainstar),
         updatetime= EXCLUDED.updatetime,
         coords    = EXCLUDED.coords
+    -- Freshness guard: EDDN is replayable and softwareName is spoofable, so an
+    -- old (or crafted old-timestamp) message must never overwrite newer data --
+    -- the route planner and neutron index read this table.
+    WHERE systems_big.updatetime IS NULL
+       OR systems_big.updatetime <= EXCLUDED.updatetime
     RETURNING (xmax = 0) AS is_new;
 """
 
@@ -182,10 +187,19 @@ def _parse_timestamp(raw: Optional[str], context: str) -> Optional[datetime]:
         print(f"Warning: {context}: Missing timestamp")
         return None
     try:
-        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except (ValueError, TypeError):
         print(f"Warning: {context}: Invalid timestamp: {raw}")
         return None
+    # A far-future timestamp (crafted or clock-broken client) would win every
+    # freshness comparison FOREVER, freezing the row against legitimate
+    # updates. Allow modest clock skew only.
+    if ts.tzinfo is not None:
+        now = datetime.now(timezone.utc)
+        if ts > now + timedelta(hours=24):
+            print(f"Warning: {context}: timestamp too far in the future: {raw}")
+            return None
+    return ts
 
 def _coords_from_starpos(
     star_pos: Optional[list[Any]],
@@ -234,9 +248,11 @@ def _upsert_system(
         )
         result = cur.fetchone()
         if result is None:
+            # Either the mapped-name conflict guard or the freshness guard
+            # (stored updatetime newer than this message) rejected the write.
             print(
-                "Warning: rejected system update with conflicting mapped name: "
-                f"{star_system} [{system_address}]"
+                "Warning: rejected system update (name conflict or stale "
+                f"timestamp): {star_system} [{system_address}]"
             )
             return False
         is_new = result[0] if result else False

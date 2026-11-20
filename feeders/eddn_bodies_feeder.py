@@ -254,9 +254,35 @@ def normalize_ring_class(name: Optional[str]) -> Optional[str]:
     return RING_CLASS_NORMALIZATIONS.get(name, name)
 
 
+# Lookup values come straight from EDDN (attacker-publishable): bound them so a
+# crafted message can't spray unbounded garbage rows into the lookup tables.
+# Real game values are short printable ASCII.
+_LOOKUP_VALUE_RE = re.compile(r"^[\x20-\x7e]{1,64}$")
+
+# Lookup ids handed out inside the current (not yet committed) transaction.
+# Evicted from the cache on rollback (the INSERT rolled back with it).
+_uncommitted_lookups: list = []
+
+
+def forget_uncommitted_lookups():
+    """After a rollback, evict cached ids whose INSERT was rolled back too --
+    otherwise later messages reference a phantom id and FK-fail forever."""
+    for table, name in _uncommitted_lookups:
+        lookup_cache.get(table, {}).pop(name, None)
+    _uncommitted_lookups.clear()
+
+
 def get_lookup_id(table, name, conn):
-    """Get the ID for a lookup value, inserting it if needed."""
+    """Get the ID for a lookup value, inserting it if needed.
+
+    NO commit here: a commit inside this helper used to commit whatever ELSE
+    was pending on the shared connection mid-message, turning a later failure
+    into a partially-committed body. The insert rides the caller's transaction;
+    the caller's rollback path calls ``forget_uncommitted_lookups``."""
     if not name:
+        return None
+    if not _LOOKUP_VALUE_RE.match(str(name)):
+        print(f"Warning: rejected implausible {table} value ({len(str(name))} chars)")
         return None
 
     # Use cache first
@@ -272,11 +298,11 @@ def get_lookup_id(table, name, conn):
             cache[name] = row[0]
             return row[0]
 
-        # Insert new if not found
+        # Insert new if not found (commits with the caller's transaction)
         cur.execute(f"INSERT INTO {table} (name) VALUES (%s) RETURNING id;", (name,))
         new_id = cur.fetchone()[0]
-        conn.commit()
         cache[name] = new_id
+        _uncommitted_lookups.append((table, name))
         return new_id
 
 
@@ -597,6 +623,7 @@ def process_message(
                         ],
                     )
                 db_conn.commit()
+                _uncommitted_lookups.clear()  # lookup ids are durable now
                 if verbose:
                     print(
                         f"((O)) Inferred StellarRing: {ring_body['body_name']} | ID: {parent_body_id}"
@@ -763,6 +790,7 @@ def process_message(
                         ],
                     )
                 db_conn.commit()
+                _uncommitted_lookups.clear()  # lookup ids are durable now
                 if verbose:
                     print(
                         f"(o) Inferred PlanetaryRing: {ring_name} | ID: {ring_body_id}"
@@ -876,6 +904,7 @@ def process_message(
         is_new = result[0] if result else False
         record_bodies_processed(cur, amount=1, is_new=is_new)
     db_conn.commit()
+    _uncommitted_lookups.clear()  # lookup ids are durable now
 
     # === Insert raw materials ===
     materials = msg_data.get("Materials")
@@ -913,6 +942,7 @@ def process_message(
                 except Exception as log_error:
                     print(f"Failed to log error: {log_error}")
                 db_conn.rollback()
+                forget_uncommitted_lookups()
                 continue
 
     # === Insert raw atmosphere composition ===
@@ -951,6 +981,7 @@ def process_message(
                 except Exception as log_error:
                     print(f"Failed to log error: {log_error}")
                 db_conn.rollback()
+                forget_uncommitted_lookups()
                 continue
 
     if verbose:
@@ -998,6 +1029,7 @@ def stream_events(verbose: bool = True) -> None:
                 except Exception as log_error:
                     print(f"Failed to log error: {log_error}")
                 conn.rollback()
+                forget_uncommitted_lookups()
                 continue
     except StreamStalledError as stalled:
         print(f"Watchdog detected stalled EDDN feed: {stalled}")
