@@ -30,3 +30,28 @@ panel, Ship section), which parses and can export the SLEF; save that JSON
 here. Any file in this directory is picked up by `run_ship_library_bench.py`.
 
 Regenerate the synthetic ones: `python3 _build_library.py`.
+
+## PTN exact builds (`*_ptn.json`)
+
+EXACT SLEF exports of the Pilots Trade Network exploration builds
+(pilotstradenetwork.com/ship-builds/exploration/), added 2026-11-20. They
+complement the synthetics with real module lists and extend the spread
+downward: low-range hulls (Courier 48 ly, Cutter 54 ly, Type-10 53 ly,
+Dolphin 59 ly) and thirsty 2-jump tanks the synthetic set lacked.
+
+| file | range (ly) | tank (boosted jumps) | reach growth | supercharge |
+|---|---|---|---|---|
+| `imperial_cutter_ptn.json` | 54.0 | 2 | 1.01 | 4x |
+| `type10_ptn.json` | 52.7 | 2 | 1.01 | 4x |
+| `anaconda_ptn.json` | 75.0 | 3 | 1.02 | 4x |
+| `imperial_courier_ptn.json` | 48.0 | 4 | 1.08 | 4x |
+| `dolphin_ptn.json` | 59.2 | 5 | 1.05 | 4x |
+| `asp_explorer_ptn.json` | 70.4 | 6 | 1.07 | 4x |
+| `diamondback_explorer_ptn.json` | 73.8 | 6 | 1.07 | 4x |
+| `krait_phantom_ptn.json` | 71.2 | 6 | 1.07 | 4x |
+| `mandalay_ptn.json` | 100.0 | 6 | 1.10 | 4x |
+| `beluga_ptn.json` | 51.6 | 9 | 1.06 | 4x |
+
+Note: the PTN source page's "caspian" download was a duplicate of the Imperial
+Cutter SLEF, so it is not included; `caspian.json` (game-sourced, 6x) already
+covers that ship.
