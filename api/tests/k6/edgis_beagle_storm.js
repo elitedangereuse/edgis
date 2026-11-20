@@ -36,9 +36,15 @@ import { Trend, Counter, Rate } from 'k6/metrics';
 
 const STORM_URL = __ENV.STORM_URL || 'https://edgis-staging.elitedangereuse.fr';
 const CANARY_URL = __ENV.CANARY_URL || 'https://edgis.elitedangereuse.fr';
+// Staging and prod have different entitlement keys; STORM_KEY/CANARY_KEY
+// override ROUTE_KEY per target.
 const ROUTE_KEY = __ENV.ROUTE_KEY || '';
+const STORM_KEY = __ENV.STORM_KEY || ROUTE_KEY;
+const CANARY_KEY = __ENV.CANARY_KEY || ROUTE_KEY;
 const PEAK_VUS = Number(__ENV.PEAK_VUS || 100);     // ~10x the incident's ~10 concurrent
 const HOLD = __ENV.HOLD || '90s';                   // hold at peak
+const stormHeaders = { 'x-route-key': STORM_KEY };
+const canaryHeaders = { 'x-route-key': CANARY_KEY };
 
 // Galaxy-spanning routes (all > 20 kly => all take the heavy-solve semaphore).
 // Sol -> Beagle Point is THE incident route; the others add realistic variety.
@@ -49,7 +55,7 @@ const ROUTES = [
   { from: 'Colonia', to: 'Beagle Point' },
 ];
 
-const headers = { 'x-route-key': ROUTE_KEY };
+
 
 // Metrics
 const timeToRoute = new Trend('time_to_route', true);   // TRUE user wait to a 200, incl. 429 retries
@@ -112,7 +118,7 @@ export function storm() {
   let res, attempts = 0;
   while (attempts < 8) {
     attempts++;
-    res = http.get(stormUrl(), { headers, timeout: '200s', tags: { kind: 'storm' } });
+    res = http.get(stormUrl(), { headers: stormHeaders, timeout: '200s', tags: { kind: 'storm' } });
     if (res.status === 200) {
       served.add(1);
       solveLatency.add(res.timings.duration);
@@ -136,7 +142,7 @@ export function storm() {
 // box is thrashing from the storm, THIS slows down -- that's the user impact.
 export function canary() {
   const res = http.get(`${CANARY_URL}/route?from=Sol&to=Colonia&range=50`,
-    { headers, timeout: '10s', tags: { kind: 'canary' } });
+    { headers: canaryHeaders, timeout: '10s', tags: { kind: 'canary' } });
   canaryLatency.add(res.timings.duration);
   canaryFail.add(res.status !== 200);
   check(res, { 'canary 200': (r) => r.status === 200 });
