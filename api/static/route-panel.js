@@ -314,6 +314,8 @@ function renderShipCard() {
     ["Fuel", `${fmt(fuel.Main || shipInfo.tank_size, 1)} t`
       + (fuel.Reserve ? ` <span class="tiny">+ ${fmt(fuel.Reserve, 2)} t reserve</span>` : "")
       + ` · ≈ ${fmt(shipInfo.tank_jumps)} jumps per tank`],
+    shipInfo.tank_range ? ["Trip range",
+      `${fmt(shipInfo.tank_range, 0)} LY <span class="tiny">on a full tank, no refuel</span>`] : null,
     ["Fuel scoop", shipInfo.has_scoop ? "fitted" : `<span class="bad">none: you can't refuel en route</span>`],
     ["Mass", `${fmt(d.UnladenMass, 1)} t unladen`
       + (d.CargoCapacity ? ` · cargo ${fmt(cargoTons())} / ${fmt(d.CargoCapacity)} t` : "")],
@@ -328,11 +330,8 @@ function setShipSummary() {
   const el = $("shipSummary");
   const s = loadShips()[activeShip()];
   if (s && shipInfo) {
-    // No .tiny here: the summary line is 11px and .tiny is 12px, so a "tiny"
-    // span renders BIGGER than its own line. Inherit the summary style instead.
     el.innerHTML = `Ship &amp; options <span class="good">✓</span> · `
-      + `${escapeHtml(shipDisplayName(s))} · ${fmt(shipInfo.jump_range, 2)} LY`
-      + (shipInfo.tank_range ? ` · ${fmt(shipInfo.tank_range, 0)} LY w/o refuel` : "");
+      + `${escapeHtml(shipDisplayName(s))} · ${fmt(shipInfo.jump_range, 2)} LY`;
   } else if (s) {
     el.innerHTML = `Ship &amp; options · ${escapeHtml(shipDisplayName(s))} `
       + `<span class="tiny">(${shipError ? "not usable" : "reading…"})</span>`;
