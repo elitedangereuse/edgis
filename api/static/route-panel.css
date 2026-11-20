@@ -72,8 +72,11 @@
 #panel-route tr.risk-row > td:first-child { box-shadow:inset 3px 0 0 var(--err); }
 #panel-route tr.risk-row .sys { color:var(--err); font-weight:600; }
 
-/* Departure system shown as row #0 (like spansh): mark it as the origin. */
-#panel-route tr.src-row .sys { color:var(--accent); }
+/* Start and destination names in bright white, NOT the accent blue -- blue is
+   already the supercharge-stop colour (.sys.boost uses --neutron == --accent),
+   so a blue origin/arrival name read as "boost here". White marks the endpoints
+   as their own category. Beats .sys.boost on specificity (tr + 2 classes). */
+#panel-route tr.src-row .sys, #panel-route tr.dst-row .sys { color:var(--accent-white); font-weight:600; }
 
 /* Journey-endpoint markers in the star column, reusing the From/To input-field
    label icons (same accent blue) so the table ties back to the fields. The

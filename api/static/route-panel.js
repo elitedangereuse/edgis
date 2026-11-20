@@ -1380,7 +1380,7 @@ function renderRoute(r) {
     rows = wps.map((w, i) => {
       const risk = riskInRange(riskMap, w.i0, w.i1);
       const cname = w.dest ? r.destination : w.system;
-      return `<tr class="${risk ? "risk-row " : ""}${doneSet.has(cname) ? "done" : ""}">
+      return `<tr class="${risk ? "risk-row " : ""}${w.dest ? "dst-row " : ""}${doneSet.has(cname) ? "done" : ""}">
       ${doneBox(cname)}
       <td class="num">${i + 1}</td>
       <td class="sys ${w.neutron ? "boost" : ""}">${copyBtn(cname)}${sysName(w.system)}${injectBadge(injectInRange(r, w.i0, w.i1))}${riskBadge(risk)}</td>
@@ -1399,7 +1399,7 @@ function renderRoute(r) {
       const last = i === r.jumps.length - 1;
       const name = j.system ?? (last ? r.destination : "?");
       const risk = riskMap.get(i);
-      return `<tr class="${risk ? "risk-row " : ""}${doneSet.has(name) ? "done" : ""}">
+      return `<tr class="${risk ? "risk-row " : ""}${last ? "dst-row " : ""}${doneSet.has(name) ? "done" : ""}">
       ${doneBox(name)}
       <td class="num">${i + 1}</td>
       <td class="sys ${j.neutron_star ? "boost" : ""}">${copyBtn(j.system ?? r.destination)}${sysName(name)}${injectBadge(j.inject_grade)}${riskBadge(risk)}</td>
