@@ -111,6 +111,9 @@ def test_route_success_path(monkeypatch):
         }
 
     monkeypatch.setattr(systems, "_solve_route_sync", fake_solve)
+    # The neutron leg triggers the primary-star annotation (a mainstar DB
+    # lookup, now baked in before the cache write); stub it off the DB.
+    monkeypatch.setattr(systems, "_fetch_mainstars_sync", lambda id64s: {})
 
     resp = client.get(
         "/route",
@@ -334,6 +337,9 @@ def test_route_post_attaches_fuel_report(monkeypatch):
             return False
 
     monkeypatch.setattr(systems, "_db_connection", lambda: _NoDb())
+    # Same waypoint also drives the primary-star annotation's mainstar lookup
+    # (baked in before the cache write); keep it off the stubbed DB.
+    monkeypatch.setattr(systems, "_fetch_mainstars_sync", lambda id64s: {})
     monkeypatch.setattr(systems, "_annotate_inflight_scoops", lambda *a, **k: None)
 
     # fuel_safe off -> report-only path (enforcement insertion is unit-tested in

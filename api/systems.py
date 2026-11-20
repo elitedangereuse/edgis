@@ -3787,7 +3787,14 @@ async def _annotate_primary_star(legs: list) -> None:
     })
     if not ids:
         return
-    mains = await _run_db_task(_fetch_mainstars_sync, ids)
+    try:
+        mains = await _run_db_task(_fetch_mainstars_sync, ids)
+    except Exception:
+        # Cosmetic annotation: never fail a solved route (or a cache hit) over
+        # it. A solve-time miss caches the legs without the field, and the
+        # endpoint fallback retries on a later hit -- self-healing.
+        logger.warning("primary-star annotation failed; skipping", exc_info=True)
+        return
     for leg in legs:
         if leg.get("neutron_star") and leg.get("id64") is not None:
             ms = mains.get(int(leg["id64"]))
@@ -4531,6 +4538,11 @@ async def _solve_route_cached(
                 resolver=result.get("resolver"),
                 **({"prof": prof} if prof else {}),
             )
+        # Bake the scoopable-primary star onto neutron legs BEFORE caching, so a
+        # cache HIT is a pure Redis read (the route cache pickles, so a hit
+        # returns a fresh dict -- annotating after the cache returns would re-run
+        # the mainstar DB lookup on every hit). Fresh solve only, once.
+        await _annotate_primary_star(result.get("jumps") or [])
         to_cache = dict(result)
         to_cache.pop("access", None)
         if not inflight.done():
@@ -4596,6 +4608,9 @@ async def plot_route(
         companion_max_ls=companion_max_ls,
         inject_mult=inject_mult,
     )
+    # Fresh solves are already annotated inside _solve_route_cached (baked into
+    # the cache). This is the fallback for pre-existing cache entries written
+    # before that change: a no-op (zero DB) once every neutron leg has it.
     await _annotate_primary_star(result.get("jumps") or [])
     return result
 
@@ -4833,6 +4848,8 @@ async def plot_route_post(
         access=access.get("via"),
         caller=access.get("caller"),
     )
+    # Fallback for pre-change cache entries; a no-op once legs are baked in
+    # (fresh solves annotate inside _solve_route_cached, before the cache write).
     await _annotate_primary_star(result.get("jumps") or [])
     return result
 
