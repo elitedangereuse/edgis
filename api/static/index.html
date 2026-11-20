@@ -2871,7 +2871,7 @@
        if (isCollapsibleColumn(kind, key)) {
          classes.push('collapsible-cell', 'is-collapsed');
        }
-       return `<td class="${classes.join(' ')}" data-label="${labelAttr}" data-column="${escapeAttr(key)}">${value ?? ""}</td>`;
+       return `<td class="${classes.join(' ')}" data-label="${labelAttr}" data-column="${escapeAttr(key)}">${escapeHtml(value ?? "")}</td>`;
      }
 
      function renderCoordsCell(labelAttr, coords) {
@@ -2920,11 +2920,11 @@
        return `
       <td class="px-2 py-1 border-b border-[rgba(255,255,255,0.08)] mono cursor-pointer copy-cell" data-label="${labelAttr}" data-copy-value="${attrValue}">
         <div class="flex items-center gap-2 w-full">
-          <span class="flex-1">${value}</span>
+          <span class="flex-1">${escapeHtml(value)}</span>
           <button
             title="${copyTitle}"
             class="copy-name-btn opacity-20 group-hover:opacity-100 transition-all duration-200 p-1 rounded text-[var(--accent-blue)] focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)] focus:ring-offset-1 focus:ring-offset-gray-800"
-            onclick="copyToClipboard('${escapeQuotes(value)}', this)"
+            onclick="copyToClipboard('${escapeAttr(escapeQuotes(value))}', this)"
           >
             ${copyIconSvg}
           </button>
@@ -2998,12 +2998,16 @@
        const hasSystemId = normalizedSystemId !== null;
 
        if (displayName && !isSystemLookup) {
+         // Name is attacker-influenced EDDN free text dropped into a double-
+         // quoted onclick attribute: JS-escape (\ ') THEN HTML-attr-escape (" & <)
+         // so a name with a quote can't break out of either context.
+         const nameArg = escapeAttr(escapeQuotes(displayName));
          parts.push(`
       <button
         type="button"
         title="Search this system"
         class="row-act"
-        onclick="lookupSystemByName('${escapeQuotes(displayName)}')"
+        onclick="lookupSystemByName('${nameArg}')"
       >
         ${bodyDetailsIconSvg}
       </button>
@@ -3012,7 +3016,7 @@
       <button
         title="View system map"
         class="row-act"
-        onclick="openSystemMap('${escapeQuotes(displayName)}', this)"
+        onclick="openSystemMap('${nameArg}', this)"
       >
         ${systemMapIconSvg}
       </button>

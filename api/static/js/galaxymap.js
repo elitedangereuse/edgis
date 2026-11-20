@@ -8,6 +8,15 @@
      const NEIGHBORHOOD_CACHE_TTL_MS = 120000;
      const NEIGHBORHOOD_CACHE_MAX_ENTRIES = 16;
      const STAR_SETTINGS_STORAGE_KEY = 'edgis_galaxymap_star_settings_v1';
+     // System/star/commander names come from the public EDDN firehose, so they
+     // are attacker-influenced free text. Escape before interpolating into any
+     // innerHTML (text AND attribute context -- quotes/apostrophes included).
+     function escapeHtml(str) {
+       if (typeof str !== 'string') str = String(str ?? '');
+       return str.replace(/[&<>"']/g, c => (
+         { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c
+       ));
+     }
      let manualSystemsLookup = new Map();
      let systemData = null;
      let lastClickedSystemName = null;
@@ -3555,14 +3564,14 @@
           <header>
             <h2>SYSTEM INFORMATION</h2>
             <ul>
-              <li><span style="font-size: x-large;margin-top: -7px;">${systemName}</span> <span><a title="CENTER VIEW" href="${buildGalaxyMapViewUrl(coords, radius, systemName)}"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-border-center" viewBox="0 0 16 16">
+              <li><span style="font-size: x-large;margin-top: -7px;">${escapeHtml(systemName)}</span> <span><a title="CENTER VIEW" href="${buildGalaxyMapViewUrl(coords, radius, systemName)}"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-border-center" viewBox="0 0 16 16">
                 <path d="M.969 0H0v.969h.5V1h.469V.969H1V.5H.969zm.937 1h.938V0h-.938zm1.875 0h.938V0H3.78v1zm1.875 0h.938V0h-.938zM7.531.969V1h.938V.969H8.5V.5h-.031V0H7.53v.5H7.5v.469zM9.406 1h.938V0h-.938zm1.875 0h.938V0h-.938zm1.875 0h.938V0h-.938zm1.875 0h.469V.969h.5V0h-.969v.5H15v.469h.031zM1 2.844v-.938H0v.938zm6.5-.938v.938h1v-.938zm7.5 0v.938h1v-.938zM1 4.719V3.78H0v.938h1zm6.5-.938v.938h1V3.78h-1zm7.5 0v.938h1V3.78h-1zM1 6.594v-.938H0v.938zm6.5-.938v.938h1v-.938zm7.5 0v.938h1v-.938zM0 8.5v-1h16v1zm0 .906v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zm-16 .937v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zm-16 .937v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zM0 16h.969v-.5H1v-.469H.969V15H.5v.031H0zm1.906 0h.938v-1h-.938zm1.875 0h.938v-1H3.78v1zm1.875 0h.938v-1h-.938zm1.875-.5v.5h.938v-.5H8.5v-.469h-.031V15H7.53v.031H7.5v.469zm1.875.5h.938v-1h-.938zm1.875 0h.938v-1h-.938zm1.875 0h.938v-1h-.938zm1.875-.5v.5H16v-.969h-.5V15h-.469v.031H15v.469z"/>
               </svg></a></span></li>
             </ul>
             <h2>ASTRONOMICAL INFORMATION</h2>
             <ul>
               <li><span class="label">DISTANCE: </span>${distanceValue}</li>
-              <li><span class="label">STAR CLASS: </span>${mainStar}</li>
+              <li><span class="label">STAR CLASS: </span>${escapeHtml(mainStar)}</li>
             </ul>
           </header>
           <section>
@@ -4565,37 +4574,37 @@
            <header>
              <h2>SYSTEM INFORMATION</h2>
              <ul>
-             <li><span style="font-size: x-large;margin-top: -7px;">${systemName ?? 'Unknown'}</span> <span><a title="CENTER VIEW" href="${buildGalaxyMapViewUrl(coords, radius, systemName)}"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-border-center" viewBox="0 0 16 16">
+             <li><span style="font-size: x-large;margin-top: -7px;">${escapeHtml(systemName ?? 'Unknown')}</span> <span><a title="CENTER VIEW" href="${buildGalaxyMapViewUrl(coords, radius, systemName)}"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-border-center" viewBox="0 0 16 16">
                 <path d="M.969 0H0v.969h.5V1h.469V.969H1V.5H.969zm.937 1h.938V0h-.938zm1.875 0h.938V0H3.78v1zm1.875 0h.938V0h-.938zM7.531.969V1h.938V.969H8.5V.5h-.031V0H7.53v.5H7.5v.469zM9.406 1h.938V0h-.938zm1.875 0h.938V0h-.938zm1.875 0h.938V0h-.938zm1.875 0h.469V.969h.5V0h-.969v.5H15v.469h.031zM1 2.844v-.938H0v.938zm6.5-.938v.938h1v-.938zm7.5 0v.938h1v-.938zM1 4.719V3.78H0v.938h1zm6.5-.938v.938h1V3.78h-1zm7.5 0v.938h1V3.78h-1zM1 6.594v-.938H0v.938zm6.5-.938v.938h1v-.938zm7.5 0v.938h1v-.938zM0 8.5v-1h16v1zm0 .906v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zm-16 .937v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zm-16 .937v.938h1v-.938zm7.5 0v.938h1v-.938zm8.5.938v-.938h-1v.938zM0 16h.969v-.5H1v-.469H.969V15H.5v.031H0zm1.906 0h.938v-1h-.938zm1.875 0h.938v-1H3.78v1zm1.875 0h.938v-1h-.938zm1.875-.5v.5h.938v-.5H8.5v-.469h-.031V15H7.53v.031H7.5v.469zm1.875.5h.938v-1h-.938zm1.875 0h.938v-1h-.938zm1.875 0h.938v-1h-.938zm1.875-.5v.5H16v-.969h-.5V15h-.469v.031H15v.469z"/>
                </svg></a></span></li>
              </ul>
              <h2>ASTRONOMICAL INFORMATION</h2>
              <ul>
-               <li><span class="label">STAR TYPE: </span>${star?.spectralClass ?? 'Unknown'} ${star?.luminosity ?? ''}</li>
+               <li><span class="label">STAR TYPE: </span>${escapeHtml(star?.spectralClass ?? 'Unknown')} ${escapeHtml(star?.luminosity ?? '')}</li>
                <li><span class="label">DISTANCE: </span>${distanceValue}<br/></li>
-               <li><span class="label">STAR CLASS: </span>${mainStar}</li>
+               <li><span class="label">STAR CLASS: </span>${escapeHtml(mainStar)}</li>
                <li><span class="label">BODIES: </span>${bodyCountValue}</li>
                <div>
-                 <span class="pill">Scoopable: <b>${star?.isScoopable ?? 'Unknown'}</b></span>
+                 <span class="pill">Scoopable: <b>${escapeHtml(star?.isScoopable ?? 'Unknown')}</b></span>
                </div>
            </header>
 
                <section>
                  <h2>DISCOVERY</h2>
                  <ul>
-                   <li><span class="label">COMMANDER:</span> ${star?.discovery.commander ?? "N/A"}</li>
-                   <li><span class="label">DATE:</span> ${star?.discovery.date ?? "N/A"}</li>
+                   <li><span class="label">COMMANDER:</span> ${escapeHtml(star?.discovery.commander ?? "N/A")}</li>
+                   <li><span class="label">DATE:</span> ${escapeHtml(star?.discovery.date ?? "N/A")}</li>
                  </ul>
                </section>
 
                <section>
                  <h2>PHYSICAL PROPERTIES</h2>
                  <ul>
-                   <li><span class="label">AGE:</span> ${star?.age ?? "Unknown"} Myr</li>
+                   <li><span class="label">AGE:</span> ${escapeHtml(star?.age ?? "Unknown")} Myr</li>
                    <li><span class="label">ABSOLUTE MAGNITUDE:</span> ${star?.absoluteMagnitude?.toFixed(5) ?? "Unknown"}</li>
                    <li><span class="label">SOLAR MASSES:</span> ${star?.solarMasses?.toFixed(5) ?? "Unknown"}</li>
                    <li><span class="label">SOLAR RADIUS:</span> ${star?.solarRadius?.toFixed(5) ?? "Unknown"}</li>
-                   <li><span class="label">SURFACE TEMPERATURE:</span> ${star?.surfaceTemperature ?? "Unknown"} K</li>
+                   <li><span class="label">SURFACE TEMPERATURE:</span> ${escapeHtml(star?.surfaceTemperature ?? "Unknown")} K</li>
                    <li><span class="label">ROTATIONAL PERIOD:</span> ${star?.rotationalPeriod?.toFixed(5) ?? "Unknown"} d</li>
                    <li><span class="label">AXIAL TILT:</span> ${star?.axialTilt?.toFixed(2) ?? "N/A"}°</li>
                  </ul>
