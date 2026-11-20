@@ -261,6 +261,10 @@ def ship_summary(params: "FuelParams") -> dict:
         "max_range_full": round(params.max_range_full(), 2),
         "tank_size": params.tank_size,
         "tank_jumps": tank_capacity_jumps(params),
+        # Total ly on one full tank, plain (unboosted) jumps -- "how far can I
+        # get before I must refuel". More than tank_jumps * full-tank range
+        # because jumps lengthen as fuel burns.
+        "tank_range": round(tank_range(params, 1.0), 1),
         "has_scoop": params.has_scoop,
         "range_boost": params.range_boost,
         "cargo": params.cargo,
@@ -524,6 +528,17 @@ def reach_profile(params: "FuelParams", boost_mult: float = 4.0) -> list[float]:
         boost_mult * params.jump_range(max(maxf, params.tank_size - r * maxf))
         for r in range(T)
     ]
+
+
+def tank_range(params: "FuelParams", boost_mult: float = 1.0) -> float:
+    """Total distance (ly) a FULL tank sustains before a refuel is needed,
+    flying max-length jumps. Range grows as the tank empties (lighter ship), so
+    this is MORE than ``tank_jumps * max_range_full``: it sums the per-jump reach
+    from a full tank down to the last jump (the same conservative per-jump burn
+    as ``tank_capacity_jumps``/``reach_profile``, so it is a floor, never an
+    over-estimate). ``boost_mult=1`` = plain jumps (the 'how far until I must
+    scoop' figure a pilot reads); pass 4/6 for neutron-boosted travel."""
+    return sum(reach_profile(params, boost_mult))
 
 
 def fuel_report(jumps, params: "FuelParams", start_fuel: Optional[float] = None,

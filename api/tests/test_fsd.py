@@ -136,6 +136,21 @@ def test_tank_capacity_jumps():
     assert fsd.tank_capacity_jumps(p) == 10
 
 
+def test_tank_range_exceeds_naive_jumps_times_full_range():
+    # Total distance on one tank, no refuel. Jumps lengthen as the tank empties,
+    # so it must exceed tank_jumps * full-tank range (the pilot's napkin number)
+    # yet stay below tank_jumps * light-tank range (the unreachable best case).
+    p = fsd.parse_loadout(COBRA_SLEF)
+    tr = fsd.tank_range(p, 1.0)
+    jumps = fsd.tank_capacity_jumps(p)
+    assert jumps * p.max_range_full() < tr < jumps * p.max_range_light()
+    # Exposed in the ship summary for the UI.
+    s = fsd.ship_summary(p)
+    assert s["tank_range"] == round(tr, 1)
+    # Boosting multiplies the per-jump reach, so the boosted tank range scales.
+    assert abs(fsd.tank_range(p, 4.0) - 4.0 * tr) < 1e-6
+
+
 def test_fuel_report_flags_long_neutron_chain_unsafe():
     p = fsd.parse_loadout(COBRA_SLEF)
     chain = [_jump(60, neutron=True, spectral="N") for _ in range(20)]

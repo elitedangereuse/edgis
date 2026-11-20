@@ -313,7 +313,8 @@ function renderShipCard() {
     shipInfo.range_boost ? ["Guardian booster", `+${fmt(shipInfo.range_boost, 2)} LY`] : null,
     ["Fuel", `${fmt(fuel.Main || shipInfo.tank_size, 1)} t`
       + (fuel.Reserve ? ` <span class="tiny">+ ${fmt(fuel.Reserve, 2)} t reserve</span>` : "")
-      + ` · ≈ ${fmt(shipInfo.tank_jumps)} jumps per tank`],
+      + ` · ≈ ${fmt(shipInfo.tank_jumps)} jumps per tank`
+      + (shipInfo.tank_range ? ` <span class="tiny">(~${fmt(shipInfo.tank_range, 0)} LY without refuelling)</span>` : "")],
     ["Fuel scoop", shipInfo.has_scoop ? "fitted" : `<span class="bad">none: you can't refuel en route</span>`],
     ["Mass", `${fmt(d.UnladenMass, 1)} t unladen`
       + (d.CargoCapacity ? ` · cargo ${fmt(cargoTons())} / ${fmt(d.CargoCapacity)} t` : "")],
