@@ -75,11 +75,10 @@
 /* Departure system shown as row #0 (like spansh): mark it as the origin. */
 #panel-route tr.src-row .sys { color:var(--accent); }
 
-/* Journey-endpoint markers in the star column: departure arrow (origin, blue)
-   and arrival pin (destination, green), so the start/end read at a glance. */
+/* Journey-endpoint markers in the star column, reusing the From/To input-field
+   label icons (same accent blue) so the table ties back to the fields. */
 #panel-route .starcell-ep { white-space:nowrap; }
-#panel-route .ep-from { color:var(--accent); vertical-align:middle; margin-right:3px; }
-#panel-route .ep-to { color:var(--ok); vertical-align:middle; margin-right:4px; }
+#panel-route .ep-from, #panel-route .ep-to { color:var(--accent); vertical-align:middle; margin-right:4px; }
 #panel-route .ep-from svg, #panel-route .ep-to svg { vertical-align:-2px; }
 
 /* Per-row "done" progress checkboxes (manual tracking, like spansh). */

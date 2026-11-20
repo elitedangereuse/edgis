@@ -328,9 +328,11 @@ function setShipSummary() {
   const el = $("shipSummary");
   const s = loadShips()[activeShip()];
   if (s && shipInfo) {
+    // No .tiny here: the summary line is 11px and .tiny is 12px, so a "tiny"
+    // span renders BIGGER than its own line. Inherit the summary style instead.
     el.innerHTML = `Ship &amp; options <span class="good">✓</span> · `
       + `${escapeHtml(shipDisplayName(s))} · ${fmt(shipInfo.jump_range, 2)} LY`
-      + (shipInfo.tank_range ? ` · <span class="tiny">${fmt(shipInfo.tank_range, 0)} LY w/o refuel</span>` : "");
+      + (shipInfo.tank_range ? ` · ${fmt(shipInfo.tank_range, 0)} LY w/o refuel` : "");
   } else if (s) {
     el.innerHTML = `Ship &amp; options · ${escapeHtml(shipDisplayName(s))} `
       + `<span class="tiny">(${shipError ? "not usable" : "reading…"})</span>`;
@@ -501,8 +503,9 @@ const shareIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height=
 // Bootstrap "exclamation-triangle-fill" -- marks a leg that puts the CMDR at
 // fuel risk (strand / over-range) directly in the results table.
 const warnIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5m.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2"/></svg>`;
-// Bootstrap "flag" -- report an issue with the plotted itinerary.
-const reportIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M14.778.085A.5.5 0 0 1 15 .5V8a.5.5 0 0 1-.314.464L14.5 8l.186.464-.003.001-.006.003-.023.009a12 12 0 0 1-.397.15c-.264.095-.631.223-1.047.35-.816.252-1.879.523-2.71.523-.847 0-1.548-.28-2.158-.525l-.028-.01C7.68 9.075 7.14 8.86 6.5 8.86c-.65 0-1.424.193-2 .35v4.29a.5.5 0 0 1-1 0V.5a.5.5 0 0 1 1 0v.1l.5-.01c.65 0 1.424.193 2 .35l.028.01C7.68 1.075 8.22 1.29 8.86 1.29c.65 0 1.424-.193 2-.35z"/></svg>`;
+// GitHub mark -- report an issue with the plotted itinerary (it opens a GitHub
+// issue, and the octocat reads universally where a "flag" does not).
+const reportIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8"/></svg>`;
 function copyText(text, btn) {
   navigator.clipboard.writeText(text).then(() => {
     const prev = btn.innerHTML; btn.innerHTML = '<span class="good" style="font-size:11px">Copied</span>';
@@ -670,10 +673,12 @@ function sysName(name) {
 const systemMapIconSvg = `<svg width="15" height="15" version="1.1" viewBox="0 0 24.77 24.77" xmlns="http://www.w3.org/2000/svg"><path d="m18.976 12.385a6.5907 6.5907 0 0 1-6.5907 6.5907 6.5907 6.5907 0 0 1-6.5907-6.5907 6.5907 6.5907 0 0 1 6.5907-6.5907 6.5907 6.5907 0 0 1 6.5907 6.5907zm5.2941 0a11.885 11.885 0 0 1-11.885 11.885 11.885 11.885 0 0 1-11.885-11.885 11.885 11.885 0 0 1 11.885-11.885 11.885 11.885 0 0 1 11.885 11.885z" fill="none" stroke="currentColor" style="paint-order:stroke markers fill"></path><path d="m14.495 12.305a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm-10.089 6.7178a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm11.794-0.30414a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm-0.25378-12.724a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898zm7.9976-0.53351a1.898 1.898 0 0 1-1.898 1.898 1.898 1.898 0 0 1-1.898-1.898 1.898 1.898 0 0 1 1.898-1.898 1.898 1.898 0 0 1 1.898 1.898z" fill="currentColor" style="paint-order:stroke markers fill"></path></svg>`;
 const galaxyMapIconSvg = `<svg width="15" height="15" version="1.1" viewBox="0 0 6.6237 6.6237" xmlns="http://www.w3.org/2000/svg"><defs><clipPath id="clipPathGalaxyIcon"><path class="powerclip" d="m21.17 19.375h33.981v32.301h-33.981zm20.445 16.684a2.8145 2.8145 0 0 0-2.8145-2.8145 2.8145 2.8145 0 0 0-2.8145 2.8145 2.8145 2.8145 0 0 0 2.8145 2.8145 2.8145 2.8145 0 0 0 2.8145-2.8145z"/></clipPath></defs><path transform="matrix(.26458 0 0 .26458 -6.7848 -6.0877)" d="m38.926 34.569c0.8963 1.4788-2.3745 1.5434-2.5256 3.9958-0.11266 1.7681 0.50361 3.8201 2.3294 5.2908 1.8258 1.4707 8.1248 1.9127 8.1248 1.9127s-4.6011 1.0671-6.5214 0.8882c-1.9203-0.17895-3.6192-0.95569-5.1091-2.1638-1.4899-1.2081-2.6726-3.2119-2.9177-5.0384-0.24511-1.8265 0.16728-3.606 1.4423-4.6802 1.4115-1.2279 4.2811-1.6839 5.1774-0.20507zm0.74206 0.61547c-1.7189 0.18893-0.39785-2.804-2.5577-3.9753-1.5556-0.84792-3.6761-1.1547-5.7796-0.11955-2.1036 1.0351-5.1612 6.5599-5.1612 6.5599s0.97313-4.6219 1.9453-6.2876c0.97222-1.6656 2.3931-2.8784 4.1169-3.7197 1.7238-0.84134 4.0394-1.0685 5.7989-0.52035 1.7595 0.54816 3.199 1.6726 3.6352 3.2818 0.51799 1.7978-0.27898 4.5919-1.9978 4.7808zm-0.51038 0.87536c1.0091-1.4043 2.3507 1.5794 4.666 0.75702 1.6708-0.58947 3.3169-1.9608 3.9542-4.217s-1.4254-8.2243-1.4254-8.2243 2.7854 3.8145 3.3736 5.6513 0.53956 3.7041 0.01221 5.5484c-0.52735 1.8443-1.9071 3.7178-3.4913 4.6593s-3.3829 1.2597-4.871 0.50789c-1.683-0.81718-3.2273-3.2784-2.2183-4.6826z" clip-path="url(#clipPathGalaxyIcon)" fill="currentColor"/></svg>`;
 const neighborsIconSvg = `<svg width="15" height="15" viewBox="0 0 39.902 39.902" xmlns="http://www.w3.org/2000/svg"><path d="m14.241 24.519 4.7463-5.6206-4.7463-5.6206 5.6206 4.7463 5.6206-4.7463-4.7463 5.6206 4.7463 5.6206-5.6206-4.7463zm-9.6642 2.7315-0.56969-2.653-2.653-0.56969 2.653-0.56969 0.56969-2.653 0.56969 2.653 2.653 0.56969-2.653 0.56969zm30.748-16.245-0.56969-2.653-2.653-0.56969 2.653-0.56969 0.56969-2.653 0.56969 2.653 2.653 0.56969-2.653 0.56969zm-2.4608 24.336-0.78092-3.6366-3.6366-0.78092 3.6366-0.78092 0.78092-3.6366 0.78092 3.6366 3.6366 0.78092-3.6366 0.78092zm-13.002-2.7759-2.416-11.251-11.251-2.416 11.251-2.416 2.416-11.251 2.416 11.251 11.251 2.416-11.251 2.416z" fill="currentColor" stroke-linecap="round" stroke-width=".25125"/></svg>`;
-// Journey endpoints marked in the star column: a departure arrow on the source
-// row (its star cell is otherwise empty) and an arrival pin on the destination.
-const fromIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0M4.5 7.5a.5.5 0 0 0 0 1h5.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3a.5.5 0 0 0 0-.708l-3-3a.5.5 0 1 0-.708.708L10.293 7.5z"/></svg>`;
-const toIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M8 16s6-5.686 6-10A6 6 0 0 0 2 6c0 4.314 6 10 6 10m0-7a3 3 0 1 1 0-6 3 3 0 0 1 0 6"/></svg>`;
+// Journey endpoints marked in the star column, with the SAME icons as the From
+// and To input-field labels (wall-with-arrow glyphs), so the table ties back to
+// the fields visually: departure on the source row (its star cell is otherwise
+// empty), arrival on the destination row.
+const fromIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 2.6461 2.1167"><g transform="translate(-130.97 -85.46)" fill-rule="evenodd" stroke-width=".26458"><path d="m131.23 86.519a0.13229 0.13229 0 0 1 0.1323-0.13229h1.7973l-0.56806-0.5678a0.13246 0.13246 0 1 1 0.18732-0.18732l0.79375 0.79375a0.13229 0.13229 0 0 1 0 0.18732l-0.79375 0.79375a0.13246 0.13246 0 0 1-0.18732-0.18732l0.56806-0.5678h-1.7973a0.13229 0.13229 0 0 1-0.1323-0.13229"/><path d="m131.1 85.46a0.13229 0.13229 0 0 1 0.13229 0.13229v1.8521a0.1323 0.1323 0 0 1-0.26459 0v-1.8521a0.13229 0.13229 0 0 1 0.1323-0.13229"/></g></svg>`;
+const toIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 2.6461 2.1167"><g fill-rule="evenodd" stroke-width=".26458"><path d="m-0.0023 1.0583a0.13229 0.13229 0 0 1 0.13229-0.13229h1.7973l-0.56806-0.5678a0.13246 0.13246 0 1 1 0.18732-0.18732l0.79375 0.79375a0.13229 0.13229 0 0 1 0 0.18732l-0.79375 0.79375a0.13246 0.13246 0 0 1-0.18732-0.18732l0.56806-0.5678h-1.7973a0.13229 0.13229 0 0 1-0.13229-0.13229"/><path d="m2.5112 6.6e-6a0.13229 0.13229 0 0 1 0.13229 0.13229v1.8521a0.13229 0.13229 0 0 1-0.26458 0v-1.8521a0.13229 0.13229 0 0 1 0.13229-0.13229"/></g></svg>`;
 const fromMarker = `<span class="ep-from" title="Departure (your starting system)">${fromIconSvg}</span>`;
 const toMarker = `<span class="ep-to" title="Destination (your route's end)">${toIconSvg}</span>`;
 
@@ -1417,7 +1422,6 @@ function renderRoute(r) {
           <input type="checkbox" id="compactToggle" ${compactMode ? "checked" : ""} />
           <span class="track"></span><span>compact</span>
         </label>
-        <button id="reportIssue" class="ghost" title="Report an issue with this itinerary (opens a pre-filled GitHub issue)">${reportIconSvg} Report issue</button>
       </div>
       <div class="sa-right">
         <span class="export-group">
@@ -1429,6 +1433,7 @@ function renderRoute(r) {
         </span>
         <button id="copyRoute" class="ghost" title="Copy the route systems, one per line">${copyIconSvg} Copy route</button>
         <button id="shareRoute" class="ghost" title="Copy a link that reproduces this route">${shareIconSvg} Share</button>
+        <button id="reportIssue" class="ghost" title="Report an issue with this itinerary (opens a pre-filled GitHub issue)">${reportIconSvg} Report issue</button>
       </div>
     </div>
     <div class="tablewrap result-table">
