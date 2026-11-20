@@ -1154,3 +1154,50 @@ def test_offload_gating_default_off(monkeypatch):
     assert systems._should_offload() is False      # slots free
     monkeypatch.setattr(systems, "_route_solve_semaphore", asyncio.Semaphore(0))
     assert systems._should_offload() is True       # saturated
+
+
+@pytest.mark.anyio("asyncio")
+async def test_offload_uses_route_key_without_token(monkeypatch):
+    # The LB transport authenticates with x-route-key (no ServiceAccount token).
+    # Offload must proceed on route-key alone and send the right headers.
+    monkeypatch.setattr(systems, "_SOLVE_POOL_URL", "http://lb:8383")
+    monkeypatch.setattr(systems, "_offload_token", lambda: None)
+    monkeypatch.setenv("EDGIS_SOLVE_POOL_ROUTE_KEY", "podkey")
+
+    captured = {}
+
+    class DummyResponse:
+        status_code = 200
+
+        def json(self):
+            return {"total_jumps": 3}
+
+    class DummyClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url, headers):
+            captured["url"] = url
+            captured["headers"] = headers
+            return DummyResponse()
+
+    monkeypatch.setattr(systems.httpx, "AsyncClient", DummyClient)
+
+    result = await systems._offload_geometry_solve(
+        "Sol", "Colonia", 50.0, 4.0, None, 0.0, 1.0
+    )
+    assert result == {"total_jumps": 3}
+    assert captured["headers"].get("x-route-key") == "podkey"
+    assert "Authorization" not in captured["headers"]   # no token -> no Bearer
+
+    # Neither credential -> no offload (returns None, caller solves locally).
+    monkeypatch.delenv("EDGIS_SOLVE_POOL_ROUTE_KEY", raising=False)
+    assert await systems._offload_geometry_solve(
+        "Sol", "Colonia", 50.0, 4.0, None, 0.0, 1.0
+    ) is None

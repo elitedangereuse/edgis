@@ -4345,8 +4345,14 @@ async def _offload_geometry_solve(
     fuel params); fuel-aware POST offload is a later extension."""
     import urllib.parse as _up
 
+    # Two transports: the apiserver proxy (authenticated by the ServiceAccount
+    # Bearer token, hard 30s timeout) OR a direct Octavia LoadBalancer
+    # (authenticated by the pod's x-route-key, timeout configurable to 200s --
+    # this is how galaxy-spanning solves >30s can offload). Need at least one
+    # credential; send whichever is configured.
     tok = _offload_token()
-    if not tok:
+    rk = os.getenv("EDGIS_SOLVE_POOL_ROUTE_KEY")
+    if not tok and not rk:
         return None
     params = {"from": frm, "to": to, "range": jump_range, "supercharge": supercharge}
     if beam_width:
@@ -4356,8 +4362,9 @@ async def _offload_geometry_solve(
     if inject_mult and inject_mult > 1.0:
         params["inject_mult"] = inject_mult
     url = _SOLVE_POOL_URL.rstrip("/") + "/route?" + _up.urlencode(params)
-    headers = {"Authorization": "Bearer " + tok}
-    rk = os.getenv("EDGIS_SOLVE_POOL_ROUTE_KEY")
+    headers = {}
+    if tok:
+        headers["Authorization"] = "Bearer " + tok
     if rk:
         headers["x-route-key"] = rk
     ca = os.getenv("EDGIS_SOLVE_POOL_CA_FILE")
