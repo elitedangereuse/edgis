@@ -5197,6 +5197,10 @@ class GalaxyRouteRequest(BaseModel):
     loadout: str
     cargo: float = Field(0.0, ge=0, le=2048)
     inject_mult: float = Field(1.0, ge=1.0, le=2.0)
+    # Which spansh exact-plotter algorithm to compare against. spansh reworked
+    # these 2026-11-20; "beam" now edges us on the longest routes (e.g. Sol ->
+    # Beagle Point), "optimistic" is the anytime-A* default we historically match.
+    algorithm: str = Field("optimistic", pattern="^(optimistic|beam)$")
     model_config = {"populate_by_name": True}
 
 
@@ -5231,6 +5235,7 @@ async def spansh_galaxy_route(
         )
 
     body = {
+        "algorithm": req.algorithm,
         "source": str(src["id64"]),
         "destination": str(dst["id64"]),
         "is_supercharged": "0",

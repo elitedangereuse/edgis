@@ -10,6 +10,12 @@ DELIBERATELY SMALL (go-easy-on-spansh): a handful of pairs, both ways. The exact
 plotter is slow (~1 min/call); do not expand into a bulk loop without sign-off.
 
   python spansh_bidir.py --key <KEY> --loadout /path/to/ship.slef.json
+
+One-shot head-to-head against spansh's reworked beam algorithm (e.g. the
+Sol -> Beagle Point route it now edges us on), overriding the pair list:
+
+  python spansh_bidir.py --key <KEY> --loadout /path/to/ship.slef.json \
+      --algorithm beam --pair Sol "Beagle Point"
 """
 import argparse
 import json
@@ -59,7 +65,16 @@ def main():
                     help="SLEF/Journal loadout JSON for the reference ship "
                          "(fixtures: loadouts/cobra_mkv.json, loadouts/caspian.json)")
     ap.add_argument("--timeout", type=float, default=150.0)
+    ap.add_argument("--algorithm", choices=("optimistic", "beam"),
+                    default="optimistic",
+                    help="which spansh exact-plotter algorithm to compare "
+                         "against (beam was reworked 2026-11-20 and edges us on "
+                         "the longest routes)")
+    ap.add_argument("--pair", nargs=2, action="append", metavar=("FROM", "TO"),
+                    help="override the built-in pair list (repeatable); use for "
+                         "a one-shot head-to-head e.g. --pair Sol 'Beagle Point'")
     a = ap.parse_args()
+    pairs = [tuple(p) for p in a.pair] if a.pair else PAIRS
 
     lp = pathlib.Path(a.loadout)
     if not lp.exists():
@@ -78,18 +93,20 @@ def main():
         ship_range = json.load(urllib.request.urlopen(req, timeout=60)).get("jump_range")
     except Exception:
         pass
-    print(f"Bidirectional vs spansh EXACT (Galaxy) Plotter, ship={lp.name} "
-          f"(range {ship_range}), {len(PAIRS)} pairs both ways -> {a.base_url}\n")
+    print(f"Bidirectional vs spansh EXACT (Galaxy) Plotter [{a.algorithm}], "
+          f"ship={lp.name} (range {ship_range}), {len(pairs)} pairs both ways "
+          f"-> {a.base_url}\n")
 
-    for frm, to in PAIRS:
+    for frm, to in pairs:
         res = {}
         for x, y in ((frm, to), (to, frm)):
-            body = {"from": x, "to": y, "loadout": loadout, "fuel_safe": True}
+            body = {"from": x, "to": y, "loadout": loadout}
             if ship_range:
                 body["range"] = ship_range
             oj, oe = _post(a.base_url, "/route", body, a.key, a.timeout)
             sj, se = _post(a.base_url, "/spansh/galaxy-route",
-                           {"from": x, "to": y, "loadout": loadout}, a.key, a.timeout)
+                           {"from": x, "to": y, "loadout": loadout,
+                            "algorithm": a.algorithm}, a.key, a.timeout)
             res[(x, y)] = (oj, sj)
             m = f"{oj - sj:+d}" if oj and sj else "-"
             tag = ("WIN" if oj and sj and oj < sj else "LOSS" if oj and sj and oj > sj
