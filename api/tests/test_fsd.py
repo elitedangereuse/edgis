@@ -336,16 +336,39 @@ def test_enforce_fuel_safety_no_divert_when_neutrons_scoop_inflight():
 
 
 def test_annotate_leg_fuel_tracks_burn_and_refuel():
-    p = fsd.parse_loadout(COBRA_SLEF)  # tank 32
+    p = fsd.parse_loadout(COBRA_SLEF)  # tank 32, ~10 dry jumps
+    # A scoopable landing that is NOT needed (destination reached with fuel to
+    # spare) must NOT be flagged as a refuel (issue #165: no scooping when the
+    # tank doesn't need it).
     legs = [
         _jump(40, neutron=True, spectral="N"),               # burns, no refuel
-        _jump(40, neutron=False, spectral="K (Yellow) Star"),  # scoopable -> refuel
+        _jump(40, neutron=False, spectral="K (Yellow) Star"),  # scoopable, but final
     ]
     fsd.annotate_leg_fuel(legs, p)
     assert legs[0]["fuel_used"] > 0 and legs[0]["must_refuel"] is False
     assert legs[0]["fuel_in_tank"] < p.tank_size          # declined after the burn
-    assert legs[1]["must_refuel"] is True                  # scoopable landing tops up
-    assert legs[1]["fuel_in_tank"] == p.tank_size          # back to full
+    assert legs[1]["must_refuel"] is False                 # arrival -> no need to top up
+
+
+def test_annotate_leg_fuel_scoops_only_when_needed():
+    p = fsd.parse_loadout(COBRA_SLEF)  # tank 32, ~3.2 fuel/jump -> ~10 dry jumps
+    # Chain: a scoopable K star early (tank still high -> skip), then a long dry
+    # neutron run that forces a top-up at the LAST scoopable before it, then more.
+    legs = (
+        [_jump(55, neutron=True, spectral="N")] * 3          # burn down
+        + [_jump(50, neutron=False, spectral="K (Yellow) Star")]  # scoopable #1
+        + [_jump(55, neutron=True, spectral="N")] * 2
+        + [_jump(50, neutron=False, spectral="K (Yellow) Star")]  # scoopable #2
+        + [_jump(55, neutron=True, spectral="N")] * 9        # long dry run after #2
+    )
+    fsd.annotate_leg_fuel(legs, p)
+    refuels = [i for i, lg in enumerate(legs) if lg["must_refuel"]]
+    # Scoopable #1 (index 3) is skippable (#2 is reachable); scoopable #2 (index 6)
+    # IS needed because the 9-jump dry run after it would otherwise strand.
+    assert 3 not in refuels
+    assert 6 in refuels
+    # The tank never shows a dry/negative value where we claimed it was safe.
+    assert all(lg["fuel_in_tank"] >= -1e-6 for lg in legs)
 
 
 def test_spansh_params_has_exact_shape():

@@ -1371,7 +1371,10 @@ function renderRoute(r) {
     if (!hasFuel) return "";
     const v = j ? j.fuel_in_tank : null;
     if (v == null) return `<td class="num"></td>`;
-    const refuel = !!(j.must_refuel || j.inflight_scoop);
+    // Highlight only where a scoop is actually needed (must_refuel). A scoopable
+    // or in-flight-companion star still shows its green pump in the system cell,
+    // but we don't tell the commander to stop there when the tank doesn't need it.
+    const refuel = !!j.must_refuel;
     return `<td class="num fuelcell${refuel ? " refuel" : ""}"${refuel ? ` title="Tank topped up here"` : ""}>${v.toFixed(1)}${fuelTank(v, tankMax)}</td>`;
   };
   if (compactMode) {

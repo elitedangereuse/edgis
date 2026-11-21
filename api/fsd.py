@@ -580,24 +580,53 @@ def fuel_report(jumps, params: "FuelParams", start_fuel: Optional[float] = None,
     }
 
 
+def _scoop_needed(legs, i: int, fuel: float, params: "FuelParams",
+                  maxf: float, landing) -> bool:
+    """From a scoopable landing ``i`` holding ``fuel`` (after that leg's burn),
+    decide whether the commander actually has to top up here. The answer is no
+    when the current fuel reaches the NEXT scoopable landing (or the route's end)
+    without the tank running dry -- in that case scooping here only wastes time
+    and leaves a heavier, shorter-ranged ship. Returns True only when skipping the
+    scoop would strand before the next chance to refuel."""
+    f = fuel
+    for k in range(i + 1, len(legs)):
+        d = float(legs[k].get("distance_jumped", 0.0) or 0.0)
+        if d <= 1e-9:
+            continue
+        cost = min(params.fuel_cost(d, f), maxf)
+        if cost > f + 1e-9:
+            return True              # would run dry before the next refuel
+        f -= cost
+        if landing[k]:
+            return False             # reached the next scoopable with fuel to spare
+    return False                     # reached the destination without stranding
+
+
 def annotate_leg_fuel(legs, params: "FuelParams", start_fuel: Optional[float] = None,
                       boost_mult: float = 4.0) -> None:
     """Attach per-leg fuel detail for the spansh-exact export: ``fuel_used`` (burn
     on that jump), ``fuel_in_tank`` (after the burn, and after a refuel when one
-    happens), and ``must_refuel`` (True where the tank was topped up). Mirrors
-    simulate_fuel's burn + refuel-at-scoopable logic. Mutates ``legs`` in place."""
+    happens), and ``must_refuel`` (True where the tank was topped up).
+
+    Scooping is LAZY -- the tank is only topped up at a scoopable landing when it
+    could not otherwise reach the next scoopable (or the destination) without
+    running dry. This matches the ``refuel_every_scoopable: 0`` model we send
+    spansh, and avoids flagging a refuel at every scoopable star (issue #165:
+    a commander who scoops when it isn't needed loses time and, carrying a heavier
+    tank, jumps shorter). Mutates ``legs`` in place."""
     fuel = params.tank_size if start_fuel is None else float(start_fuel)
     maxf = params.max_fuel_per_jump
-    for leg in legs:
+    landing = [is_refuel_landing(leg) for leg in legs]
+    for i, leg in enumerate(legs):
         d = float(leg.get("distance_jumped", 0.0) or 0.0)
         used = 0.0
         if d > 1e-9:
             used = min(params.fuel_cost(d, fuel), maxf)
             fuel = max(0.0, fuel - used)
         refueled = False
-        # A refuel landing (scoopable, or a neutron with an in-system companion
-        # scoop) tops the tank; the source (d == 0) is already full.
-        if d > 1e-9 and is_refuel_landing(leg):
+        # Top up only when this scoopable landing is actually needed to carry on
+        # (the source, d == 0, is already full).
+        if d > 1e-9 and landing[i] and _scoop_needed(legs, i, fuel, params, maxf, landing):
             fuel = params.tank_size
             refueled = True
         leg["fuel_used"] = round(used, 6)
