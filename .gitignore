@@ -33,3 +33,4 @@ AGENTS.md
 # Local planning/handoff notes have carried prod secrets; keep them out of the
 # public repo.
 /docs/
+api/tests/benchmarks/beam_probe_results/

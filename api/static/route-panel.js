@@ -1585,33 +1585,40 @@ async function compareSpansh() {
 
 // Compare against spansh's fuel-aware Galaxy (exact) Plotter. Needs the ship
 // build, so it's only reached (via compareVsSpansh) once a loadout is imported.
+// spansh now has TWO exact-plotter algorithms (2026-11-20 rework): optimistic
+// (anytime A*, the historical comparison) and beam (stronger on the longest
+// routes). Query both, sequentially (gentle on spansh), as two labeled rows.
 async function compareGalaxy() {
   if (!lastQuery) return;
   const loadout = shipInfo ? activeLoadout() : "";
   const seq = plotSeq;
-  const out = () => cmpLine("cmpGalaxy_line", seq);
-  if (!loadout) { showSpanshMsg(out(), `<span class="bad">Import a ship first (the Galaxy Plotter is fuel-aware).</span>`); return; }
+  if (!loadout) { showSpanshMsg(cmpLine("cmpGalaxy_line_optimistic", seq), `<span class="bad">Import a ship first (the Galaxy Plotter is fuel-aware).</span>`); return; }
   const { from, to } = lastQuery;
   $("cmpGalaxy").disabled = true; $("cmpGalaxy").classList.add("querying"); setBusy(true);
-  // Blue 60 s progress line: the exact plotter typically takes up to a minute, so
-  // give visible feedback. Pure CSS fill (0->100% over 60s); the result replaces it.
-  showSpanshMsg(out(), `<span class="tiny">Querying spansh Galaxy Plotter… (can take ~1 min)</span>`
-    + `<div class="spansh-bar" title="spansh exact plotter can take up to ~60 s"><div class="spansh-bar-fill"></div></div>`);
   try {
-    const res = await fetch("/spansh/galaxy-route", {
-      method: "POST", credentials: "include",
-      headers: { ...headers(), "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to, loadout, cargo: cargoTons(), inject_mult: injectMult() }),
-    });
-    if (!res.ok) {
-      const d = (await res.json().catch(() => ({}))).detail;
-      showSpanshMsg(out(), `<span class="bad">Galaxy Plotter failed: ${escapeHtml(typeof d === "string" ? d : ("HTTP " + res.status))}</span>`);
-      return;
+    for (const algorithm of ["optimistic", "beam"]) {
+      if (seq !== plotSeq) return;  // a new plot started: stop querying
+      const out = () => cmpLine(`cmpGalaxy_line_${algorithm}`, seq);
+      // Blue 60 s progress line: the exact plotter typically takes up to a minute,
+      // so give visible feedback. Pure CSS fill (0->100% over 60s).
+      showSpanshMsg(out(), `<span class="tiny">Querying spansh Galaxy Plotter (${algorithm})… (can take ~1 min)</span>`
+        + `<div class="spansh-bar" title="spansh exact plotter can take up to ~60 s"><div class="spansh-bar-fill"></div></div>`);
+      try {
+        const res = await fetch("/spansh/galaxy-route", {
+          method: "POST", credentials: "include",
+          headers: { ...headers(), "Content-Type": "application/json" },
+          body: JSON.stringify({ from, to, loadout, cargo: cargoTons(), inject_mult: injectMult(), algorithm }),
+        });
+        if (!res.ok) {
+          const d = (await res.json().catch(() => ({}))).detail;
+          showSpanshMsg(out(), `<span class="bad">Galaxy Plotter (${algorithm}) failed: ${escapeHtml(typeof d === "string" ? d : ("HTTP " + res.status))}</span>`);
+          continue;
+        }
+        const s = await res.json();
+        showSpanshRow(out(), `<b>spansh Galaxy&nbsp;Plotter</b> <span class="tiny">${algorithm}</span>`, s);
+      } catch (e) { showSpanshMsg(out(), `<span class="bad">${escapeHtml(e.message || String(e))}</span>`); }
     }
-    const s = await res.json();
-    showSpanshRow(out(), `<b>spansh Galaxy&nbsp;Plotter</b>`, s);
-  } catch (e) { showSpanshMsg(out(), `<span class="bad">${escapeHtml(e.message || String(e))}</span>`); }
-  finally { $("cmpGalaxy").classList.remove("querying"); updateCompareButton(); setBusy(false); }
+  } finally { $("cmpGalaxy").classList.remove("querying"); updateCompareButton(); setBusy(false); }
 }
 
 // Frontend plotting queue: on a 429 (server shed the solve under heavy load)

@@ -5196,6 +5196,10 @@ class GalaxyRouteRequest(BaseModel):
     # these 2026-11-20; "beam" now edges us on the longest routes (e.g. Sol ->
     # Beagle Point), "optimistic" is the anytime-A* default we historically match.
     algorithm: str = Field("optimistic", pattern="^(optimistic|beam)$")
+    # Include spansh's raw per-leg jumps in the response (benchmark analysis:
+    # e.g. running a spansh route through our own fuel simulator). Off for the
+    # UI compare, which only needs the summary.
+    include_jumps: bool = False
     model_config = {"populate_by_name": True}
 
 
@@ -5280,7 +5284,8 @@ async def spansh_galaxy_route(
             job = submit.json().get("job")
             if not job:
                 raise HTTPException(502, "spansh did not return a job")
-            for _ in range(80):  # Galaxy Plotter is slow (~1 min)
+            for _ in range(120):  # Galaxy Plotter is slow (~1 min; beam on the
+                # longest routes can run past it, so allow ~3 min of polling)
                 await asyncio.sleep(1.5)
                 poll = await client.get(
                     f"https://spansh.co.uk/api/results/{job}"
@@ -5327,10 +5332,12 @@ async def spansh_galaxy_route(
                         "waypoints": len(legs),
                         "total_distance_ly": flown,
                         "duration_s": duration_s,
+                        "algorithm": req.algorithm,
                         "job": job,
                         "results_url": (
                             f"https://spansh.co.uk/exact-plotter/results/{job}"
                         ),
+                        **({"jumps": legs} if req.include_jumps else {}),
                     }
                 if str(data.get("status")) in ("error", "failed"):
                     _log_route_trace(
