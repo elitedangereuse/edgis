@@ -687,6 +687,15 @@ _ORIENT_DENSITY_FLOOR = 150
 # can't catch the far-but-locally-dense case; this does. Bubble/Colonia-ward and
 # moderate deep routes (<=29 kly measured) flip safely and are 10-100x faster.
 _ORIENT_MAX_LY = 30000.0
+# Only the FUEL search uses flown-honest edge costs (unboosted tail / boosted
+# entry) on flipped routes BELOW this straight-line distance. On short flipped
+# routes the honest tail boards the highway near a sparse source (Blaa Eork ->
+# Lave, 14 -> 9 jumps) with a small frontier; past it the fuel-resource state
+# space explodes and times out (Colonia -> Sag A* ~26 kly, 30 -> 48 via beam
+# fallback), so long flipped fuel routes keep the tight old-cost (native)
+# search. The ship-agnostic search is never gated (no resource dimension, so
+# no explosion -- it only benefits).
+_FLIP_HONEST_FUEL_MAX_LY = 8000.0
 # FSD synthesis injection grades (range multiplier), ascending so the bridger
 # picks the LEAST that crosses a gap: basic +25%, standard +50%, premium +100%.
 _INJECT_GRADES = (1.25, 1.5, 2.0)
@@ -2092,6 +2101,16 @@ def graph_route(
         cset = cand if cand_set is None else cand_set
         d = deadline if dl is None else dl
         ssv, sdv = (dv, sv) if flip else (sv, dv)
+        # Flown-honest edge costs (unboosted tail / boosted entry) widen the A*
+        # frontier near the goal -- the win that boards the highway close to a
+        # sparse source (Blaa Eork -> Lave, 14 -> 9). In the FUEL search that
+        # frontier is multiplied by the fuel-resource dimension, and on a long
+        # dense flipped corridor (Colonia -> Sag A*, ~26 kly) it explodes past
+        # the time budget and falls to the beam engine (30 -> 48). The plain
+        # search has no resource dimension and stays fast (GET bench: Colonia ->
+        # Sag A* 68 -> 65, no timeout), so only the fuel search is length-gated;
+        # the native kernel (still old-cost) runs whenever honest costs are off.
+        honest_fuel = flip and straight < _FLIP_HONEST_FUEL_MAX_LY
         blacklist: set[tuple[int, int]] = set()
         badzones: list[tuple[np.ndarray, float]] = []
         for _ in range(rounds):
@@ -2128,7 +2147,7 @@ def graph_route(
                     int(tank_jumps),
                     float(scoop_max_ls),
                     boost_mult=boost_mult,
-                    flip=flip,
+                    flip=honest_fuel,
                 )
                 if seq is None:
                     seq = _graph_search(
@@ -2235,6 +2254,18 @@ def graph_route(
     # the sparse-goal direction stays tractable) with a reach-aware realize. On
     # any miss we fall through to the proven B1 solve, so B2 never regresses.
     if use_range:
+        # The B2 coarse is a fuel search too, so its honest-cost toggle is
+        # length-gated like the final one (see _solve). When honest costs are
+        # on (short flipped route) cap its budget so a slow wide-frontier coarse
+        # can't starve the B1 fallback chain.
+        coarse_honest = flip and straight < _FLIP_HONEST_FUEL_MAX_LY
+        coarse_dl = deadline
+        if coarse_honest:
+            coarse_dl = min(
+                deadline,
+                time.perf_counter()
+                + 0.35 * max(0.0, deadline - time.perf_counter()),
+            )
         coarse = _graph_search_fuel(
             index,
             cand,
@@ -2245,13 +2276,13 @@ def graph_route(
             gap_k,
             set(),
             [],
-            deadline,
+            coarse_dl,
             int(tank_jumps),
             float(scoop_max_ls),
             boost_mult=boost_mult,
             # Keep the B2 corridor seed on Python: see _graph_search_fuel native note.
             native_ok=False,
-            flip=flip,
+            flip=coarse_honest,
         )
         if coarse:
             b1seq = list(reversed(coarse)) if flip else coarse
@@ -2305,8 +2336,20 @@ def graph_route(
             if b1_res is not None:
                 return b1_res
 
-    result = _solve(flip)
-    if result is None and flip:
+    if flip:
+        # Flipped fuel searches run on Python (the native kernel lacks the
+        # flip-aware edge costs) and the honest unboosted tail widens the
+        # frontier near the goal; on dense-core corridors (e.g. Colonia ->
+        # Sag A*) a flipped attempt can eat the whole budget and leave the
+        # proven unflipped retry nothing (the route then falls to the beam
+        # engine: 30 -> 48 jumps on the fuel bench). Cap the flipped attempt
+        # at just over half the remaining budget so _solve(False) always has
+        # room; sparse-corridor flips finish in well under a second anyway.
+        rem = max(0.0, deadline - time.perf_counter())
+        result = _solve(True, dl=time.perf_counter() + 0.55 * rem)
+        if result is None:
+            result = _solve(False)
+    else:
         result = _solve(False)
     return result
 
