@@ -5258,7 +5258,17 @@ async def spansh_galaxy_route(
         "reserve_size": "0",
         "max_fuel_per_jump": f"{params.max_fuel_per_jump:g}",
         "range_boost": f"{params.range_boost:g}",
-        "ship_build": req.loadout,
+        # Parity with spansh's own frontend submit (missing these made the
+        # comparison unfair / the shared page broken):
+        #  - supercharge_multiplier: 6 for the Caspian Mk II drive, else 4
+        #    (spansh derives the same from the build on a re-Calculate);
+        #  - injection_multiplier/max_time: their frontend's fixed values;
+        #  - ship_build normalized to SLEF (a bare journal Loadout object made
+        #    the prefilled Calculate fail with "Could not parse ship config").
+        "supercharge_multiplier": f"{int(fsd.detect_supercharge(req.loadout))}",
+        "injection_multiplier": "2",
+        "max_time": "60",
+        "ship_build": fsd.to_slef(req.loadout),
     }
     headers = {"User-Agent": EXTERNAL_USER_AGENT, "Accept": "application/json"}
     try:

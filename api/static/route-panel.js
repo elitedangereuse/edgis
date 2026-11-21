@@ -251,6 +251,17 @@ function parseLoadout(text) {
     return (d && d.data) || d || null;
   } catch (e) { return null; }
 }
+// Normalize a loadout to SLEF text for spansh's ship_build: spansh only accepts
+// a coriolis $schema build or a SLEF-wrapped {header, data} object; a bare
+// journal Loadout object fails its parse ("Could not parse ship config").
+function toSlef(loadout) {
+  try {
+    const o = JSON.parse(loadout);
+    if (o && !Array.isArray(o) && !o.header && !o.$schema && Array.isArray(o.Modules))
+      return JSON.stringify([{ header: { appName: "EDGIS" }, data: o }]);
+  } catch (e) { /* unparseable: pass through, spansh shows its own error */ }
+  return loadout;
+}
 function shipTypeName(symbol) {
   const k = String(symbol || "").toLowerCase();
   return SHIP_TYPES[k] || k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
@@ -1233,7 +1244,7 @@ function toSpanshExactRoute(r) {
     destination_system: idStr(destId) ?? r.destination,
     supercharge_multiplier: scMul,
     ...(sp || {}),
-    ...(loadout ? { ship_build: loadout } : {}),
+    ...(loadout ? { ship_build: toSlef(loadout) } : {}),
   };
   return {
     created_at: now, job, parameters,

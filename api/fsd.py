@@ -245,6 +245,26 @@ def detect_supercharge(slef) -> float:
         return 4.0
 
 
+def to_slef(loadout: str) -> str:
+    """Normalize a loadout to SLEF text for spansh's ``ship_build`` field.
+
+    spansh's readLoadout accepts only a coriolis ``$schema`` build or a
+    SLEF-wrapped object (``{header, data}``); a bare journal Loadout object has
+    no ``header`` and is rejected with "Could not parse ship config" when the
+    commander hits Calculate on the shared results page. Our own parser accepts
+    all three shapes, so wrap the bare-journal case and pass everything else
+    through unchanged (including unparseable text: spansh shows its own error
+    there, and mangling the field can't improve on that)."""
+    try:
+        obj = json.loads(loadout)
+    except (ValueError, TypeError):
+        return loadout
+    if isinstance(obj, dict) and "header" not in obj and "$schema" not in obj \
+            and isinstance(obj.get("Modules"), list):
+        return json.dumps([{"header": {"appName": "EDGIS"}, "data": obj}])
+    return loadout
+
+
 def ship_summary(params: "FuelParams") -> dict:
     """A compact, display-ready view of a parsed loadout for the UI's ship
     import (fills the jump-range field, shows tank/scoop at a glance).

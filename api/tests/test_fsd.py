@@ -352,6 +352,25 @@ def test_annotate_leg_fuel_scoops_only_when_needed():
     assert all(lg["fuel_in_tank"] >= -1e-6 for lg in legs)
 
 
+def test_to_slef_wraps_bare_journal_loadout():
+    # spansh's readLoadout rejects a header-less journal Loadout object with
+    # "Could not parse ship config"; ship_build must be SLEF-wrapped.
+    raw = ('{"timestamp":"2026-11-18T23:11:33Z","event":"Loadout",'
+           '"Ship":"explorer_nx","UnladenMass":1199.8,'
+           '"Modules":[{"Slot":"FrameShiftDrive",'
+           '"Item":"int_hyperdrive_overcharge_size8_class5_overchargebooster_mkii"}]}')
+    out = json.loads(fsd.to_slef(raw))
+    assert isinstance(out, list) and "header" in out[0]
+    assert out[0]["data"]["Ship"] == "explorer_nx"
+
+
+def test_to_slef_passes_wrapped_and_garbage_through():
+    assert fsd.to_slef(COBRA_SLEF) == COBRA_SLEF        # already SLEF
+    assert fsd.to_slef("not json") == "not json"        # spansh shows its own error
+    coriolis = '{"$schema":"https://coriolis.io/schemas/ship-loadout/4.json#"}'
+    assert fsd.to_slef(coriolis) == coriolis            # coriolis path untouched
+
+
 def test_spansh_params_has_exact_shape():
     p = fsd.parse_loadout(COBRA_SLEF)
     sp = fsd.spansh_params(p, supercharge=6)
