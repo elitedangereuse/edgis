@@ -31,6 +31,7 @@
 //          -e CANARY_URL=https://edgis.elitedangereuse.fr edgis_beagle_storm.js
 
 import http from 'k6/http';
+import exec from 'k6/execution';
 import { check, sleep } from 'k6';
 import { Trend, Counter, Rate } from 'k6/metrics';
 
@@ -43,6 +44,10 @@ const STORM_KEY = __ENV.STORM_KEY || ROUTE_KEY;
 const CANARY_KEY = __ENV.CANARY_KEY || ROUTE_KEY;
 const PEAK_VUS = Number(__ENV.PEAK_VUS || 100);     // ~10x the incident's ~10 concurrent
 const HOLD = __ENV.HOLD || '90s';                   // hold at peak
+// RUN_SALT gives each run its OWN 7.5 ly range band (base 40 + SALT*7.5) so a
+// repeat run never reuses a prior run's cached ranges. Use a DISTINCT salt per
+// run (0,1,2,...). Keeps every storm solve genuinely COLD across runs.
+const RUN_SALT = Number(__ENV.RUN_SALT || 0);
 const stormHeaders = { 'x-route-key': STORM_KEY };
 const canaryHeaders = { 'x-route-key': CANARY_KEY };
 
@@ -86,7 +91,9 @@ export const options = {
     canary: {
       executor: 'constant-arrival-rate',
       exec: 'canary',
-      rate: 1, timeUnit: '1s', duration: '4m',
+      // CANARY_DUR should cover the whole storm (ramp + HOLD + ramp-down); for a
+      // long soak pass e.g. CANARY_DUR=13m so prod-canary coverage never drops.
+      rate: 1, timeUnit: '1s', duration: __ENV.CANARY_DUR || '4m',
       preAllocatedVUs: 3, maxVUs: 8,
     },
   },
@@ -102,10 +109,14 @@ export const options = {
 
 function stormUrl() {
   const r = ROUTES[(__VU + __ITER) % ROUTES.length];
-  // Unique-per-request range in a realistic 45.0-114.9 band => guaranteed COLD
-  // solve (mimics the incident's range-sweep, spread across VUs so two VUs
-  // rarely collide on an already-cached range).
-  const range = (45 + (((__VU * 1000 + __ITER) % 700) / 10)).toFixed(1);
+  // GUARANTEED-COLD range: iterationInTest is a GLOBAL monotonic counter across
+  // all VUs, so every logical solve gets a distinct range (0.005 ly steps in a
+  // realistic 40-ly-and-up band) -> a distinct cache key -> a true cold solve.
+  // The old (__VU*1000+__ITER)%700 formula collided every 7th VU and wrapped at
+  // 700 values, so big storms silently reused cached ranges (NOT a cold test).
+  // retries within one iteration reuse the same range (same user, same plot).
+  const uid = exec.scenario.iterationInTest;
+  const range = (40 + (RUN_SALT * 1500 + uid) * 0.005).toFixed(3);
   const p = `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}&range=${range}`;
   return `${STORM_URL}/route?${p}`;
 }
