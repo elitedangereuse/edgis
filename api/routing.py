@@ -926,19 +926,24 @@ def _graph_search(
 
 class _FuelLabel:
     """A heap entry for the fuel-aware search: the node, cumulative jumps ``g``,
-    refuel resource ``r`` (boosted jumps since the last refuel), distance ``d``
-    (heap tiebreak + reconstruction), and the parent label for the path."""
+    refuel resource ``r`` (the dominance key: boosted jumps since refuel in the
+    integer model, or a consumed-fuel BUCKET in the tonnes model), distance
+    ``d`` (heap tiebreak + reconstruction), the parent label, and ``fuel`` =
+    EXACT tonnes remaining (tonnes model only; the bucket is coarse but burns
+    are computed from this exact value)."""
 
-    __slots__ = ("node", "g", "r", "d", "par")
+    __slots__ = ("node", "g", "r", "d", "par", "fuel")
 
     def __init__(
-        self, node: int, g: int, r: int, d: float, par: "Optional[_FuelLabel]"
+        self, node: int, g: int, r: int, d: float, par: "Optional[_FuelLabel]",
+        fuel: float = 0.0,
     ) -> None:
         self.node = node
         self.g = g
         self.r = r
         self.d = d
         self.par = par
+        self.fuel = fuel
 
 
 def _graph_search_fuel(
@@ -957,6 +962,8 @@ def _graph_search_fuel(
     boost_mult: float = 4.0,
     native_ok: bool = True,
     flip: bool = False,
+    fparams: "Optional[object]" = None,
+    fuel_buckets: int = 0,
 ) -> Optional[list[int]]:
     """Fuel-aware variant of :func:`_graph_search`. Min-**jumps** over the
     corridor neutrons where a boosted hop burns one jump of fuel and landing on a
@@ -984,6 +991,15 @@ def _graph_search_fuel(
     :func:`_graph_search`), or ``None`` on timeout / no route -- the caller then
     falls back to the ship-agnostic search, so the fuel layer never regresses the
     geometry below the proven min-jumps route.
+
+    TONNES MODEL (``fparams`` + ``fuel_buckets`` > 0): the resource is ACTUAL
+    fuel. A boosted hop burns the game-accurate ``fuel_cost(d, fuel, mult)``
+    (usually far below ``max_fuel``), so the tank sustains the real (longer) dry
+    run instead of the worst-case ``T`` jumps -- fewer refuels, lighter tank,
+    longer reach, fewer jumps. The label carries exact tonnes; ``r`` becomes a
+    consumed-fuel BUCKET (``fuel_buckets`` of them) used only for dominance, so
+    the fast prefix-min pruning is unchanged. See
+    ``docs/fuel-tonnes-resource-plan.md``.
     """
 
     J = jump_range
@@ -991,6 +1007,34 @@ def _graph_search_fuel(
     straight = float(np.linalg.norm(dv - sv))
     n = len(cand)
     cc = index.coords[cand] if n else np.zeros((0, 3))
+
+    # Tonnes model: precompute the scalar FSD constants for the vectorised burn.
+    tonnes = fparams is not None and fuel_buckets > 0
+    if tonnes:
+        _tank = float(fparams.tank_size)
+        _mf = float(fparams.max_fuel_per_jump)
+        _bm = float(fparams.base_mass) + float(getattr(fparams, "cargo", 0.0) or 0.0)
+        _om = float(fparams.optimal_mass)
+        _fmul = float(fparams.fuel_multiplier)
+        _fpow = float(fparams.fuel_power)
+        _rboost = float(fparams.range_boost)
+        _step = _tank / float(fuel_buckets) if _tank > 0 else 1.0
+
+        def _bucket(fuel: float) -> int:
+            # 0 = full tank; higher = more consumed = worse (prefix-min dominance).
+            b = int((_tank - max(0.0, fuel)) / _step) if _step > 0 else 0
+            return 0 if b < 0 else (fuel_buckets if b > fuel_buckets else b)
+
+        def _burn(dm_arr: np.ndarray, fuel: float) -> np.ndarray:
+            # Game-accurate boosted burn for an array of hop distances at scalar
+            # ``fuel`` (verified == FuelParams.fuel_cost). Capped at max_fuel.
+            mass = _bm + max(0.0, fuel)
+            base = _om / mass * (_mf / _fmul) ** (1.0 / _fpow)
+            d = dm_arr / boost_mult
+            if _rboost > 0.0 and base > 0.0:
+                d = d * (base / (base + _rboost))
+            cost = _fmul * ((d * mass) / _om) ** _fpow
+            return np.minimum(cost, _mf)
 
     # Native kernel: B1 runs on graph_search_fuel (fixed reach + prefix-min
     # dominance, matching this function's min-jumps and small front). Identical
@@ -1004,7 +1048,7 @@ def _graph_search_fuel(
     # FLIPPED searches stay on Python: the native kernel still prices the tail
     # edge as a supercharged hop, which is wrong reversed (see _graph_search's
     # flip note); lift this gate when the crate mirrors the flip-aware costs.
-    if _B1_NATIVE and native_ok and not flip and _native_route is not None:
+    if _B1_NATIVE and native_ok and not flip and not tonnes and _native_route is not None:
         try:
             return _native_graph_search_fuel(
                 index,
@@ -1048,6 +1092,9 @@ def _graph_search_fuel(
         else np.zeros(n, dtype=bool)
     )
     T = int(tank_jumps)
+    # Dominance-array width: consumed-fuel buckets in the tonnes model, else the
+    # integer "jumps since refuel" resource.
+    R_MAX = int(fuel_buckets) if tonnes else T
 
     def zone_ok(pa, pb) -> bool:
         if not badzones:
@@ -1062,8 +1109,8 @@ def _graph_search_fuel(
     # iff some r' <= r already reaches node in <= g jumps, i.e. the prefix-minimum
     # best_g[node, 0..r] <= g. Checking/relaxing a whole neighbour batch is then a
     # vectorised prefix-min + compare (no per-label Python front scan, which was
-    # the hot spot). Columns are capped at r == T. SRC/DST use column 0.
-    best_g = np.full((n + 2, T + 1), BIG, dtype=np.int64)
+    # the hot spot). Columns are capped at r == R_MAX. SRC/DST use column 0.
+    best_g = np.full((n + 2, R_MAX + 1), BIG, dtype=np.int64)
 
     # A corridor neutron's outgoing edges (boost neighbours, void-bridge gap edges,
     # the tail to DST) are label-independent -- only the fuel bookkeeping on a boost
@@ -1134,17 +1181,19 @@ def _graph_search_fuel(
     pq: list[tuple[int, int, float, int, _FuelLabel]] = []
 
     def push(
-        node: int, g: int, r: int, d: float, par: Optional[_FuelLabel]
+        node: int, g: int, r: int, d: float, par: Optional[_FuelLabel],
+        fuel: float = 0.0,
     ) -> None:
         nonlocal seq_counter
         h = 0 if node >= n else int(hv[node])
         heapq.heappush(
-            pq, (g + h, -g, d, seq_counter, _FuelLabel(node, g, r, d, par))
+            pq, (g + h, -g, d, seq_counter, _FuelLabel(node, g, r, d, par, fuel))
         )
         seq_counter += 1
 
     def relax(
-        m: int, cg: int, cr: int, cd: float, par: Optional[_FuelLabel]
+        m: int, cg: int, cr: int, cd: float, par: Optional[_FuelLabel],
+        fuel: float = 0.0,
     ) -> None:
         """Scalar relax for the analytic edges (entry / gap / tail / direct), all
         of which arrive refuelled (cr == 0) or terminal. Pushes iff ``cg`` beats
@@ -1152,10 +1201,11 @@ def _graph_search_fuel(
         if int(best_g[m, : cr + 1].min()) <= cg:
             return  # dominated by an equal-or-better label already at m
         best_g[m, cr] = cg
-        push(m, cg, cr, cd, par)
+        push(m, cg, cr, cd, par, fuel)
 
+    _full = _tank if tonnes else 0.0  # arrive-refuelled fuel in the tonnes model
     best_g[SRC, 0] = 0
-    push(SRC, 0, 0, 0.0, None)
+    push(SRC, 0, 0, 0.0, None, _full)
 
     dst_lab: Optional[_FuelLabel] = None
     while pq:
@@ -1193,7 +1243,7 @@ def _graph_search_fuel(
                     # the flown destination), so cost the supercharged bridge.
                     ec = (_boosted_jumps(dm, J, boost_mult) if flip
                           else max(int(math.ceil(dm / J)), 1))
-                    relax(m, gg + ec, 0, dm, lab)
+                    relax(m, gg + ec, 0, dm, lab, _full)
             continue
         r = lab.r
         ms, dm, scoop, gap_edges, tail = node_edges(u)
@@ -1202,28 +1252,62 @@ def _graph_search_fuel(
             tcost, tdist = tail
             relax(DST, gg + tcost, 0, lab.d + tdist, lab)
         if len(ms):
-            # Vectorised boost-hop relax over all neighbours at once. A dry tank
-            # (r == T) folds the forced +2 scoop detour into the edge (cost 3);
-            # otherwise cost 1. Landing on a scoopable neutron refuels (nr = 0).
-            if r >= T:
-                cg = gg + 3
-                nr = np.where(scoop, 0, 1)
+            if tonnes:
+                # TONNES: each boost hop burns the game-accurate (usually small)
+                # fuel_cost at THIS label's exact fuel. A hop we can't afford on
+                # the current tank folds in the forced +2 scoop detour (cost 3,
+                # arrive on a brimmed tank); one unmakeable even full is
+                # over-range -> dropped. Landing on a scoopable refuels to full.
+                f = lab.fuel
+                cost = _burn(dm, f)
+                afford = cost <= f + 1e-9
+                cost_full = _burn(dm, _tank)
+                # fuel after the hop (scoopable -> brim), per branch
+                nf = np.where(afford,
+                              np.where(scoop, _tank, f - cost),
+                              np.where(scoop, _tank, _tank - cost_full))
+                cg_arr = np.where(afford, gg + 1, gg + 3)
+                # drop edges unmakeable even on a full tank (over-range)
+                ok = afford | (cost_full <= _tank + 1e-9)
+                if ok.any():
+                    km = ms[ok]
+                    kf = nf[ok]
+                    kcg = cg_arr[ok].astype(np.int64)
+                    knr = np.clip(((_tank - np.maximum(kf, 0.0)) / _step)
+                                  .astype(np.int64), 0, R_MAX)
+                    kd = lab.d + dm[ok]
+                    pmin = np.minimum.accumulate(best_g[km], axis=1)
+                    keep = pmin[np.arange(len(km)), knr] > kcg
+                    if keep.any():
+                        for mm, rr, cgv, dd, fv in zip(
+                            km[keep], knr[keep], kcg[keep], kd[keep], kf[keep]
+                        ):
+                            best_g[int(mm), int(rr)] = int(cgv)
+                            push(int(mm), int(cgv), int(rr), float(dd), lab, float(fv))
             else:
-                cg = gg + 1
-                nr = np.where(scoop, 0, r + 1)
-            pmin = np.minimum.accumulate(best_g[ms], axis=1)
-            keep = (
-                pmin[np.arange(len(ms)), nr] > cg
-            )  # non-dominated candidates
-            if keep.any():
-                km = ms[keep]
-                knr = nr[keep]
-                kd = lab.d + dm[keep]
-                best_g[km, knr] = cg
-                for mm, rr, dd in zip(km, knr, kd):
-                    push(int(mm), cg, int(rr), float(dd), lab)
+                # INTEGER: vectorised boost-hop relax over all neighbours at
+                # once. A dry tank (r == T) folds the forced +2 scoop detour into
+                # the edge (cost 3); otherwise cost 1. A scoopable landing
+                # refuels (nr = 0).
+                if r >= T:
+                    cg = gg + 3
+                    nr = np.where(scoop, 0, 1)
+                else:
+                    cg = gg + 1
+                    nr = np.where(scoop, 0, r + 1)
+                pmin = np.minimum.accumulate(best_g[ms], axis=1)
+                keep = (
+                    pmin[np.arange(len(ms)), nr] > cg
+                )  # non-dominated candidates
+                if keep.any():
+                    km = ms[keep]
+                    knr = nr[keep]
+                    kd = lab.d + dm[keep]
+                    best_g[km, knr] = cg
+                    for mm, rr, dd in zip(km, knr, kd):
+                        push(int(mm), cg, int(rr), float(dd), lab)
         for m, cost, gdm in gap_edges:
-            relax(m, gg + cost, 0, lab.d + gdm, lab)
+            relax(m, gg + cost, 0, lab.d + gdm, lab, _full)
     if dst_lab is None:
         return None
     seq: list[int] = []
@@ -1995,6 +2079,8 @@ def graph_route(
     tank_jumps: int = 0,
     scoop_max_ls: float = 0.0,
     reach_by_r: Optional[list[float]] = None,
+    fparams: "Optional[object]" = None,
+    fuel_buckets: int = 0,
 ) -> Optional[dict]:
     """Min-**jumps** route via corridor-bounded neutron-graph A*, realized into
     legs with greedy + capsule-BFS bridging. Edges the realizer proves
@@ -2148,6 +2234,8 @@ def graph_route(
                     float(scoop_max_ls),
                     boost_mult=boost_mult,
                     flip=honest_fuel,
+                    fparams=fparams,
+                    fuel_buckets=fuel_buckets,
                 )
                 if seq is None:
                     seq = _graph_search(
@@ -2283,6 +2371,8 @@ def graph_route(
             # Keep the B2 corridor seed on Python: see _graph_search_fuel native note.
             native_ok=False,
             flip=coarse_honest,
+            fparams=fparams,
+            fuel_buckets=fuel_buckets,
         )
         if coarse:
             b1seq = list(reversed(coarse)) if flip else coarse
