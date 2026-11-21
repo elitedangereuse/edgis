@@ -45,7 +45,7 @@ CASES = [
     ("beagle-sol", "Beagle Point", "Sol"),
     ("colonia-sol", "Colonia", "Sol"),
     ("blaa-lyaiso", "Blaa Eork DH-M d7-2", "Lyaiso IM-W f1-2"),
-    ("sgra-clookae", "Sagittarius A*", "Clookae"),
+    ("sgra-clookae", "Sagittarius A*", "Clookae AA-A h69"),
     ("dhathaarib-synairaae", "Dhathaarib", "Synairaae FG-Y f0"),
 ]
 ALGOS = ("optimistic", "beam")
@@ -70,39 +70,57 @@ def _post(base, path, body, key, timeout):
         return None, type(e).__name__
 
 
-def spansh_legs_to_jumps(legs):
-    """spansh result rows -> our leg dicts. Row 0 is the source; jump i goes
-    row[i-1] -> row[i] and is supercharged when it LEAVES a neutron (the
-    previous row has_neutron). The landing's scoopability drives refuels."""
-    out = []
-    for i in range(1, len(legs)):
-        prev, cur = legs[i - 1], legs[i]
-        scoopable = bool(cur.get("is_scoopable"))
-        neutron = bool(cur.get("has_neutron"))
-        out.append({
-            "distance_jumped": float(cur.get("distance") or 0.0),
-            "neutron_star": neutron and not scoopable,
-            # synthesized class letter: our is_refuel_landing only needs
-            # scoopable-or-not; spansh rows don't carry the spectral type
-            "spectral": "K" if scoopable else ("N" if neutron else None),
-            "type": "boost" if prev.get("has_neutron") else "regular",
-            "system": cur.get("name"),
-        })
-    return out
-
-
 def analyze_spansh(result, params, boost_mult):
-    legs = spansh_legs_to_jumps(result.get("jumps") or [])
-    sim = fsd.simulate_fuel(legs, params, boost_mult=boost_mult)
-    boosted = [l["distance_jumped"] for l in legs if l["type"] == "boost"]
-    refuels = sim["refuels"]
+    """Validate spansh's OWN per-row fuel ledger against OUR physics.
+
+    Row 0 is the source; jump i goes row[i-1] -> row[i], supercharged when it
+    LEAVES a neutron (row[i-1].has_neutron). Their fuel_in_tank is after the
+    burn and any refuel, so fuel before jump i is fuel_in_tank[i-1]. spansh
+    plans LAZY refuels (refuel_every_scoopable=0), so replaying with our eager
+    simulate_fuel would brim the tank where they stayed deliberately light and
+    mis-flag their long late-tank hops; instead we check, at THEIR fuel levels:
+      - reachability: every jump within our jump_range(fuel) x boost;
+      - ledger sanity: tank never negative, burns within max_fuel_per_jump;
+      - model agreement: their fuel_used vs our fuel_cost at the same state.
+    """
+    rows = result.get("jumps") or []
+    reach_viol = []       # (jump#, dist, our reach at their fuel)
+    burn_delta = 0.0      # worst |their burn - our burn| (model agreement)
+    min_fuel = None
+    refuels = 0
+    dry = 0
+    max_dry = 0
+    boosted = []
+    for i in range(1, len(rows)):
+        prev, cur = rows[i - 1], rows[i]
+        d = float(cur.get("distance") or 0.0)
+        fuel_before = float(prev.get("fuel_in_tank") or 0.0)
+        is_boost = bool(prev.get("has_neutron"))
+        if is_boost:
+            boosted.append(d)
+        reach = params.jump_range(fuel_before) * (boost_mult if is_boost else 1.0)
+        if d > reach + 0.5:
+            reach_viol.append((i, round(d, 1), round(reach, 1)))
+        their_burn = float(cur.get("fuel_used") or 0.0)
+        our_burn = min(params.fuel_cost(d, fuel_before), params.max_fuel_per_jump)
+        burn_delta = max(burn_delta, abs(their_burn - our_burn))
+        after = float(cur.get("fuel_in_tank") or 0.0)
+        min_fuel = after if min_fuel is None else min(min_fuel, after)
+        if cur.get("must_refuel"):
+            refuels += 1
+            dry = 0
+        else:
+            dry += 1
+            max_dry = max(max_dry, dry)
     return {
-        "jumps": len(legs),
-        "stranded_at": sim["stranded_at"],
-        "over_range_at": sim["over_range_at"],
-        "min_fuel": round(sim["min_fuel"], 2),
-        "max_dry_jumps": sim["max_dry_jumps"],
+        "jumps": max(0, len(rows) - 1),
+        "reach_violations": reach_viol[:5],
+        "n_reach_violations": len(reach_viol),
+        "burn_model_delta_t": round(burn_delta, 3),
+        "min_fuel": round(min_fuel, 2) if min_fuel is not None else None,
+        "max_dry_jumps": max_dry,
         "refuels": refuels,
+        "scoopable_passed": sum(1 for r in rows[1:] if r.get("is_scoopable")),
         "longest_boosted_ly": round(max(boosted), 1) if boosted else None,
         "duration_s": result.get("duration_s"),
     }
@@ -127,12 +145,15 @@ def main():
         print("could not parse the loadout", file=sys.stderr)
         return 2
     boost_mult = fsd.detect_supercharge(loadout)
+    # Our /route defaults range to 50 when unset; the exact plotter plans at the
+    # SHIP's range, so pass it (full-tank range, same number the UI auto-fills).
+    ship_range = round(params.max_range_full(), 2)
     outdir = pathlib.Path(a.out)
     outdir.mkdir(exist_ok=True)
     wanted = {c.strip() for c in a.cases.split(",") if c.strip()}
     cases = [c for c in CASES if not wanted or c[0] in wanted]
-    print(f"beam probe: {len(cases)} cases, ship tank {params.tank_size:g}t "
-          f"supercharge {boost_mult:g}x -> {a.base_url}\n")
+    print(f"beam probe: {len(cases)} cases, ship range {ship_range} ly, tank "
+          f"{params.tank_size:g}t, supercharge {boost_mult:g}x -> {a.base_url}\n")
 
     rows = []
     for name, frm, to in cases:
@@ -143,7 +164,8 @@ def main():
             ours = json.loads(f.read_text())
         else:
             ours, err = _post(a.base_url, "/route",
-                              {"from": frm, "to": to, "loadout": loadout},
+                              {"from": frm, "to": to, "loadout": loadout,
+                               "range": ship_range},
                               a.key, a.timeout)
             if ours:
                 f.write_text(json.dumps(ours))
@@ -177,7 +199,7 @@ def main():
         pb = (row.get("beam") or {}).get("jumps")
         print(f"  {name:22} ours={o} opt={po} beam={pb}")
 
-    print("\n=== summary (jumps; spansh routes replayed through OUR fuel model) ===")
+    print("\n=== summary (spansh fuel ledgers validated against OUR physics) ===")
     for r in rows:
         print(f"\n{r['case']}: ours {r.get('ours')} "
               f"(safe={r.get('ours_safe')}, +{r.get('ours_scoop_stops') or 0} scoop stops)")
@@ -186,17 +208,19 @@ def main():
             if not d:
                 continue
             flags = []
-            if d["stranded_at"] is not None:
-                flags.append(f"STRANDS at jump {d['stranded_at'] + 1}")
-            if d["over_range_at"] is not None:
-                flags.append(f"OVER-RANGE at jump {d['over_range_at'] + 1}")
-            if d["min_fuel"] < params.max_fuel_per_jump:
-                flags.append(f"thin margin (min fuel {d['min_fuel']}t)")
-            print(f"  {algo:10} {d['jumps']:4} jumps  refuels {d['refuels']:3}  "
-                  f"max_dry {d['max_dry_jumps']:2}  "
+            if d["n_reach_violations"]:
+                flags.append(f"UNFLYABLE: {d['n_reach_violations']} jumps beyond "
+                             f"reach at their fuel, first {d['reach_violations'][0]}")
+            if d["min_fuel"] is not None and d["min_fuel"] < params.max_fuel_per_jump:
+                flags.append(f"thin margin (min fuel {d['min_fuel']}t "
+                             f"< one jump {params.max_fuel_per_jump:g}t)")
+            if d["burn_model_delta_t"] > 0.3:
+                flags.append(f"fuel model diverges (worst {d['burn_model_delta_t']}t/jump)")
+            print(f"  {algo:10} {d['jumps']:4} jumps  refuels {d['refuels']:3}"
+                  f"/{d['scoopable_passed']:3} scoopables  max_dry {d['max_dry_jumps']:2}  "
                   f"longest boost {d['longest_boosted_ly']} ly  "
                   f"solve {d['duration_s']}s  "
-                  f"{'; '.join(flags) if flags else 'clean per our model'}")
+                  f"{'; '.join(flags) if flags else 'flyable per our physics'}")
     return 0
 
 
