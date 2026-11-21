@@ -343,21 +343,13 @@
                       <input id="companionLs" type="number" min="0" max="2000" step="10" value="500" title="Supercharge off secondary (companion) neutron stars within this many light-seconds of arrival: supercruise to the companion, boost, carry on. 0 = main-star neutrons only. (Separate from refuelling at a companion scoopable, which the fuel layer handles.)" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
                     </div>
                     <div class="opt-field"><label for="scoopLs" class="text-sm font-semibold">Companion scoop (Ls)</label>
-                      <input id="scoopLs" type="number" min="0" max="2000" step="10" value="500" title="Refuel at a companion scoopable star within this many light-seconds of a neutron waypoint, without a divert jump (supercruise to it, scoop, jump out, chain unbroken). A divert is 2 jumps and breaks the supercharge chain, so a short in-system scoop (a few hundred Ls, under a minute of supercruise) is faster. 0 = always divert to the nearest scoopable. Only used when a ship is loaded (fuel-safe)." class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
+                      <input id="scoopLs" type="number" min="0" max="2000" step="10" value="500" title="Refuel at a companion scoopable star within this many light-seconds of a neutron waypoint, without a divert jump (supercruise to it, scoop, jump out, chain unbroken). A divert is 2 jumps and breaks the supercharge chain, so a short in-system scoop (a few hundred Ls, under a minute of supercruise) is faster. 0 = always divert to the nearest scoopable. Only used when a ship is loaded." class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
                     </div>
                     <div class="opt-field"><label for="cargo" class="text-sm font-semibold" title="Cargo tonnage aboard: adds mass and shortens range.">Cargo (t)</label>
                       <input id="cargo" type="number" min="0" step="1" value="0" class="w-full bg-transparent border border-[rgba(255,255,255,0.1)] rounded-lg px-3 py-2 placeholder:text-gray-500" />
                     </div>
                   </div>
                   <div class="opts-inject">
-                    <div class="opt-field">
-                      <span class="text-sm font-semibold opt-label">Fuel-safe <span class="help-tip" tabindex="0" role="note" aria-label="What fuel-safe does">i<span class="tip"><b>Fuel-safe</b> (on): EDGIS keeps at least one jump of fuel in reserve so you can always reach a scoopable star, never stranded. When a refuel is needed it uses an in-system companion scoop at a neutron waypoint (no extra jumps) where possible, otherwise a short detour to the nearest scoopable star (+2 jumps). <b>Off</b>: the route is left as-is and fuel risk is only flagged. Ships and options are stored in this browser only.</span></span></span>
-                      <label class="switch fuelsafe-switch" title="Simulate the tank along the route and refuel before you could strand.">
-                        <input type="checkbox" id="fuelSafe" checked />
-                        <span class="track"></span><span>never run dry</span>
-                        <span id="fuelSafeNote" class="tiny" hidden>(needs a ship)</span>
-                      </label>
-                    </div>
                     <div class="opt-field"><span class="text-sm font-semibold" id="injectLabel">FSD injection</span>
                       <div class="inject-radios" role="radiogroup" aria-labelledby="injectLabel" title="Allow FSD synthesis injection, used only when required to cross a gap a normal jump can't reach. The route uses the least grade that works per gap and lists what to synthesise. This sets the highest grade allowed. Off by default.">
                         <label class="inj-opt"><input type="radio" name="injectMult" value="1" checked /><img src="/static/assets/synthesis/off.svg" alt="" /><span class="inj-txt">Off</span></label>

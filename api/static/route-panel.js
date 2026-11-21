@@ -39,7 +39,6 @@ $("range").addEventListener("change", () => {
 // The stored ships and the active index are the single source of truth: the
 // textarea is only the paste box. Stored in this browser.
 const SLEF_LS = "edgis_route_loadout";  // legacy single loadout, migrated on load
-const FUELSAFE_LS = "edgis_route_fuelsafe";
 let shipInfo = null;   // /route/ship summary of the active ship, or null
 let shipError = "";    // why the active ship could not be read, if it couldn't
 
@@ -138,10 +137,6 @@ function clearAllShips() {
   if (!confirm(`Remove all ${n} stored ship${n > 1 ? "s" : ""}? This cannot be undone.`)) return;
   saveShips([]); clearShip();
 }
-
-$("fuelSafe").checked = (localStorage.getItem(FUELSAFE_LS) ?? "1") === "1";
-$("fuelSafe").addEventListener("change", () =>
-  localStorage.setItem(FUELSAFE_LS, $("fuelSafe").checked ? "1" : "0"));
 
 // Cargo tonnage (dynamic, not in the loadout): adds mass, shortens range.
 const CARGO_LS = "edgis_route_cargo";
@@ -348,11 +343,11 @@ function shipDisplayName(s) {
 }
 function renderShips() {
   renderShipLibrary(); renderShipCard(); setShipSummary(); renderRecoList();
-  // With a ship, its loadout sets the supercharge (on the card) and fuel-safe
-  // applies; without one, the supercharge is picked by hand and fuel-safe idles.
+  // With a ship, its loadout sets the supercharge (shown on the card) and
+  // anti-stranding enforcement applies; without one, the supercharge is picked
+  // by hand and there is no fuel model to enforce.
   const hasShip = activeShip() >= 0;
   $("superchargeField").hidden = hasShip;
-  $("fuelSafeNote").hidden = hasShip;
   // The route geometry plots at this range, so with a usable ship it is the
   // ship's full-tank range: read-only (still readable), changed through Cargo.
   // Cargo can't exceed the hold (also bounds the wheel stepping below).
@@ -773,7 +768,6 @@ async function openReport() {
   const rows = [
     ["From", q.from], ["To", q.to], ["Jump range", `${q.range} ly`],
     ["Supercharge", `${q.supercharge || 4}x`],
-    ["Fuel-safe requested", q.fuelSafe ? "yes" : "no"],
     ["FSD synthesis", inj > 1 ? `${INJECT_NAMES[String(inj)] || inj} (x${inj})` : "off"],
     ["Companion max Ls", q.companionLs > 0 ? q.companionLs : "off"],
     ["Scoop max Ls", q.scoop || "default"],
@@ -1627,7 +1621,7 @@ async function plot(isRetry = false) {
   // Fuel-aware plotting (POST with the loadout) kicks in once a ship is imported.
   const loadout = shipInfo ? activeLoadout() : "";
   lastQuery = { from, to, range, supercharge, companionLs, inject: injectMult(),
-    fuelSafe: $("fuelSafe").checked, cargo: cargoTons(), scoop: scoopMaxLs(), loadout };
+    cargo: cargoTons(), scoop: scoopMaxLs(), loadout };
   plotSeq++;  // comparisons started from now on belong to this plot
   lastOurs = null;  // so a post-failure spansh compare doesn't show a stale "ours"
   $("go").disabled = true; setBusy(true); $("out").innerHTML = `<div class="msg">Plotting…</div>`;
@@ -1640,7 +1634,7 @@ async function plot(isRetry = false) {
         body: JSON.stringify({
           from, to, range: Number(range), supercharge: Number(supercharge),
           companion_max_ls: companionLs, inject_mult: injectMult(),
-          loadout, cargo: cargoTons(), fuel_safe: $("fuelSafe").checked,
+          loadout, cargo: cargoTons(),
           scoop_max_ls: scoopMaxLs(),
         }),
       });

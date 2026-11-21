@@ -393,8 +393,8 @@ def test_route_post_attaches_fuel_report(monkeypatch):
 
     monkeypatch.setattr(systems, "_solve_route_sync", fake_solve)
 
-    # The neutron waypoint still triggers the in-system scoop annotation, which
-    # opens a DB connection even with fuel_safe off: stub it out.
+    # Anti-stranding enforcement is always on, so the fuel layer opens a DB
+    # connection (scoop-stop insertion + the in-system scoop annotation): stub it.
     class _NoDb:
         def __enter__(self):
             return None
@@ -420,12 +420,14 @@ def test_route_post_attaches_fuel_report(monkeypatch):
     cap = _Cap()
     systems._route_trace_logger.addHandler(cap)
     try:
-        # fuel_safe off -> report-only path (enforcement insertion is unit-tested
-        # in test_fsd with a fake scoopable fetch).
+        # A ship + source coords -> enforcement always runs. This route is already
+        # safe (scoopable K-star landing, 2 jumps on a 10-jump tank), so it passes
+        # through unchanged with no scoop stops (detour insertion is unit-tested in
+        # test_fsd with a fake scoopable fetch).
         resp = client.post(
             "/route",
             json={"from": "Sol", "to": "Near", "range": 50, "loadout": COBRA_SLEF,
-                  "fuel_safe": False, "x-route-key": "k"},
+                  "x-route-key": "k"},
             headers={"x-route-key": "k"},
         )
     finally:
@@ -436,7 +438,8 @@ def test_route_post_attaches_fuel_report(monkeypatch):
     assert body["fuel"] is not None
     assert body["fuel"]["safe"] is True
     assert body["fuel"]["tank_jumps"] == 10
-    assert body["fuel"]["enforced"] is False
+    assert body["fuel"]["enforced"] is True
+    assert body["fuel"]["scoop_stops"] == 0   # already safe -> no detour added
 
     # Exactly ONE user-facing "route" trace for the whole fuel-aware plot (the
     # internal solves are trace=False), and it carries the caller + an end-to-end
@@ -634,8 +637,7 @@ def test_route_post_inflight_scoop_avoids_divert_stops(monkeypatch):
 
     resp = client.post(
         "/route",
-        json={"from": "A", "to": "B", "range": 50, "loadout": COBRA_SLEF,
-              "fuel_safe": True},
+        json={"from": "A", "to": "B", "range": 50, "loadout": COBRA_SLEF},
         headers={"x-route-key": "k"},
     )
     assert resp.status_code == 200, resp.text
@@ -648,8 +650,8 @@ def test_route_post_inflight_scoop_avoids_divert_stops(monkeypatch):
     assert body["jumps"][0]["scoop_ls"] == 25.0
 
 
-def test_route_post_fuel_safe_inserts_scoop_stops(monkeypatch):
-    # fuel_safe=True drives enforcement: a stranding neutron chain gets scoop
+def test_route_post_inserts_scoop_stops(monkeypatch):
+    # Enforcement is always on: a stranding neutron chain gets scoop
     # detours inserted. A fake DB supplies a scoopable star near each query.
     _gate_future(monkeypatch)
     monkeypatch.setenv("ENTITLEMENT_KEYS", "k")
@@ -708,8 +710,7 @@ def test_route_post_fuel_safe_inserts_scoop_stops(monkeypatch):
 
     resp = client.post(
         "/route",
-        json={"from": "A", "to": "B", "range": 50, "loadout": COBRA_SLEF,
-              "fuel_safe": True},
+        json={"from": "A", "to": "B", "range": 50, "loadout": COBRA_SLEF},
         headers={"x-route-key": "k"},
     )
     assert resp.status_code == 200, resp.text
@@ -797,7 +798,7 @@ def test_route_post_fuel_reserve_replan_on_strand(monkeypatch):
         # range_growth off isolates the reserve guard (otherwise the B2-unsafe
         # guard fires first and its B1 re-solve consumes the second fake).
         json={"from": "A", "to": "B", "range": 50, "loadout": COBRA_SLEF,
-              "fuel_safe": True, "range_growth": False},
+              "range_growth": False},
         headers={"x-route-key": "k"},
     )
     assert resp.status_code == 200, resp.text

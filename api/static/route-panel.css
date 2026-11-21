@@ -281,8 +281,7 @@
 #panel-route .opt-field { display:flex; flex-direction:column; gap:6px; }
 #panel-route .opts-inject { display:flex; flex-direction:column; gap:12px; flex:1 1 220px; min-width:200px; }
 #panel-route .opt-label { display:inline-flex; align-items:center; gap:6px; }
-#panel-route .fuelsafe-switch { align-self:flex-start; padding:4px 0; }
-/* Fuel-safe toggle + an (i) info bubble; the long explainer lives in its hover/
+/* Option labels + an (i) info bubble; the long explainer lives in its hover/
    focus tooltip instead of a wall of text under the row. */
 #panel-route .opt-field[hidden] { display:none; }
 #panel-route .help-tip { position:relative; display:inline-flex; align-items:center; justify-content:center;

@@ -25,7 +25,7 @@ LOADOUTS = HERE / "loadouts"
 
 def solve(base_url, key, frm, to, rng, loadout, rg, nonce):
     body = {"from": frm, "to": to, "range": rng, "cargo": 0,
-            "fuel_safe": True, "range_growth": rg, "loadout": loadout,
+            "range_growth": rg, "loadout": loadout,
             "beam_width": nonce}
     req = urllib.request.Request(
         f"{base_url}/route", data=json.dumps(body).encode(),

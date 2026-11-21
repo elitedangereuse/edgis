@@ -3916,15 +3916,16 @@ async def _annotate_primary_star(result: dict) -> None:
 def _enforce_fuel_sync(
     base_result: dict,
     params,
-    fuel_safe: bool,
     boost_mult: float = 4.0,
     scoop_max_ls: float = INFLIGHT_SCOOP_MAX_LS,
 ) -> dict:
     """Run the fuel layer on an already-solved (ship-agnostic) route: annotate
-    neutron waypoints that allow an in-system refuel, then (when ``fuel_safe``)
-    insert scoop-stop detours so it never strands, and attach a fuel report. Runs
-    in a DB task because scoop detours and the companion lookup need queries. The
-    base geometry stays cached and untouched; this works on copies.
+    neutron waypoints that allow an in-system refuel, then insert scoop-stop
+    detours so it never strands, and attach a fuel report. Anti-stranding is
+    always enforced when the route is anchored (source coords + legs); a route
+    with no source coords to anchor detours against falls back to report-only.
+    Runs in a DB task because scoop detours and the companion lookup need
+    queries. The base geometry stays cached and untouched; this works on copies.
 
     ``scoop_max_ls`` is how far in-system the commander will supercruise to a
     companion scoopable to refuel without a divert jump (the request-tunable
@@ -3932,7 +3933,7 @@ def _enforce_fuel_sync(
     result = dict(base_result)
     legs = [dict(leg) for leg in (base_result.get("jumps") or [])]
     src = base_result.get("source_coords")
-    do_enforce = bool(fuel_safe and src and legs)
+    do_enforce = bool(src and legs)
     has_neutron = any(leg.get("neutron_star") for leg in legs)
     new_legs = None
     info = None
@@ -4012,7 +4013,7 @@ def _enforce_fuel_sync(
         result["fuel"] = fuel
         fsd.annotate_leg_fuel(new_legs, params, boost_mult=boost_mult)
     else:
-        # Report-only (fuel-safe off, or no source coords to anchor detours).
+        # Report-only (no source coords to anchor scoop-stop detours against).
         # Use the annotated copies so in-system refuels show in the report + UI.
         result["jumps"] = legs
         result["fuel"] = fsd.fuel_report(legs, params, boost_mult=boost_mult)
@@ -4804,7 +4805,6 @@ class RouteRequest(BaseModel):
     inject_mult: float = Field(1.0, ge=1.0, le=2.0)
     loadout: Optional[str] = None
     cargo: float = Field(0.0, ge=0, le=2048)
-    fuel_safe: bool = True
     # How far in-system to supercruise to a companion scoopable for an
     # in-highway refuel (no divert jump). Fuel-layer only; 0 = always divert.
     scoop_max_ls: float = Field(INFLIGHT_SCOOP_MAX_LS, ge=0.0, le=2000.0)
@@ -4840,9 +4840,9 @@ async def plot_route_post(
 ):
     """Fuel-aware route plot. Same geometry as GET /route (shared,
     ship-agnostic cache) plus a fuel report whenever a ``loadout`` is supplied.
-    When ``fuel_safe`` is set, ``_enforce_fuel_sync`` inserts scoop-stop detours
-    (or an in-system companion scoop at a neutron waypoint) so the route never
-    strands; otherwise fuel risk is only reported."""
+    Anti-stranding is always enforced: ``_enforce_fuel_sync`` inserts scoop-stop
+    detours (or an in-system companion scoop at a neutron waypoint) so the route
+    never strands."""
     # End-to-end timer: a fuel-aware plot can solve 2-3 times (B2 geometry, a B1
     # re-solve when B2 reads unsafe, a reserve-guard re-plan) and runs the fuel
     # enforcement DB task on top. The per-solve traces each report only their own
@@ -4892,7 +4892,6 @@ async def plot_route_post(
             _enforce_fuel_sync,
             result,
             params,
-            req.fuel_safe,
             supercharge,
             req.scoop_max_ls,
         )
@@ -4904,7 +4903,6 @@ async def plot_route_post(
         # and keep the proven B1 route. B2 thus never ships an unsafe route.
         if (
             reach_by_r is not None
-            and req.fuel_safe
             and not (result.get("fuel") or {}).get("safe", True)
             # over_range_at == 0 means the FIRST full-tank jump already exceeds
             # what the ship can fly: the requested range is beyond the loadout,
@@ -4952,7 +4950,6 @@ async def plot_route_post(
                 _enforce_fuel_sync,
                 b1,
                 params,
-                req.fuel_safe,
                 supercharge,
                 req.scoop_max_ls,
             )
@@ -4968,8 +4965,7 @@ async def plot_route_post(
         # the re-plan only if it verifies safe; else keep the honest stranded
         # route. Fires only on strands, so no cost or change for safe routes.
         if (
-            req.fuel_safe
-            and tank_jumps >= 2
+            tank_jumps >= 2
             and (result.get("fuel") or {}).get("stranded")
         ):
             try:
@@ -4985,7 +4981,7 @@ async def plot_route_post(
                 )
                 _was_cached = _was_cached and bool(reserved.get("_cached"))
                 enf = await _run_db_task(
-                    _enforce_fuel_sync, reserved, params, req.fuel_safe,
+                    _enforce_fuel_sync, reserved, params,
                     supercharge, req.scoop_max_ls,
                 )
                 if (enf.get("fuel") or {}).get("safe"):
@@ -5037,7 +5033,7 @@ async def plot_route_post(
     )
     # Record the fuel mode on its own trace line: the shared geometry trace is
     # ship-agnostic, so without this the trace never shows whether a ship was
-    # imported or whether fuel-safe enforcement ran.
+    # imported or how the enforced route came out (safe / scoop stops).
     _fuel = result.get("fuel") or {}
     _log_route_trace(
         "route-fuel",
@@ -5048,7 +5044,6 @@ async def plot_route_post(
         # actually gets); the geometry `route` line logs the pre-enforcement total.
         total_jumps=result.get("total_jumps"),
         has_ship=params is not None,
-        fuel_safe=req.fuel_safe if params is not None else None,
         cargo=(req.cargo or None),
         safe=_fuel.get("safe"),
         scoop_stops=_fuel.get("scoop_stops"),
