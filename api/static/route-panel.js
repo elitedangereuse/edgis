@@ -230,7 +230,7 @@ function detectSupercharge(loadout) {
     if (Array.isArray(d)) d = d[0];
     d = (d && d.data) || d;
     const ship = String(d.Ship || "").toLowerCase();
-    const fsd = (d.Modules || []).find(m => m.Slot === "FrameShiftDrive");
+    const fsd = (d.Modules || []).find(m => String(m.Slot || "").toLowerCase() === "frameshiftdrive");
     const item = String((fsd && fsd.Item) || "").toLowerCase();
     const mkii = item.includes("overchargebooster") || item.includes("mkii")
               || item.includes("size8");
@@ -300,7 +300,7 @@ function renderShipCard() {
     el.innerHTML = head + `<p class="tiny">${why}</p>`;
     return;
   }
-  const fsd = (d.Modules || []).find(m => m.Slot === "FrameShiftDrive");
+  const fsd = (d.Modules || []).find(m => String(m.Slot || "").toLowerCase() === "frameshiftdrive");
   const eng = fsdEngineering(fsd);
   const sc = detectSupercharge(s.loadout);
   const fuel = d.FuelCapacity || {};

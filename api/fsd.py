@@ -164,7 +164,12 @@ def _parse_loadout(slef, cargo: float = 0.0) -> Optional[FuelParams]:
     data = slef.get("data", slef) if isinstance(slef, dict) else {}
     modules = data.get("Modules", [])
 
-    fsd_mod = next((m for m in modules if m.get("Slot") == "FrameShiftDrive"), None)
+    # EDDiscovery exports slot names lowercased ("frameshiftdrive"), the game
+    # journal capitalises them ("FrameShiftDrive"); match either.
+    fsd_mod = next(
+        (m for m in modules if str(m.get("Slot", "")).lower() == "frameshiftdrive"),
+        None,
+    )
     if not fsd_mod:
         return None
     base = FSD_TABLE.get(str(fsd_mod.get("Item", "")).lower())
@@ -228,7 +233,7 @@ def detect_supercharge(slef) -> float:
             return 4.0
         fsd_mod = next(
             (m for m in data.get("Modules", [])
-             if m.get("Slot") == "FrameShiftDrive"),
+             if str(m.get("Slot", "")).lower() == "frameshiftdrive"),
             None,
         )
         item = str((fsd_mod or {}).get("Item", "")).lower()

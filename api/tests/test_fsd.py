@@ -63,6 +63,26 @@ def test_no_fsd_returns_none():
     assert fsd.parse_loadout('[{"data":{"event":"Loadout","Modules":[]}}]') is None
 
 
+def test_lowercase_slot_name_parses():
+    # EDDiscovery exports lowercase slot names ("frameshiftdrive"); the game
+    # journal capitalises them ("FrameShiftDrive"). Both must parse.
+    slef = (
+        '[{"header":{"appName":"EDDiscovery"},"data":{"event":"Loadout",'
+        '"Ship":"mandalay","UnladenMass":254.6,'
+        '"FuelCapacity":{"Main":32,"Reserve":0.5},"Modules":['
+        '{"Slot":"frameshiftdrive",'
+        '"Item":"int_hyperdrive_overcharge_size5_class5",'
+        '"Engineering":{"Modifiers":[{"Label":"FSDOptimalMass","Value":1894.1}]}},'
+        '{"Slot":"slot02_size5","Item":"int_guardianfsdbooster_size5"},'
+        '{"Slot":"slot01_size6","Item":"int_fuelscoop_size6_class5"}]}}]'
+    )
+    p = fsd.parse_loadout(slef)
+    assert p is not None
+    assert p.optimal_mass == 1894.1
+    assert p.range_boost == 10.5
+    assert p.has_scoop is True
+
+
 def test_malformed_input_returns_none_not_raises():
     # Non-JSON / wrong-shape input must yield None, never an exception
     # (the /route/ship endpoint turns None into a clean 422).
