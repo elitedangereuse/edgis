@@ -128,7 +128,7 @@
       "to": "Stafkarl",
       "range": 60.45,
       "cat": "bidir-win",
-      "our": 19,
+      "our": 18,
       "spansh": 28,
       "note": "pair with stafkarl-starindia (asymmetry check)"
     },
@@ -148,7 +148,7 @@
       "to": "Sagittarius A*",
       "range": 50,
       "cat": "loss-close",
-      "our": 68,
+      "our": 65,
       "spansh": 67
     },
     {
@@ -157,7 +157,7 @@
       "to": "HIP 26176",
       "range": 50,
       "cat": "loss-short",
-      "our": 27,
+      "our": 26,
       "spansh": 25
     },
     {

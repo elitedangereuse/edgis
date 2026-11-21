@@ -7,7 +7,7 @@
       "from": "Sol",
       "to": "Colonia",
       "range": 50,
-      "our": 58,
+      "our": 57,
       "safe": true
     },
     {
@@ -61,7 +61,7 @@
       "from": "Celaeno",
       "to": "Colonia",
       "range": 80,
-      "our": 54,
+      "our": 52,
       "safe": false
     },
     {
@@ -124,7 +124,7 @@
       "from": "Star of India",
       "to": "Stafkarl",
       "range": 60.45,
-      "our": 12,
+      "our": 9,
       "safe": true
     },
     {
