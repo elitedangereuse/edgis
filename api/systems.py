@@ -5194,8 +5194,14 @@ class GalaxyRouteRequest(BaseModel):
     inject_mult: float = Field(1.0, ge=1.0, le=2.0)
     # Which spansh exact-plotter algorithm to compare against. spansh reworked
     # these 2026-11-20; "beam" now edges us on the longest routes (e.g. Sol ->
-    # Beagle Point), "optimistic" is the anytime-A* default we historically match.
-    algorithm: str = Field("optimistic", pattern="^(optimistic|beam)$")
+    # Beagle Point), "optimistic" is the anytime-A* default we historically
+    # match. The full set comes from their GUI's algorithm list; "guided" is
+    # their corridor-around-the-neutron-route design (the sibling of ours,
+    # 100 ly guide band vs our 120 ly thin corridor).
+    algorithm: str = Field(
+        "optimistic",
+        pattern="^(optimistic|beam|guided|pessimistic|fuel|fuel_jumps)$",
+    )
     # Include spansh's raw per-leg jumps in the response (benchmark analysis:
     # e.g. running a spansh route through our own fuel simulator). Off for the
     # UI compare, which only needs the summary.
