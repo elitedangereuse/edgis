@@ -373,11 +373,22 @@ def simulate_fuel(jumps, params: "FuelParams", start_fuel: Optional[float] = Non
         if d <= 1e-9:
             fuel_after.append(fuel)
             continue
-        mult = boost_mult if j.get("type") == "boost" else 1.0
-        reach = params.jump_range(fuel) * mult
+        reach = params.jump_range(fuel) * (
+            boost_mult if j.get("type") == "boost" else 1.0
+        )
         if d > reach + 1e-6 and over_range_at is None:
             over_range_at = i  # unreachable at this fuel level (too heavy)
-        cost = min(params.fuel_cost(d, fuel, mult), params.max_fuel_per_jump)
+        # CONSERVATIVE burn (boosted legs billed the full cap, like
+        # tank_capacity_jumps/reach_profile assume): the B2 range-growth plan
+        # relies on the tank DRAINING at max rate (drained tank = light ship =
+        # long reach), so simulating the true partial-throw burns here makes
+        # the tank read fuller/heavier than planned and flags B2's long late
+        # hops over-range -- the guard then discards good routes (bench: 6
+        # regressions + 2 timeouts). Until the planner's resource model tracks
+        # tonnes, safety verdicts stay on the max-burn model; the game-accurate
+        # partial-throw cost (fuel_cost with boost_mult) is used for the
+        # DISPLAYED ledger in annotate_leg_fuel.
+        cost = min(params.fuel_cost(d, fuel), params.max_fuel_per_jump)
         if cost > fuel + 1e-9:
             stranded_at = i
             fuel_after.append(fuel - cost)
@@ -486,9 +497,13 @@ def enforce_fuel_safety(
         # companion in supercruise range (in-highway refuel, no divert jump).
         landing_scoop = is_refuel_landing(leg)
         if d > 1e-9:
-            mult = boost_mult if leg.get("type") == "boost" else 1.0
-            reach_now = params.jump_range(fuel) * mult
-            cost = min(params.fuel_cost(d, fuel, mult), maxf)
+            reach_now = params.jump_range(fuel) * (
+                boost_mult if leg.get("type") == "boost" else 1.0
+            )
+            # Conservative max-burn on boosted legs, matching simulate_fuel
+            # (see the note there): enforcement margins must agree with the
+            # planner's drain assumption, not the game-accurate partial burn.
+            cost = min(params.fuel_cost(d, fuel), maxf)
             breaks_margin = (not landing_scoop) and (fuel - cost) < reserve - 1e-9
             if d > reach_now + 1e-6 and unsafe_at is None:
                 # Over-range: unmakeable at this (heavy) fuel level; a scoop
@@ -522,7 +537,7 @@ def enforce_fuel_safety(
                         id64=cur["id64"], spectral=cur["spectral"],
                     ))
                     fuel -= min(params.fuel_cost(d2, fuel), maxf)
-                    cost = min(params.fuel_cost(d, fuel, mult), maxf)
+                    cost = min(params.fuel_cost(d, fuel), maxf)
                 else:
                     unsafe_at = len(out)  # no scoopable star in range
             fuel -= cost

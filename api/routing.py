@@ -756,13 +756,26 @@ def _graph_search(
     badzones: list[tuple[np.ndarray, float]],
     deadline: float,
     boost_mult: float = 4.0,
+    flip: bool = False,
 ) -> Optional[list[int]]:
     """Min-jumps A* over the corridor neutrons. Boost edges (<=``boost_mult``*J)
     cost 1; gap edges (fired only where no boost neighbor makes forward
     progress) and the tail/direct edges use the analytic supercharged cost.
     Returns the neutron sequence as GLOBAL index ids, or ``None``. ``blacklist``
     holds proven unbridgeable (from, to) edges (-1 = SRC, -2 = DST); ``badzones``
-    are (center, radius) spheres around proven-starless segments."""
+    are (center, radius) spheres around proven-starless segments.
+
+    ``flip`` = the caller runs this search REVERSED (dst->src) and will reverse
+    the sequence to realize. Supercharge is NOT direction-symmetric: a boost is
+    available when the FLOWN jump leaves a neutron. Flipped, the search's tail
+    edge (candidate u -> goal) is flown goal -> u leaving the PLAIN flown-source
+    system, so it must be costed UNBOOSTED (ceil(d/J)); pricing it as one
+    supercharged hop made the A* park ~a boost-reach short of the flown source
+    and dump a 6-7 jump regular crawl on the realizer (Blaa Eork -> Lave,
+    2026-11-21: 14 jumps vs spansh's 9, first neutron 56 ly away ignored).
+    Symmetrically the search's entry edges ARE flown boosted arrivals (leaving
+    neutron m into the flown destination), so flipped they cost the analytic
+    supercharged bridge instead of an unboosted one."""
 
     J = jump_range
     boost = boost_mult * J
@@ -833,15 +846,25 @@ def _graph_search(
                 )
                 if len(ms):
                     dms = np.linalg.norm(cc[ms] - sv, axis=1)
-                    costs = np.maximum(np.ceil(dms / J), 1).astype(np.int64)
+                    if flip:  # flown: boosted arrival leaving neutron m
+                        costs = np.asarray(
+                            [_boosted_jumps(float(dm), J, boost_mult)
+                             for dm in dms], dtype=np.int64)
+                    else:     # flown: plain departure from the source
+                        costs = np.maximum(np.ceil(dms / J), 1).astype(np.int64)
                     for m, dm, c in zip(ms, dms, costs):
                         relax(int(m), gg + int(c), float(dm), u)
             continue
         cu = cc[u]
         if (int(cand[u]), -2) not in blacklist and zone_ok(cu, dv):
+            tail_cost = (
+                max(int(math.ceil(float(dd_dst[u]) / J)), 1)  # flown: plain src
+                if flip
+                else _boosted_jumps(float(dd_dst[u]), J, boost_mult)
+            )
             relax(
                 DST,
-                gg + _boosted_jumps(float(dd_dst[u]), J, boost_mult),
+                gg + tail_cost,
                 gd[u] + float(dd_dst[u]),
                 u,
             )
@@ -924,6 +947,7 @@ def _graph_search_fuel(
     scoop_max_ls: float,
     boost_mult: float = 4.0,
     native_ok: bool = True,
+    flip: bool = False,
 ) -> Optional[list[int]]:
     """Fuel-aware variant of :func:`_graph_search`. Min-**jumps** over the
     corridor neutrons where a boosted hop burns one jump of fuel and landing on a
@@ -968,7 +992,10 @@ def _graph_search_fuel(
     # (kiddo vs scipy KD-tree), so a native coarse can seed a different corridor and
     # shift the B2 result +/-1. Keeping the coarse on Python preserves the corridor
     # and the no-regression guarantee; native still speeds the pure-B1 routes.
-    if _B1_NATIVE and native_ok and _native_route is not None:
+    # FLIPPED searches stay on Python: the native kernel still prices the tail
+    # edge as a supercharged hop, which is wrong reversed (see _graph_search's
+    # flip note); lift this gate when the crate mirrors the flip-aware costs.
+    if _B1_NATIVE and native_ok and not flip and _native_route is not None:
         try:
             return _native_graph_search_fuel(
                 index,
@@ -1083,7 +1110,11 @@ def _graph_search_fuel(
         tail: Optional[tuple[int, float]] = None
         if (int(cand[u]), -2) not in blacklist and zone_ok(cu, dv):
             tail = (
-                _boosted_jumps(float(dd_dst[u]), J, boost_mult),
+                # Flipped, the tail is flown FROM the plain source: unboosted
+                # (see _graph_search's flip note).
+                max(int(math.ceil(float(dd_dst[u]) / J)), 1)
+                if flip
+                else _boosted_jumps(float(dd_dst[u]), J, boost_mult),
                 float(dd_dst[u]),
             )
         hit = (ms, dm, scoop, gap_edges, tail)
@@ -1148,8 +1179,12 @@ def _graph_search_fuel(
                     ):
                         continue
                     dm = float(np.linalg.norm(cc[m] - sv))
-                    # Entry is a scoop-safe regular bridge: arrive refuelled.
-                    relax(m, gg + max(int(math.ceil(dm / J)), 1), 0, dm, lab)
+                    # Entry is a scoop-safe bridge: arrive refuelled. Flipped,
+                    # it is the flown boosted ARRIVAL (leaving neutron m into
+                    # the flown destination), so cost the supercharged bridge.
+                    ec = (_boosted_jumps(dm, J, boost_mult) if flip
+                          else max(int(math.ceil(dm / J)), 1))
+                    relax(m, gg + ec, 0, dm, lab)
             continue
         r = lab.r
         ms, dm, scoop, gap_edges, tail = node_edges(u)
@@ -2093,6 +2128,7 @@ def graph_route(
                     int(tank_jumps),
                     float(scoop_max_ls),
                     boost_mult=boost_mult,
+                    flip=flip,
                 )
                 if seq is None:
                     seq = _graph_search(
@@ -2107,6 +2143,7 @@ def graph_route(
                         badzones,
                         d,
                         boost_mult=boost_mult,
+                        flip=flip,
                     )
             else:
                 seq = _graph_search(
@@ -2121,6 +2158,7 @@ def graph_route(
                     badzones,
                     d,
                     boost_mult=boost_mult,
+                    flip=flip,
                 )
             if seq is None:
                 return None
@@ -2213,6 +2251,7 @@ def graph_route(
             boost_mult=boost_mult,
             # Keep the B2 corridor seed on Python: see _graph_search_fuel native note.
             native_ok=False,
+            flip=flip,
         )
         if coarse:
             b1seq = list(reversed(coarse)) if flip else coarse
