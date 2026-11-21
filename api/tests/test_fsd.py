@@ -203,7 +203,7 @@ def _scoop_fetch(offset=20.0):
 
 def test_enforce_fuel_safety_breaks_a_stranding_neutron_chain():
     p = fsd.parse_loadout(COBRA_SLEF)  # ~10-jump tank
-    legs, dst = _neutron_chain(20)
+    legs, dst = _neutron_chain(20, step=230.0)  # full-throw boosts: ~2.9 t each
     # Baseline: the raw chain strands.
     assert fsd.simulate_fuel(legs, p)["stranded_at"] is not None
     new_legs, info = fsd.enforce_fuel_safety(
@@ -231,7 +231,7 @@ def test_enforce_fuel_safety_leaves_safe_routes_unchanged():
 
 def test_enforce_fuel_safety_flags_unsafe_when_no_scoopable_in_range():
     p = fsd.parse_loadout(COBRA_SLEF)
-    legs, dst = _neutron_chain(20)
+    legs, dst = _neutron_chain(20, step=230.0)
     no_scoop = lambda pos, radius: []  # sparse space: nothing scoopable
     new_legs, info = fsd.enforce_fuel_safety(
         legs, (0.0, 0.0, 0.0), dst, p, no_scoop, src_name="Start"
@@ -243,7 +243,7 @@ def test_enforce_fuel_safety_flags_unsafe_when_no_scoopable_in_range():
 
 def test_enforce_fuel_safety_respects_permit_lock():
     p = fsd.parse_loadout(COBRA_SLEF)
-    legs, dst = _neutron_chain(20)
+    legs, dst = _neutron_chain(20, step=230.0)
     # Only scoopable candidate is locked -> can't use it -> unsafe.
     locked = lambda name: name == "ScoopK"
     new_legs, info = fsd.enforce_fuel_safety(
@@ -350,6 +350,26 @@ def test_annotate_leg_fuel_scoops_only_when_needed():
     assert 6 in refuels
     # The tank never shows a dry/negative value where we claimed it was safe.
     assert all(lg["fuel_in_tank"] >= -1e-6 for lg in legs)
+
+
+def test_boosted_fuel_cost_matches_spansh_ledger():
+    # Game-accurate boosted burn: supercharge divides the throw, the Guardian
+    # booster's share is fuel-free proportionally (optimal-mass scaling).
+    # Reference values are spansh's exact-plotter per-row ledger for the live
+    # Caspian TH-10E (sol-beagle beam run, 2026-11-21), reproduced to ~0.01 t.
+    loadout = (pathlib.Path(__file__).parent
+               / "benchmarks/loadouts/caspian_th10e.json").read_text()
+    p = fsd.parse_loadout(loadout)
+    assert p is not None and p.range_boost == 10.5
+    # 297.0 ly boosted hop at 145.0 t in the tank -> 2.00 t (was billed 6.8).
+    assert abs(p.fuel_cost(297.0, 145.0, 6.0) - 2.00) < 0.05
+    # 143.8 ly boosted hop at 103.7 t -> 0.30 t.
+    assert abs(p.fuel_cost(143.8, 103.7, 6.0) - 0.30) < 0.05
+    # A full-throw boosted hop still burns the max_fuel_per_jump cap.
+    assert min(p.fuel_cost(529.3, 20.0, 6.0), p.max_fuel_per_jump) == p.max_fuel_per_jump
+    # Default (no mult) keeps the normal-jump model: near-max jump ~= cap.
+    near_max = p.jump_range(p.tank_size) - 0.5
+    assert p.fuel_cost(near_max, p.tank_size) > p.max_fuel_per_jump * 0.9
 
 
 def test_to_slef_wraps_bare_journal_loadout():

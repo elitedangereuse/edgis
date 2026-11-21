@@ -9,9 +9,13 @@ reserve tank's fuel is not part of the jump mass (the game excludes it):
                   * (max_fuel_per_jump / fuel_multiplier) ** (1 / fuel_power)
                   + range_boost                       # Guardian FSD booster (flat)
 
-    fuel_cost(d, fuel) = fuel_multiplier
-                  * ((max(0, d - range_boost) * (base_mass + fuel)) / optimal_mass)
-                    ** fuel_power                      # capped at max_fuel_per_jump
+    fuel_cost(d, fuel, mult) = fuel_multiplier
+                  * ((d_eff * (base_mass + fuel)) / optimal_mass) ** fuel_power
+    d_eff = d / mult * R / (R + range_boost)           # capped at max_fuel_per_jump
+    # mult = supercharge multiplier on boosted legs (1 otherwise); R = raw FSD
+    # range at this mass WITHOUT the booster. The booster scales optimal mass,
+    # so its share of any jump is fuel-free proportionally (EDSY/spansh-exact
+    # convention, ledger-verified 2026-11-21).
 
 Base FSD constants (fuelmul, fuelpower, maxfuel, optmass) are the Coriolis module
 table extracted from spansh's exact-plotter bundle; Guardian FSD booster boosts
@@ -123,10 +127,27 @@ class FuelParams:
                 ** (1.0 / self.fuel_power))
         return base + self.range_boost
 
-    def fuel_cost(self, dist: float, fuel: float) -> float:
-        """Fuel (tons) to jump ``dist`` ly at this fuel level (uncapped)."""
+    def fuel_cost(self, dist: float, fuel: float,
+                  boost_mult: float = 1.0) -> float:
+        """Fuel (tons) to jump ``dist`` ly at this fuel level (uncapped).
+
+        Game-accurate (matches EDSY and spansh's exact-plotter ledger, verified
+        to ~0.01 t on live results 2026-11-21): a neutron/WD supercharge
+        multiplies the whole throw, so the FSD is charged for ``dist /
+        boost_mult``; the Guardian booster scales optimal mass, so its share of
+        any jump is fuel-free PROPORTIONALLY (``d * R / (R + boost)`` with R
+        the raw FSD range at this mass), not as a flat subtraction. The old
+        flat ``d - range_boost`` model overcharged partial-throw boosted hops
+        to the ``max_fuel_per_jump`` cap (a 144 ly boosted hop billed 6.8 t
+        instead of 0.3 t), which made the fuel layer refuel far too early."""
         mass = self.base_mass + self.cargo + max(0.0, fuel)
-        d = max(0.0, dist - self.range_boost)
+        d = max(0.0, dist) / max(1.0, boost_mult)
+        if self.range_boost > 0.0:
+            base = (self.optimal_mass / mass
+                    * (self.max_fuel_per_jump / self.fuel_multiplier)
+                    ** (1.0 / self.fuel_power))
+            if base > 0.0:
+                d *= base / (base + self.range_boost)
         return self.fuel_multiplier * ((d * mass) / self.optimal_mass) ** self.fuel_power
 
     def max_range_full(self) -> float:
@@ -352,12 +373,11 @@ def simulate_fuel(jumps, params: "FuelParams", start_fuel: Optional[float] = Non
         if d <= 1e-9:
             fuel_after.append(fuel)
             continue
-        reach = params.jump_range(fuel) * (
-            boost_mult if j.get("type") == "boost" else 1.0
-        )
+        mult = boost_mult if j.get("type") == "boost" else 1.0
+        reach = params.jump_range(fuel) * mult
         if d > reach + 1e-6 and over_range_at is None:
             over_range_at = i  # unreachable at this fuel level (too heavy)
-        cost = min(params.fuel_cost(d, fuel), params.max_fuel_per_jump)
+        cost = min(params.fuel_cost(d, fuel, mult), params.max_fuel_per_jump)
         if cost > fuel + 1e-9:
             stranded_at = i
             fuel_after.append(fuel - cost)
@@ -466,10 +486,9 @@ def enforce_fuel_safety(
         # companion in supercruise range (in-highway refuel, no divert jump).
         landing_scoop = is_refuel_landing(leg)
         if d > 1e-9:
-            reach_now = params.jump_range(fuel) * (
-                boost_mult if leg.get("type") == "boost" else 1.0
-            )
-            cost = min(params.fuel_cost(d, fuel), maxf)
+            mult = boost_mult if leg.get("type") == "boost" else 1.0
+            reach_now = params.jump_range(fuel) * mult
+            cost = min(params.fuel_cost(d, fuel, mult), maxf)
             breaks_margin = (not landing_scoop) and (fuel - cost) < reserve - 1e-9
             if d > reach_now + 1e-6 and unsafe_at is None:
                 # Over-range: unmakeable at this (heavy) fuel level; a scoop
@@ -503,7 +522,7 @@ def enforce_fuel_safety(
                         id64=cur["id64"], spectral=cur["spectral"],
                     ))
                     fuel -= min(params.fuel_cost(d2, fuel), maxf)
-                    cost = min(params.fuel_cost(d, fuel), maxf)
+                    cost = min(params.fuel_cost(d, fuel, mult), maxf)
                 else:
                     unsafe_at = len(out)  # no scoopable star in range
             fuel -= cost
@@ -601,7 +620,7 @@ def fuel_report(jumps, params: "FuelParams", start_fuel: Optional[float] = None,
 
 
 def _scoop_needed(legs, i: int, fuel: float, params: "FuelParams",
-                  maxf: float, landing) -> bool:
+                  maxf: float, landing, boost_mult: float = 4.0) -> bool:
     """From a scoopable landing ``i`` holding ``fuel`` (after that leg's burn),
     decide whether the commander actually has to top up here. The answer is no
     when the current fuel reaches the NEXT scoopable landing (or the route's end)
@@ -613,7 +632,8 @@ def _scoop_needed(legs, i: int, fuel: float, params: "FuelParams",
         d = float(legs[k].get("distance_jumped", 0.0) or 0.0)
         if d <= 1e-9:
             continue
-        cost = min(params.fuel_cost(d, f), maxf)
+        mult = boost_mult if legs[k].get("type") == "boost" else 1.0
+        cost = min(params.fuel_cost(d, f, mult), maxf)
         if cost > f + 1e-9:
             return True              # would run dry before the next refuel
         f -= cost
@@ -641,12 +661,14 @@ def annotate_leg_fuel(legs, params: "FuelParams", start_fuel: Optional[float] = 
         d = float(leg.get("distance_jumped", 0.0) or 0.0)
         used = 0.0
         if d > 1e-9:
-            used = min(params.fuel_cost(d, fuel), maxf)
+            mult = boost_mult if leg.get("type") == "boost" else 1.0
+            used = min(params.fuel_cost(d, fuel, mult), maxf)
             fuel = max(0.0, fuel - used)
         refueled = False
         # Top up only when this scoopable landing is actually needed to carry on
         # (the source, d == 0, is already full).
-        if d > 1e-9 and landing[i] and _scoop_needed(legs, i, fuel, params, maxf, landing):
+        if d > 1e-9 and landing[i] and _scoop_needed(legs, i, fuel, params, maxf,
+                                                     landing, boost_mult):
             fuel = params.tank_size
             refueled = True
         leg["fuel_used"] = round(used, 6)

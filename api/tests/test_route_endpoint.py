@@ -666,16 +666,16 @@ def test_route_post_inserts_scoop_stops(monkeypatch):
 
     def fake_solve(src, dst, jump_range, beam_width, boost_mult=4.0, companion_max_ls=0.0, inject_mult=1.0, tank_jumps=0, scoop_max_ls=0.0, reach_by_r=None):
         legs, x = [], 0.0
-        for i in range(20):  # 20 neutron boosts -> strands a ~10-jump tank
-            x += 60.0
+        for i in range(20):  # 20 FULL-THROW boosts (~2.9 t each) -> strands
+            x += 230.0       # the ~32 t tank (short boosted hops are nearly
             legs.append({"system": f"N{i}", "id64": None, "x": x, "y": 0.0,
                          "z": 0.0, "spectral": "N", "type": "boost",
-                         "neutron_star": True, "distance_jumped": 60.0,
-                         "distance_left": 1200.0 - x})
+                         "neutron_star": True, "distance_jumped": 230.0,
+                         "distance_left": 4600.0 - x})
         return {
             "jump_range": jump_range, "boost_range": 4 * jump_range,
-            "straight_line_ly": 1200.0, "total_jumps": 20, "neutron_jumps": 20,
-            "bridge_jumps": 0, "total_distance_ly": 1200.0, "efficiency": 1.0,
+            "straight_line_ly": 4600.0, "total_jumps": 20, "neutron_jumps": 20,
+            "bridge_jumps": 0, "total_distance_ly": 4600.0, "efficiency": 1.0,
             "beam_width": 3, "solve_ms": 1.0, "jumps": legs,
         }
 
@@ -744,17 +744,17 @@ def test_route_post_fuel_reserve_replan_on_strand(monkeypatch):
         if len(seen_tanks) == 1:
             # Full-tank plan: a 20-boost neutron chain that strands the tank.
             legs, x = [], 0.0
-            for i in range(20):
-                x += 60.0
+            for i in range(20):  # full-throw boosts: ~2.9 t each -> strands
+                x += 230.0
                 legs.append({"system": f"N{i}", "id64": None, "x": x, "y": 0.0,
                              "z": 0.0, "spectral": "N", "type": "boost",
-                             "neutron_star": True, "distance_jumped": 60.0,
-                             "distance_left": 1200.0 - x})
+                             "neutron_star": True, "distance_jumped": 230.0,
+                             "distance_left": 4600.0 - x})
             return {
                 "jump_range": jump_range, "boost_range": 4 * jump_range,
-                "straight_line_ly": 1200.0, "total_jumps": 20,
+                "straight_line_ly": 4600.0, "total_jumps": 20,
                 "neutron_jumps": 20, "bridge_jumps": 0,
-                "total_distance_ly": 1200.0, "efficiency": 1.0,
+                "total_distance_ly": 4600.0, "efficiency": 1.0,
                 "beam_width": 3, "solve_ms": 1.0, "jumps": legs,
             }
         # Reserve re-plan (tank_jumps - 1): a short route the tank covers dry.
