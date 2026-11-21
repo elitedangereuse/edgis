@@ -243,10 +243,18 @@
 /* In-system scoop (neutron with a scoopable companion): green fuel-pump (the
    scooping colour), help cursor shows the companion distance tooltip. */
 #panel-route .inflight-scoop { display:inline-flex; cursor:help; }
+#panel-route .scoop-pump { display:inline-flex; cursor:help; }
+/* Scoopable but the plan SKIPS it (refuelling would add mass and shorten the
+   jumps): dim grey pump = don't scoop here; the tooltip names the next planned
+   refuel. Green stays the "scoop here" colour. */
+#panel-route .scoop-skip { display:inline-flex; cursor:help; }
+#panel-route .scoop-skip .fuel { color:#6b7280; opacity:.55; }
 /* Companion-neutron arrival distance ("@120 Ls"): muted neutron-blue, help cursor. */
 #panel-route .arrls { color:var(--neutron); opacity:.8; font-size:11px; cursor:help; white-space:nowrap; }
-/* In-system scoop distance reuses .arrls but in the fuel (green) colour. */
+/* In-system scoop distance reuses .arrls but in the fuel (green) colour; grey
+   when that scoop is a planned skip. */
 #panel-route .arrls.scoop-ls { color:var(--ok); }
+#panel-route .arrls.scoop-ls.skip { color:#6b7280; opacity:.7; }
 /* Fuel column: tank level after the jump; green where the tank was topped up. */
 #panel-route .result-table td.refuel { color:var(--ok); font-weight:600; }
 /* Fuel-tank gauge in the fuel column: inline-block (tailwind's preflight makes

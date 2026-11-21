@@ -623,12 +623,30 @@ function starName(s) {
 // map to their base letter, e.g. A_BlueWhiteSuperGiant -> "A" -> scoopable;
 // Ae/Be, DQ, N, etc. are not).
 function scoopable(s) { return /^[KGBFOAM]$/.test(starShort(s)); }
-function inflightScoopMarker(ls) {
-  const t = (ls != null)
+// Scoop-plan state of a leg: on a fuel-aware route a scoopable landing is
+// either a PLANNED refuel (must_refuel: top up here) or a deliberate SKIP
+// (refuelling would add mass and shorten the jumps -- issue #165's second
+// half: the green pump must not invite a scoop the plan avoids). Without a
+// ship (no fuel data) there is no plan, so markers stay neutral green.
+function scoopPlan(j) {
+  if (j.fuel_in_tank == null) return "";                  // ship-less: no plan
+  return j.must_refuel ? "planned" : "skip";
+}
+function scoopTitle(base, plan, nextRefuel) {
+  if (plan === "planned") return `${base} - REFUEL HERE (planned): top up to full`;
+  if (plan === "skip") {
+    return `${base} - do NOT scoop here: the plan carries enough fuel, and a `
+      + `heavier tank jumps shorter`
+      + (nextRefuel ? `. Next planned refuel: ${nextRefuel}` : "");
+  }
+  return base;
+}
+function inflightScoopMarker(ls, plan, nextRefuel) {
+  const base = (ls != null)
     ? `In-system scoop: scoopable companion ~${fmt(ls, 0)} Ls (refuel without leaving the route)`
     : "In-system scoop (scoopable companion star)";
-  // Green fuel-pump (the scooping colour), same as a primary scoopable star.
-  return `<span class="inflight-scoop" title="${escapeHtml(t)}">${FUEL}</span>`;
+  // Green fuel-pump = scoop here; dimmed grey pump = scoopable but skip it.
+  return `<span class="inflight-scoop${plan === "skip" ? " scoop-skip" : ""}" title="${escapeHtml(scoopTitle(base, plan, nextRefuel))}">${FUEL}</span>`;
 }
 function spectralCell(j) {
   if (!j.spectral) return "";
@@ -641,10 +659,15 @@ function spectralCell(j) {
   const primClass = compNeutron ? j.primary_spectral : j.spectral;
   const primIsNeutron = j.neutron_star && !compNeutron;   // the main star itself is the neutron
   const primScoopable = scoopable(primClass);
+  const plan = scoopPlan(j);
   const primLetter = `<span class="spec${primIsNeutron ? " neutron" : ""}" title="${escapeHtml(starName(primClass))}">${escapeHtml(starShort(primClass))}</span>`;
-  const primPump = primScoopable ? ` ${FUEL}` : "";       // scoopable arrival star -> green pump
+  // Scoopable arrival star -> pump: green when the plan scoops here (or no
+  // ship), dimmed when the plan says keep flying light.
+  const primPump = primScoopable
+    ? ` <span class="${plan === "skip" ? "scoop-skip" : "scoop-pump"}" title="${escapeHtml(scoopTitle("Scoopable arrival star", plan, j.next_refuel))}">${FUEL}</span>`
+    : "";
   const arrLs = (ls) => ` <span class="arrls" title="Companion neutron ${escapeHtml(fmt(ls, 0))} Ls from arrival (supercruise to it, then supercharge)">@${escapeHtml(fmt(ls, 0))} Ls</span>`;
-  const scoopLsTag = (ls) => ` <span class="arrls scoop-ls" title="In-system scoop: scoopable companion ${escapeHtml(fmt(ls, 0))} Ls from arrival (refuel without leaving the route)">@${escapeHtml(fmt(ls, 0))} Ls</span>`;
+  const scoopLsTag = (ls) => ` <span class="arrls scoop-ls${plan === "skip" ? " skip" : ""}" title="${escapeHtml(scoopTitle(`In-system scoop: scoopable companion ${fmt(ls, 0)} Ls from arrival (refuel without leaving the route)`, plan, j.next_refuel))}">@${escapeHtml(fmt(ls, 0))} Ls</span>`;
   // Companion on the right.
   let comp = "";
   if (compNeutron) {                                      // the neutron is the companion
@@ -652,10 +675,21 @@ function spectralCell(j) {
   } else if (j.neutron_star && j.arrival_ls > 0) {        // fallback (no primary_spectral): keep the note
     comp = arrLs(j.arrival_ls);
   }
-  if (!primScoopable && j.inflight_scoop && j.scoop_ls != null) {  // a scoopable companion (green)
-    comp += ` ${inflightScoopMarker(j.scoop_ls)}${j.scoop_ls > 0 ? scoopLsTag(j.scoop_ls) : ""}`;
+  if (!primScoopable && j.inflight_scoop && j.scoop_ls != null) {  // a scoopable companion
+    comp += ` ${inflightScoopMarker(j.scoop_ls, plan, j.next_refuel)}${j.scoop_ls > 0 ? scoopLsTag(j.scoop_ls) : ""}`;
   }
   return `<span class="starcell">${primLetter}${primPump}${comp}</span>`;
+}
+// next_refuel per leg: the system of the FIRST planned refuel strictly after
+// each leg, for the "don't scoop here, wait for X" tooltips.
+function nextRefuelNames(jumps) {
+  const out = new Array(jumps.length);
+  let carry = null;
+  for (let i = jumps.length - 1; i >= 0; i--) {
+    out[i] = carry;
+    if (jumps[i] && jumps[i].must_refuel) carry = jumps[i].system;
+  }
+  return out;
 }
 function legLabel(j, last) {
   if (last) return "arrive";
@@ -724,6 +758,8 @@ function compactRows(r) {
                  primary_spectral: j.primary_spectral,
                  jumps, ly, left: j.distance_left, neutron: j.neutron_star, dest: last,
                  inflight_scoop: j.inflight_scoop, scoop_ls: j.scoop_ls, arrival_ls: j.arrival_ls,
+                 // scoop-plan state for the pump marker (planned vs skip)
+                 must_refuel: j.must_refuel, fuel_in_tank: j.fuel_in_tank,
                  x: j.x, y: j.y, z: j.z, i0: start, i1: i });  // i0..i1 = this leg group
       jumps = 0; ly = 0; start = i + 1;
     }
@@ -1380,8 +1416,10 @@ function renderRoute(r) {
     // or in-flight-companion star still shows its green pump in the system cell,
     // but we don't tell the commander to stop there when the tank doesn't need it.
     const refuel = !!j.must_refuel;
-    return `<td class="num fuelcell${refuel ? " refuel" : ""}"${refuel ? ` title="Tank topped up here"` : ""}>${v.toFixed(1)}${fuelTank(v, tankMax)}</td>`;
+    return `<td class="num fuelcell${refuel ? " refuel" : ""}"${refuel ? ` title="Refuel here (planned): top up to full"` : ""}>${v.toFixed(1)}${fuelTank(v, tankMax)}</td>`;
   };
+  // "Don't scoop here, wait for X" tooltips name the next planned refuel.
+  const nextRef = nextRefuelNames(r.jumps);
   if (compactMode) {
     const wps = compactRows(r);
     header = `<th class="chk-head" title="Done"></th><th class="num">#</th><th>system</th><th>star</th><th class="num">jumps</th><th class="num">LY</th><th class="num">left</th>${fuelHead}<th class="acts-head">actions</th>`;
@@ -1392,7 +1430,7 @@ function renderRoute(r) {
       ${doneBox(cname)}
       <td class="num">${i + 1}</td>
       <td class="sys ${w.neutron ? "boost" : ""}">${copyBtn(cname)}${sysName(w.system)}${injectBadge(injectInRange(r, w.i0, w.i1))}${riskBadge(risk)}</td>
-      <td>${epWrap(w.dest ? toMarker : "", spectralCell({ spectral: w.spectral, primary_spectral: w.primary_spectral, neutron_star: w.neutron, inflight_scoop: w.inflight_scoop, scoop_ls: w.scoop_ls, arrival_ls: w.arrival_ls }))}</td>
+      <td>${epWrap(w.dest ? toMarker : "", spectralCell({ spectral: w.spectral, primary_spectral: w.primary_spectral, neutron_star: w.neutron, inflight_scoop: w.inflight_scoop, scoop_ls: w.scoop_ls, arrival_ls: w.arrival_ls, must_refuel: w.must_refuel, fuel_in_tank: w.fuel_in_tank, next_refuel: nextRef[w.i1] }))}</td>
       <td class="num">${fmt(w.jumps)}</td>
       <td class="num">${fmt(w.ly, 0)}</td>
       <td class="num">${fmt(w.left, 0)}</td>
@@ -1411,7 +1449,7 @@ function renderRoute(r) {
       ${doneBox(name)}
       <td class="num">${i + 1}</td>
       <td class="sys ${j.neutron_star ? "boost" : ""}">${copyBtn(j.system ?? r.destination)}${sysName(name)}${injectBadge(j.inject_grade)}${riskBadge(risk)}</td>
-      <td>${epWrap(last ? toMarker : "", spectralCell(j))}</td>
+      <td>${epWrap(last ? toMarker : "", spectralCell({ ...j, next_refuel: nextRef[i] }))}</td>
       <td class="num">${fmt(j.distance_jumped, 1)}</td>
       <td class="num">${fmt(j.distance_left, 0)}</td>
       ${fuelCell(j)}
