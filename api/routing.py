@@ -1343,6 +1343,8 @@ def _graph_search_range(
     reach_by_r: np.ndarray,
     scoop_max_ls: float,
     boost_mult: float = 4.0,
+    heur_weight: float = 1.0,
+    beam_width: int = 0,
 ) -> Optional[list[int]]:
     """B2 = fuel-aware search (B1's scoopable-neutron threading) PLUS range growth:
     a ship's jump range grows as the tank empties, so a boost hop made at resource
@@ -1377,7 +1379,9 @@ def _graph_search_range(
 
     # Native kernel: identical min-jumps result, ~3x faster. Pure (no shared state),
     # so on any marshalling error we warn once and fall through to the Python loop.
-    if _native_route is not None:
+    # Skipped under a heuristic weight (A1): the Rust kernel has no weight param, so
+    # a weighted (greedy, anytime) search must run on the Python loop below.
+    if _native_route is not None and heur_weight == 1.0 and beam_width == 0:
         try:
             return _native_graph_search_range(
                 index,
@@ -1497,7 +1501,10 @@ def _graph_search_range(
 
     def push(node: int, g: int, r: int, d: float) -> None:
         nonlocal order
-        h = 0 if node >= n else int(hv[node])
+        # A1: inflating the heuristic (heur_weight > 1) makes A* greedier so it
+        # finishes on a wide corridor where admissible A* would time out; the route
+        # is then within heur_weight x optimal (still min-guarded by the caller).
+        h = 0 if node >= n else int(heur_weight * hv[node])
         heapq.heappush(pq, (g + h, g, d, order, node, r))
         order += 1
 
@@ -1514,6 +1521,13 @@ def _graph_search_range(
     push(SRC, 0, 0, 0.0)
     dst_r: Optional[int] = None
     while pq:
+        # A1 beam: cap the frontier to the beam_width best (lowest f) states so the
+        # search does BOUNDED work over a huge wide-corridor candidate set (what
+        # makes anytime width-doubling tractable, vs weighted A* which bounds only
+        # suboptimality). Prune with 2x hysteresis so it is amortised, not per-push.
+        if beam_width and len(pq) > 2 * beam_width:
+            pq = heapq.nsmallest(beam_width, pq)
+            heapq.heapify(pq)
         _, g, cd, _, u, r = heapq.heappop(pq)
         if u == DST:
             dst_r = r
@@ -1973,6 +1987,23 @@ _B2_MAX_LY = float(_os.environ.get("EDGIS_B2_MAX_LY") or "100000")
 # realizing their long B1 path would roughly double realization time for nothing.
 _B2_BASELINE_MAX_LY = float(_os.environ.get("EDGIS_B2_BASELINE_MAX_LY") or "8000")
 
+# --- A1: anytime weighted-A* pass over a WIDE corridor (flag-gated spike) -------
+# The thin-corridor B2 returns the OPTIMAL min-jumps route WITHIN its tube, but a
+# wider corridor's optimum is strictly better (it contains beam's off-axis long-hop
+# neutrons) -- plain A* just times out on it. Weighted A* (heuristic x W>1) is
+# greedier, so it FINISHES on a wide corridor and returns a bounded-suboptimal route
+# that considers the off-axis neutrons the thin tube hides. Fed to the same
+# min-guard, so it can only help. Env-tunable for staging A/B; default OFF.
+_A1_ENABLED = _os.environ.get("EDGIS_A1") == "1"
+_A1_WEIGHT = float(_os.environ.get("EDGIS_A1_WEIGHT") or "3")
+_A1_TIME_BUDGET = float(_os.environ.get("EDGIS_A1_TIME_BUDGET") or "30")
+# Beam frontier cap (0 = off = plain/weighted A*). A bounded frontier makes the
+# wide-corridor search do bounded work, the key to anytime width-doubling.
+_A1_BEAM = int(_os.environ.get("EDGIS_A1_BEAM") or "0")
+# 0 = reuse the full corridor already collected (corridor_ly, ~700); set higher to
+# reach beam's off-axis band (Beagle neutrons sit ~972 ly off the geodesic).
+_A1_CORRIDOR_LY = float(_os.environ.get("EDGIS_A1_CORRIDOR_LY") or "0")
+
 
 def _thin_corridor(
     index: NeutronIndex, seq_ids: list[int], radius: float
@@ -2102,6 +2133,8 @@ def graph_route(
         cand_set: Optional[np.ndarray] = None,
         range_search: bool = False,
         dl: Optional[float] = None,
+        heur_weight: float = 1.0,
+        beam_width: int = 0,
     ) -> Optional[dict]:
         """Run the A* + realization rounds in one orientation over ``cand_set``
         (default the full corridor). When ``flip`` is set the search runs dst->src
@@ -2142,6 +2175,8 @@ def graph_route(
                     _rbr,
                     float(scoop_max_ls),
                     boost_mult=boost_mult,
+                    heur_weight=heur_weight,
+                    beam_width=beam_width,
                 )
             elif use_fuel:
                 # B1: fuel-aware threading at the fixed full-tank reach; fall back
@@ -2366,8 +2401,32 @@ def graph_route(
                 b2_dl = min(deadline, time.perf_counter() + b2_budget)
                 b2_res = _solve(False, cand_set=tc, range_search=True, dl=b2_dl)
 
-            # Keep the fewer-jumps realized route (B2 only when it actually wins).
-            cands = [r for r in (b1_res, b2_res) if r is not None]
+            # A1 (flag-gated): an anytime weighted-A* range search over the WIDE
+            # corridor. The thin-corridor B2 is optimal only inside its tube; A1
+            # trades optimality for the ability to FINISH on the wide corridor and
+            # pick up beam's off-axis long-hop neutrons. Min-guarded below, so it
+            # only ever helps. Runs on Python (weighted => no native kernel), hence
+            # the separate time budget.
+            a1_res = None
+            if _A1_ENABLED and time.perf_counter() < deadline:
+                a1_cand = cand
+                if _A1_CORRIDOR_LY > corridor_ly:
+                    a1_cand = _filter(
+                        _corridor_candidates(
+                            index, sv, dv, _A1_CORRIDOR_LY, entry_r
+                        )
+                    )
+                if len(a1_cand):
+                    a1_dl = min(
+                        deadline, time.perf_counter() + _A1_TIME_BUDGET
+                    )
+                    a1_res = _solve(
+                        False, cand_set=a1_cand, range_search=True,
+                        dl=a1_dl, heur_weight=_A1_WEIGHT, beam_width=_A1_BEAM,
+                    )
+
+            # Keep the fewer-jumps realized route (B2/A1 only when they actually win).
+            cands = [r for r in (b1_res, b2_res, a1_res) if r is not None]
             if cands:
                 return min(cands, key=lambda r: r["total_jumps"])
             # B2 missed and we skipped the baseline (long route): realize the
