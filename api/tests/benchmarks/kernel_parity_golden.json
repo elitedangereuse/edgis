@@ -1,0 +1,56 @@
+[
+{
+"case": "s1n200",
+"fuel_g": 9,
+"fuel_len_nat": 6,
+"fuel_len_py": 6,
+"range_g": 8,
+"range_len_nat": 6,
+"range_len_py": 6
+},
+{
+"case": "s2n500",
+"fuel_g": 17,
+"fuel_len_nat": 11,
+"fuel_len_py": 11,
+"range_g": 17,
+"range_len_nat": 11,
+"range_len_py": 11
+},
+{
+"case": "s3n1000",
+"fuel_g": 27,
+"fuel_len_nat": 20,
+"fuel_len_py": 20,
+"range_g": 27,
+"range_len_nat": 21,
+"range_len_py": 21
+},
+{
+"case": "s4n2000",
+"fuel_g": 109,
+"fuel_len_nat": null,
+"fuel_len_py": null,
+"range_g": 109,
+"range_len_nat": null,
+"range_len_py": null
+},
+{
+"case": "s5n300",
+"fuel_g": 18,
+"fuel_len_nat": 11,
+"fuel_len_py": 11,
+"range_g": 19,
+"range_len_nat": 14,
+"range_len_py": 14
+},
+{
+"case": "s6n800",
+"fuel_g": 60,
+"fuel_len_nat": null,
+"fuel_len_py": null,
+"range_g": 60,
+"range_len_nat": null,
+"range_len_py": null
+}
+]
