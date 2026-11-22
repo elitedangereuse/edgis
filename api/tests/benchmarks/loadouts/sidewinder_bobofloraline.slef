@@ -1,0 +1,564 @@
+[{
+    "header": {
+        "appName": "EDMarketConnector",
+        "appVersion": "6.1.2+b7758a6"
+    },
+    "data": {
+        "FuelCapacity": {
+            "Main": 4.0,
+            "Reserve": 0.3
+        },
+        "Ship": "sidewinder",
+        "ShipName": "Le Seul",
+        "ShipIdent": "AN-17S",
+        "HullValue": 3903,
+        "ModulesValue": 1301702,
+        "Rebuy": 65282,
+        "MaxJumpRange": 52.43325,
+        "UnladenMass": 32.395,
+        "CargoCapacity": 2,
+        "Modules": [
+            {
+                "Slot": "TinyHardpoint1",
+                "Item": "hpt_heatsinklauncher_turret_tiny",
+                "On": true,
+                "Priority": 0,
+                "AmmoInClip": 1,
+                "AmmoInHopper": 2,
+                "Health": 1.0,
+                "Value": 2975,
+                "Engineering": {
+                    "Engineer": "Ram Tah",
+                    "EngineerID": 300110,
+                    "BlueprintID": 128731475,
+                    "BlueprintName": "Misc_LightWeight",
+                    "Level": 5,
+                    "Quality": 1.0,
+                    "Modifiers": [
+                        {
+                            "Label": "Mass",
+                            "Value": 0.195,
+                            "OriginalValue": 1.3,
+                            "LessIsGood": 1
+                        },
+                        {
+                            "Label": "Integrity",
+                            "Value": 22.5,
+                            "OriginalValue": 45.0,
+                            "LessIsGood": 0
+                        }
+                    ]
+                }
+            },
+            {
+                "Slot": "Armour",
+                "Item": "sidewinder_armour_grade1",
+                "On": true,
+                "Priority": 1,
+                "Health": 1.0
+            },
+            {
+                "Slot": "PaintJob",
+                "Item": "paintjob_sidewinder_doublestripe_08",
+                "On": true,
+                "Priority": 1,
+                "Health": 1.0
+            },
+            {
+                "Slot": "PowerPlant",
+                "Item": "int_powerplant_size2_class2",
+                "On": true,
+                "Priority": 1,
+                "Health": 1.0,
+                "Value": 5042,
+                "Engineering": {
+                    "Engineer": "Felicity Farseer",
+                    "EngineerID": 300100,
+                    "BlueprintID": 128673765,
+                    "BlueprintName": "PowerPlant_Boosted",
+                    "Level": 1,
+                    "Quality": 1.0,
+                    "ExperimentalEffect": "special_powerplant_lightweight",
+                    "ExperimentalEffect_Localised": "D\u00e9sossage",
+                    "Modifiers": [
+                        {
+                            "Label": "Mass",
+                            "Value": 0.9,
+                            "OriginalValue": 1.0,
+                            "LessIsGood": 1
+                        },
+                        {
+                            "Label": "Integrity",
+                            "Value": 38.950001,
+                            "OriginalValue": 41.0,
+                            "LessIsGood": 0
+                        },
+                        {
+                            "Label": "PowerCapacity",
+                            "Value": 8.064,
+                            "OriginalValue": 7.2,
+                            "LessIsGood": 0
+                        },
+                        {
+                            "Label": "HeatEfficiency",
+                            "Value": 0.7875,
+                            "OriginalValue": 0.75,
+                            "LessIsGood": 1
+                        }
+                    ]
+                }
+            },
+            {
+                "Slot": "MainEngines",
+                "Item": "int_engine_size2_class2",
+                "On": true,
+                "Priority": 0,
+                "Health": 1.0,
+                "Value": 5044,
+                "Engineering": {
+                    "Engineer": "Professor Palin",
+                    "EngineerID": 300220,
+                    "BlueprintID": 128673669,
+                    "BlueprintName": "Engine_Tuned",
+                    "Level": 5,
+                    "Quality": 0.4,
+                    "ExperimentalEffect": "special_engine_lightweight",
+                    "ExperimentalEffect_Localised": "D\u00e9sossage",
+                    "Modifiers": [
+                        {
+                            "Label": "Mass",
+                            "Value": 0.9,
+                            "OriginalValue": 1.0,
+                            "LessIsGood": 1
+                        },
+                        {
+                            "Label": "Integrity",
+                            "Value": 34.440002,
+                            "OriginalValue": 41.0,
+                            "LessIsGood": 0
+                        },
+                        {
+                            "Label": "PowerDraw",
+                            "Value": 2.61,
+                            "OriginalValue": 2.25,
+                            "LessIsGood": 1
+                        },
+                        {
+                            "Label": "EngineOptimalMass",
+                            "Value": 48.599995,
+                            "OriginalValue": 54.0,
+                            "LessIsGood": 0
+                        },
+                        {
+                            "Label": "EngineOptPerformance",
+                            "Value": 125.0,
+                            "OriginalValue": 100.0,
+                            "LessIsGood": 0
+                        },
+                        {
+                            "Label": "EngineHeatRate",
+                            "Value": 0.598,
+                            "OriginalValue": 1.3,
+                            "LessIsGood": 1
+                        }
+                    ]
+                }
+            },
+            {
+                "Slot": "FrameShiftDrive",
+                "Item": "int_hyperdrive_overcharge_size2_class5",
+                "On": true,
+                "Priority": 0,
+                "Health": 1.0,
+                "Engineering": {
+                    "EngineerID": 399999,
+                    "BlueprintID": 128998592,
+                    "BlueprintName": "FSD_LongRange",
+                    "Level": 5,
+                    "Quality": 1.0,
+                    "ExperimentalEffect": "special_fsd_heavy",
+                    "ExperimentalEffect_Localised": "Gestionnaire de masse",
+                    "Modifiers": [
+                        {
+                            "Label": "Mass",
+                            "Value": 3.25,
+                            "OriginalValue": 2.5,
+                            "LessIsGood": 1
+                        },
+                        {
+                            "Label": "Integrity",
+                            "Value": 41.216,
+                            "OriginalValue": 64.0,
+                            "LessIsGood": 0
+                        },
+                        {
+                            "Label": "PowerDraw",
+                            "Value": 0.345,
+                            "OriginalValue": 0.3,
+                            "LessIsGood": 1
+                        },
+                        {
+                            "Label": "BootTime",
+                            "Value": 2.0,
+                            "OriginalValue": 10.0,
+                            "LessIsGood": 1
+                        },
+                        {
+                            "Label": "FSDOptimalMass",
+                            "Value": 176.799988,
+                            "OriginalValue": 100.0,
+                            "LessIsGood": 0
+                        },
+                        {
+                            "Label": "FSDHeatRate",
+                            "Value": 12.0,
+                            "OriginalValue": 10.0,
+                            "LessIsGood": 1
+                        }
+                    ]
+                }
+            },
+            {
+                "Slot": "LifeSupport",
+                "Item": "int_lifesupport_size1_class2",
+                "On": true,
+                "Priority": 0,
+                "Health": 1.0,
+                "Value": 1100,
+                "Engineering": {
+                    "Engineer": "Etienne Dorn",
+                    "EngineerID": 300290,
+                    "BlueprintID": 128731495,
+                    "BlueprintName": "Misc_LightWeight",
+                    "Level": 5,
+                    "Quality": 1.0,
+                    "Modifiers": [
+                        {
+                            "Label": "Mass",
+                            "Value": 0.075,
+                            "OriginalValue": 0.5,
+                            "LessIsGood": 1
+                        },
+                        {
+                            "Label": "Integrity",
+                            "Value": 18.0,
+                            "OriginalValue": 36.0,
+                            "LessIsGood": 0
+                        }
+                    ]
+                }
+            },
+            {
+                "Slot": "PowerDistributor",
+                "Item": "int_powerdistributor_size1_class2",
+                "On": true,
+                "Priority": 0,
+                "Health": 1.0,
+                "Value": 1100,
+                "Engineering": {
+                    "Engineer": "The Dweller",
+                    "EngineerID": 300180,
+                    "BlueprintID": 128673744,
+                    "BlueprintName": "PowerDistributor_PriorityEngines",
+                    "Level": 5,
+                    "Quality": 1.0,
+                    "ExperimentalEffect": "special_powerdistributor_lightweight",
+                    "ExperimentalEffect_Localised": "D\u00e9sossage",
+                    "Modifiers": [
+                        {
+                            "Label": "Mass",
+                            "Value": 0.45,
+                            "OriginalValue": 0.5,
+                            "LessIsGood": 1
+                        },
+                        {
+                            "Label": "WeaponsCapacity",
+                            "Value": 9.35,
+                            "OriginalValue": 11.0,
+                            "LessIsGood": 0
+                        },
+                        {
+                            "Label": "WeaponsRecharge",
+                            "Value": 1.33,
+                            "OriginalValue": 1.4,
+                            "LessIsGood": 0
+                        },
+                        {
+                            "Label": "EnginesCapacity",
+                            "Value": 14.400001,
+                            "OriginalValue": 9.0,
+                            "LessIsGood": 0
+                        },
+                        {
+                            "Label": "EnginesRecharge",
+                            "Value": 0.72,
+                            "OriginalValue": 0.5,
+                            "LessIsGood": 0
+                        },
+                        {
+                            "Label": "SystemsCapacity",
+                            "Value": 7.65,
+                            "OriginalValue": 9.0,
+                            "LessIsGood": 0
+                        },
+                        {
+                            "Label": "SystemsRecharge",
+                            "Value": 0.425,
+                            "OriginalValue": 0.5,
+                            "LessIsGood": 0
+                        }
+                    ]
+                }
+            },
+            {
+                "Slot": "Radar",
+                "Item": "int_sensors_size1_class2",
+                "On": true,
+                "Priority": 0,
+                "Health": 1.0,
+                "Value": 1293,
+                "Engineering": {
+                    "Engineer": "Tiana Fortune",
+                    "EngineerID": 300270,
+                    "BlueprintID": 128740673,
+                    "BlueprintName": "Sensor_LightWeight",
+                    "Level": 5,
+                    "Quality": 1.0,
+                    "Modifiers": [
+                        {
+                            "Label": "Mass",
+                            "Value": 0.1,
+                            "OriginalValue": 0.5,
+                            "LessIsGood": 1
+                        },
+                        {
+                            "Label": "Integrity",
+                            "Value": 16.0,
+                            "OriginalValue": 32.0,
+                            "LessIsGood": 0
+                        },
+                        {
+                            "Label": "SensorTargetScanAngle",
+                            "Value": 22.5,
+                            "OriginalValue": 30.0,
+                            "LessIsGood": 0
+                        }
+                    ]
+                }
+            },
+            {
+                "Slot": "FuelTank",
+                "Item": "int_fueltank_size1_class3",
+                "On": true,
+                "Priority": 1,
+                "Health": 1.0,
+                "Value": 850
+            },
+            {
+                "Slot": "Decal1",
+                "Item": "decal_distantworlds3",
+                "On": true,
+                "Priority": 1,
+                "Health": 1.0
+            },
+            {
+                "Slot": "Slot01_Size2",
+                "Item": "int_fuelscoop_size2_class5",
+                "On": true,
+                "Priority": 0,
+                "Health": 1.0,
+                "Value": 242118,
+                "Engineering": {
+                    "Engineer": "Marsha Hicks",
+                    "EngineerID": 300150,
+                    "BlueprintID": 129041435,
+                    "BlueprintName": "FuelScoop_Efficiency",
+                    "Level": 3,
+                    "Quality": 1.0,
+                    "Modifiers": [
+                        {
+                            "Label": "PowerDraw",
+                            "Value": 0.4251,
+                            "OriginalValue": 0.39,
+                            "LessIsGood": 1
+                        },
+                        {
+                            "Label": "FuelScoopRate",
+                            "Value": 0.0975,
+                            "OriginalValue": 0.075,
+                            "LessIsGood": 0
+                        }
+                    ]
+                }
+            },
+            {
+                "Slot": "Slot02_Size2",
+                "Item": "int_guardianfsdbooster_size2",
+                "On": true,
+                "Priority": 0,
+                "Health": 1.0,
+                "Value": 810520
+            },
+            {
+                "Slot": "Slot03_Size1",
+                "Item": "int_shieldgenerator_size1_class2",
+                "On": true,
+                "Priority": 0,
+                "Health": 1.0,
+                "Value": 1211,
+                "Engineering": {
+                    "Engineer": "Mel Brandon",
+                    "EngineerID": 300280,
+                    "BlueprintID": 128673829,
+                    "BlueprintName": "ShieldGenerator_Optimised",
+                    "Level": 5,
+                    "Quality": 1.0,
+                    "ExperimentalEffect": "special_shield_lightweight",
+                    "ExperimentalEffect_Localised": "D\u00e9sossage",
+                    "Modifiers": [
+                        {
+                            "Label": "Mass",
+                            "Value": 0.225,
+                            "OriginalValue": 0.5,
+                            "LessIsGood": 1
+                        },
+                        {
+                            "Label": "Integrity",
+                            "Value": 18.0,
+                            "OriginalValue": 24.0,
+                            "LessIsGood": 0
+                        },
+                        {
+                            "Label": "PowerDraw",
+                            "Value": 0.576,
+                            "OriginalValue": 0.96,
+                            "LessIsGood": 1
+                        },
+                        {
+                            "Label": "ShieldGenOptimalMass",
+                            "Value": 23.5,
+                            "OriginalValue": 25.0,
+                            "LessIsGood": 0
+                        },
+                        {
+                            "Label": "ShieldGenStrength",
+                            "Value": 103.5,
+                            "OriginalValue": 90.0,
+                            "LessIsGood": 0
+                        }
+                    ]
+                }
+            },
+            {
+                "Slot": "Slot04_Size1",
+                "Item": "int_corrosionproofcargorack_size1_class2",
+                "On": true,
+                "Priority": 1,
+                "Health": 1.0,
+                "Value": 9799
+            },
+            {
+                "Slot": "Slot05_Size1",
+                "Item": "int_fueltank_size1_class3",
+                "On": true,
+                "Priority": 1,
+                "Health": 1.0,
+                "Value": 850
+            },
+            {
+                "Slot": "Slot06_Size1",
+                "Item": "int_detailedsurfacescanner_tiny",
+                "On": true,
+                "Priority": 0,
+                "Health": 1.0,
+                "Value": 219375,
+                "Engineering": {
+                    "Engineer": "Lei Cheung",
+                    "EngineerID": 300120,
+                    "BlueprintID": 128740151,
+                    "BlueprintName": "Sensor_Expanded",
+                    "Level": 5,
+                    "Quality": 1.0,
+                    "Modifiers": [
+                        {
+                            "Label": "PowerDraw",
+                            "Value": 0.0,
+                            "OriginalValue": 0.0,
+                            "LessIsGood": 1
+                        },
+                        {
+                            "Label": "DSS_PatchRadius",
+                            "Value": 40.0,
+                            "OriginalValue": 20.0,
+                            "LessIsGood": 0
+                        }
+                    ]
+                }
+            },
+            {
+                "Slot": "PlanetaryApproachSuite",
+                "Item": "int_planetapproachsuite_advanced",
+                "On": true,
+                "Priority": 1,
+                "Health": 1.0,
+                "Value": 425
+            },
+            {
+                "Slot": "Bobble08",
+                "Item": "bobble_snowman",
+                "On": true,
+                "Priority": 1,
+                "Health": 1.0
+            },
+            {
+                "Slot": "ShipKitSpoiler",
+                "Item": "sidewinder_shipkit1_spoiler2",
+                "On": true,
+                "Priority": 1,
+                "Health": 1.0
+            },
+            {
+                "Slot": "ShipKitWings",
+                "Item": "sidewinder_shipkit1_wings3",
+                "On": true,
+                "Priority": 1,
+                "Health": 1.0
+            },
+            {
+                "Slot": "ShipKitTail",
+                "Item": "sidewinder_shipkit1_tail3",
+                "On": true,
+                "Priority": 1,
+                "Health": 1.0
+            },
+            {
+                "Slot": "ShipKitBumper",
+                "Item": "sidewinder_shipkit1_bumper1",
+                "On": true,
+                "Priority": 1,
+                "Health": 1.0
+            },
+            {
+                "Slot": "VesselVoice",
+                "Item": "voicepack_amelie",
+                "On": true,
+                "Priority": 1,
+                "Health": 1.0
+            },
+            {
+                "Slot": "ShipCockpit",
+                "Item": "sidewinder_cockpit",
+                "On": true,
+                "Priority": 1,
+                "Health": 1.0
+            },
+            {
+                "Slot": "CargoHatch",
+                "Item": "modularcargobaydoor",
+                "On": true,
+                "Priority": 2,
+                "Health": 1.0
+            }
+        ]
+    }
+}]

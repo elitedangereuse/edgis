@@ -284,7 +284,11 @@ fn search_core(
                             (mi, (dx * dx + dy * dy + dz * dz).sqrt())
                         })
                         .collect();
-                    nd.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+                    // Deterministic (distance, then neighbour index) so the gap_k
+                    // truncation picks the SAME subset as python's lexsort -> the
+                    // native gap graph is identical, not just same-set-different-order
+                    // (closes the +8 native-vs-python drift on bridge-heavy routes).
+                    nd.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().then(a.0.cmp(&b.0)));
                     let mut got = false;
                     for &(mi, dist) in nd.iter().take(gap_k) {
                         let m = mi as usize;
@@ -543,12 +547,35 @@ fn graph_search_fuel_debug<'py>(
     )
 }
 
+/// Debug: kiddo's radius query (item ids + distances) for a point, to compare the
+/// neighbour SET/order against scipy cKDTree and diagnose the native-vs-python gap.
+#[pyfunction]
+fn debug_within<'py>(
+    cc: PyReadonlyArray2<'py, f64>,
+    query: Vec<f64>,
+    radius: f64,
+) -> PyResult<Vec<(u64, f64)>> {
+    let cc_o: Array2<f64> = cc.as_array().to_owned();
+    let n = cc_o.shape()[0];
+    let mut tree: KdTree<f64, 3> = KdTree::new();
+    for i in 0..n {
+        tree.add(&[cc_o[[i, 0]], cc_o[[i, 1]], cc_o[[i, 2]]], i as u64);
+    }
+    let q = [query[0], query[1], query[2]];
+    Ok(tree
+        .within_unsorted::<SquaredEuclidean>(&q, radius * radius)
+        .into_iter()
+        .map(|e| (e.item, e.distance.sqrt()))
+        .collect())
+}
+
 #[pymodule]
 fn edgis_route(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(graph_search_range, m)?)?;
     m.add_function(wrap_pyfunction!(graph_search_range_debug, m)?)?;
     m.add_function(wrap_pyfunction!(graph_search_fuel, m)?)?;
     m.add_function(wrap_pyfunction!(graph_search_fuel_debug, m)?)?;
+    m.add_function(wrap_pyfunction!(debug_within, m)?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }

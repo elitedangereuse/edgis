@@ -791,6 +791,24 @@ def _graph_search(
     straight = float(np.linalg.norm(dv - sv))
     n = len(cand)
     cc = index.coords[cand] if n else np.zeros((0, 3))
+    # Native plain kernel (no_fuel search_core, crate >= 0.3.1): same min-jumps,
+    # ~5-7x faster. Falls through to the Python loop below on any marshalling error.
+    if _B1_NATIVE and n and _native_route is not None:
+        try:
+            return _native_graph_search_plain(
+                index, cand, cc, sv, dv, J, entry_r, gap_k,
+                blacklist, badzones, deadline, boost_mult, flip,
+            )
+        except Exception:  # pragma: no cover
+            global _native_route_warned
+            if not _native_route_warned:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "native plain kernel failed; using Python fallback",
+                    exc_info=True,
+                )
+                _native_route_warned = True
     lt = cKDTree(cc) if n else None
     dd_dst = np.linalg.norm(cc - dv, axis=1) if n else np.zeros(0)
     hv = (
@@ -896,7 +914,7 @@ def _graph_search(
                 if not len(near):
                     continue
                 dms = np.linalg.norm(cc[near] - cu, axis=1)
-                order = np.argsort(dms)[:gap_k]
+                order = np.lexsort((near, dms))[:gap_k]
                 relaxed = 0
                 for i in order:
                     m = int(near[i])
@@ -1101,7 +1119,7 @@ def _graph_search_fuel(
                     continue
                 dms = np.linalg.norm(cc[near] - cu, axis=1)
                 got = False
-                for i in np.argsort(dms)[:gap_k]:
+                for i in np.lexsort((near, dms))[:gap_k]:
                     m = int(near[i])
                     if (int(cand[u]), int(cand[m])) in blacklist:
                         continue
@@ -1333,6 +1351,48 @@ def _native_graph_search_fuel(
     )
 
 
+def _native_graph_search_plain(
+    index: NeutronIndex,
+    cand: np.ndarray,
+    cc: np.ndarray,
+    sv: np.ndarray,
+    dv: np.ndarray,
+    jump_range: float,
+    entry_r: float,
+    gap_k: int,
+    blacklist: set[tuple[int, int]],
+    badzones: list[tuple[np.ndarray, float]],
+    deadline: float,
+    boost_mult: float,
+    flip: bool = False,
+) -> Optional[list[int]]:
+    """Native plain ship-agnostic min-jumps: the no_fuel search_core mode (crate
+    >= 0.3.1), a single resource slot. Same contract as :func:`_graph_search`.
+    ``scoopable`` is unused in no_fuel mode -> a zero dummy; tank_jumps=1 so
+    reach_by_r = [boost_mult*J]."""
+    budget = max(0.0, float(deadline) - time.perf_counter())
+    bz = [
+        (float(c[0]), float(c[1]), float(c[2]), float(r)) for c, r in badzones
+    ]
+    return _native_route.graph_search_fuel(
+        np.ascontiguousarray(cc, dtype=np.float64),
+        np.zeros(len(cand), dtype=np.uint8),
+        np.ascontiguousarray(cand, dtype=np.int64),
+        np.ascontiguousarray(sv, dtype=np.float64),
+        np.ascontiguousarray(dv, dtype=np.float64),
+        float(jump_range),
+        float(entry_r),
+        int(gap_k),
+        1,
+        float(boost_mult),
+        float(budget),
+        [(int(a), int(b)) for (a, b) in blacklist],
+        bz,
+        bool(flip),
+        True,
+    )
+
+
 def _graph_search_range(
     index: NeutronIndex,
     cand: np.ndarray,
@@ -1470,7 +1530,7 @@ def _graph_search_range(
                     continue
                 dms = np.linalg.norm(cc[near] - cu, axis=1)
                 got = False
-                for i in np.argsort(dms)[:gap_k]:
+                for i in np.lexsort((near, dms))[:gap_k]:
                     m = int(near[i])
                     if (int(cand[u]), int(cand[m])) in blacklist:
                         continue
