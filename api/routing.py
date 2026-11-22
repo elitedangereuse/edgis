@@ -1940,7 +1940,16 @@ def _realize_graph(
 # ~30s with wide margin under the time cap. Wider radii can realize a couple fewer
 # jumps but are slower and -- more importantly -- were observed to sometimes yield
 # an over-range route; the caller's fuel-safety guard falls back to B1 in that case.
-_B2_THIN_CORRIDOR_LY = 120.0
+#
+# Env-overridable (EDGIS_B2_THIN_CORRIDOR_LY) to sweep width on staging without a
+# redeploy: the 2026-11-22 beam-probe diagnosis showed beam's winning waypoints ride
+# an OFF-AXIS neutron band (~540 ly off the geodesic on Colonia->Sol, ~940 on
+# Sol->Beagle) that this near-geodesic tube excludes -- 61-84% of beam's waypoints
+# fall outside the 120 ly corridor. Widening is regression-safe behind the B2
+# min-guard (a slower/over-range wide search just falls back to the B1 baseline), so
+# the width can be swept empirically to find where the gap to beam closes vs where
+# the candidate set drowns the flown search.
+_B2_THIN_CORRIDOR_LY = float(_os.environ.get("EDGIS_B2_THIN_CORRIDOR_LY") or "120")
 
 # Max wall-clock the B2 flown search may consume before giving up and realizing the
 # B1 coarse path instead. Keeps default-on B2 from spending a long/rim route's whole
