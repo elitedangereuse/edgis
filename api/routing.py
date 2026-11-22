@@ -1947,11 +1947,15 @@ _B2_THIN_CORRIDOR_LY = 120.0
 # time budget on a flown search that won't finish.
 _B2_TIME_BUDGET = 60.0
 
-# Max straight-line distance (ly) for which B2 range growth engages. Beyond it B1 is
-# slow enough that an unsafe-B2 guard re-solve would risk the time cap, and the win
-# is marginal; such routes use pure B1. Includes the common long routes (Colonia,
-# Sag A*) and excludes the deep rim (Beagle).
-_B2_MAX_LY = 30000.0
+# Max straight-line distance (ly) for which B2 range growth engages. The old
+# 30 kly gate excluded the deep rim (Beagle) on the assumption the win was
+# marginal there -- the 2026-11-21 beam probe showed the opposite: range growth
+# is worth the MOST on the longest routes (spansh beam's whole Sol->Beagle edge
+# is whole-route range growth; our pure-B1 Beagle trails it by ~20 jumps).
+# Lifted 2026-11-22; env-overridable back down if a rim pathology appears.
+# The guards that made default-on B2 safe are unchanged (per-route time budget
+# below, coarse-path fallback, the caller's fuel-safety B1 re-solve).
+_B2_MAX_LY = float(_os.environ.get("EDGIS_B2_MAX_LY") or "100000")
 
 # Straight-line distance (ly) below which the B2 branch also realizes the B1
 # coarse path and keeps the fewer-jumps of the two. Range growth's benefit scales
@@ -2280,8 +2284,14 @@ def graph_route(
             int(tank_jumps),
             float(scoop_max_ls),
             boost_mult=boost_mult,
-            # Keep the B2 corridor seed on Python: see _graph_search_fuel native note.
-            native_ok=False,
+            # Keep the B2 corridor seed on Python for the routes that had a B2
+            # baseline to preserve (<=30 kly; native tie-breaks can shift the
+            # corridor +/-1 -- see the _graph_search_fuel native note). The
+            # newly-ungated LONG routes (>30 kly, e.g. Beagle) have no baseline
+            # and a Python B1 coarse there is the 5-7x-slow case the native
+            # kernel was built for, so let them use it. flip is off >30 kly
+            # (_ORIENT_MAX_LY), so the native old-cost tail is correct there.
+            native_ok=(straight > 30000.0),
             flip=coarse_honest,
         )
         if coarse:
@@ -2312,18 +2322,39 @@ def graph_route(
             # thin-corridor approximation and ship MORE jumps than plain B1 (a
             # cobra mkV at 4x plotted 18 via B2 vs 14 via B1). So on short routes
             # realize the B1 coarse as a baseline and keep whichever plan has
-            # fewer jumps; on long routes (where B2 reliably wins and realizing
-            # the long B1 path would roughly double realization time) trust B2
-            # and only realize the coarse as a fallback if B2 misses.
-            compare_b1 = straight < _B2_BASELINE_MAX_LY
+            # fewer jumps. In the PROVEN band (8-30 kly) B2 reliably wins, so
+            # trust it (realizing the long B1 path would double realization time
+            # for nothing). Beyond 30 kly -- newly ungated -- B2 is NOT yet
+            # proven (first Beagle test shipped 196 vs B1's 176), so realize the
+            # baseline there too and ship the min: the gate lift can help but
+            # never hurt.
+            compare_b1 = (
+                straight < _B2_BASELINE_MAX_LY or straight > 30000.0
+            )
             b1_res = _realize_coarse() if compare_b1 else None
 
             b2_res = None
-            tc = _filter(_thin_corridor(index, b1seq, _B2_THIN_CORRIDOR_LY))
+            # >30 kly: double the corridor. The 120 ly tube was tuned on
+            # Colonia-scale routes; at rim scale the range-growth hop pattern
+            # (long, straight, late-tank hops) wants candidates the thin tube
+            # around a zigzagging fixed-reach coarse path doesn't contain
+            # (first Beagle flown search LOST to its own coarse, 196 vs 176).
+            # The min-guard above makes a wider (slower) search safe to try.
+            b2_corridor = (
+                _B2_THIN_CORRIDOR_LY if straight <= 30000.0
+                else 2.0 * _B2_THIN_CORRIDOR_LY
+            )
+            tc = _filter(_thin_corridor(index, b1seq, b2_corridor))
             if len(tc) and time.perf_counter() < deadline:
                 # Bound the flown search so a slow one (long/dense route) can't
                 # eat the whole deadline and starve the fallback below.
-                b2_dl = min(deadline, time.perf_counter() + _B2_TIME_BUDGET)
+                # Budget scales with route length now that B2 engages past
+                # 30 kly: the fixed 60 s was sized for <=30 kly corridors; a
+                # 65 kly Beagle corridor is ~2x the candidates. The overall
+                # `deadline` (base_cap = 60 + dist/500) still bounds everything,
+                # and a budget miss falls back to realizing the B1 coarse path.
+                b2_budget = max(_B2_TIME_BUDGET, straight / 600.0)
+                b2_dl = min(deadline, time.perf_counter() + b2_budget)
                 b2_res = _solve(False, cand_set=tc, range_search=True, dl=b2_dl)
 
             # Keep the fewer-jumps realized route (B2 only when it actually wins).
