@@ -3600,8 +3600,6 @@ def _solve_route_sync(
     tank_jumps: int = 0,
     scoop_max_ls: float = 0.0,
     reach_by_r: list | None = None,
-    fparams: object | None = None,
-    fuel_buckets: int = 0,
 ):
     """Solve a route and attach a time breakdown as ``result["_prof"]`` (logged
     to the route trace, never returned): wall and thread CPU time, plus the
@@ -3622,8 +3620,6 @@ def _solve_route_sync(
         tank_jumps,
         scoop_max_ls,
         reach_by_r,
-        fparams,
-        fuel_buckets,
     )
     if result is not None:
         wall = (time.perf_counter() - wall0) * 1000.0
@@ -3656,8 +3652,6 @@ def _solve_route_core(
     tank_jumps: int = 0,
     scoop_max_ls: float = 0.0,
     reach_by_r: list | None = None,
-    fparams: object | None = None,
-    fuel_buckets: int = 0,
 ):
     index = _neutron_index
     if index is None:  # pragma: no cover - guarded by caller
@@ -3789,8 +3783,6 @@ def _solve_route_core(
                     tank_jumps=tank_jumps,
                     scoop_max_ls=scoop_max_ls,
                     reach_by_r=reach_by_r,
-                    fparams=fparams,
-                    fuel_buckets=fuel_buckets,
                 )
             except _DbBudgetExceeded:
                 # The graph is thrashing the DB (pathological realization);
@@ -4406,8 +4398,6 @@ async def _solve_route_cached(
     scoop_max_ls: float = 0.0,
     reach_by_r: list | None = None,
     trace: bool = True,
-    fparams: object | None = None,
-    fuel_buckets: int = 0,
 ) -> dict:
     """Resolve + solve a route with the Redis cache and in-flight coalescing.
     Shared by GET and POST /route. The fuel REPORT always runs on top of the
@@ -4451,24 +4441,6 @@ async def _solve_route_cached(
         + (
             f"|rbr{max(reach_by_r):.1f}"
             if (reach_by_r and max(reach_by_r) > min(reach_by_r) + 1e-9)
-            else ""
-        )
-        # Tonnes model: the geometry depends on the FULL fuel model, not just
-        # tank_jumps. Digest the burn constants so it never collides with the
-        # integer-model (or another ship's) cached route.
-        + (
-            "|tn%d_%s" % (
-                fuel_buckets,
-                (
-                    "%.4g_%.4g_%.4g_%.4g_%.4g_%.4g"
-                    % (
-                        fparams.fuel_multiplier, fparams.fuel_power,
-                        fparams.optimal_mass, fparams.base_mass,
-                        fparams.max_fuel_per_jump, fparams.tank_size,
-                    )
-                ),
-            )
-            if (fuel_buckets > 0 and fparams is not None)
             else ""
         )
     )
@@ -4658,8 +4630,6 @@ async def _solve_route_cached(
                     tank_jumps,
                     scoop_max_ls,
                     reach_by_r,
-                    fparams,
-                    fuel_buckets,
                 )
             except routing.RouteError as exc:
                 _log_route_trace(
@@ -4844,13 +4814,6 @@ class RouteRequest(BaseModel):
     # the B1 coarse path, and the fuel-safety guard below re-solves without range
     # growth whenever a range-growth route reads as unsafe.
     range_growth: bool = True
-    # EXPERIMENTAL (docs/fuel-tonnes-resource-plan.md): plan with an actual
-    # tonnes fuel resource instead of the worst-case jumps-since-refuel model,
-    # so boosted hops cost their true (small) burn -> longer dry runs -> fewer
-    # jumps. Off by default; when on, B2 range-growth is bypassed (its own
-    # resource model would double-count) and the native kernel is skipped.
-    fuel_tonnes: bool = False
-    fuel_buckets: int = Field(64, ge=8, le=256)
     model_config = {"populate_by_name": True}
 
 
@@ -4898,19 +4861,12 @@ async def plot_route_post(
         if req.supercharge is not None
         else (fsd.detect_supercharge(req.loadout) if req.loadout else 4.0)
     )
-    # EXPERIMENTAL tonnes planner: an actual-fuel resource (see
-    # docs/fuel-tonnes-resource-plan.md). Only when a ship is loaded; it bypasses
-    # B2 (reach_by_r stays None) so the two resource models never stack.
-    fuel_buckets = (
-        int(req.fuel_buckets) if (req.fuel_tonnes and params is not None) else 0
-    )
     # B2: the per-resource boost reach (range grows as the tank empties) lets the
     # planner chain fewer, longer hops late in a refuel cycle. Derived from the
-    # loadout + supercharge; None without a loadout (shared ship-agnostic geometry)
-    # or when the tonnes planner is driving.
+    # loadout + supercharge; None without a loadout (shared ship-agnostic geometry).
     reach_by_r = (
         fsd.reach_profile(params, supercharge)
-        if (params is not None and req.range_growth and not fuel_buckets)
+        if (params is not None and req.range_growth)
         else None
     )
     result = await _solve_route_cached(
@@ -4927,8 +4883,6 @@ async def plot_route_post(
         scoop_max_ls=req.scoop_max_ls,
         reach_by_r=reach_by_r,
         trace=False,  # the handler emits one end-to-end trace below
-        fparams=params,
-        fuel_buckets=fuel_buckets,
     )
     _was_cached = bool(result.get("_cached"))
     if params is not None:

@@ -86,7 +86,7 @@ def _wire(monkeypatch):
 
     def fake_solve(src, dst, jump_range, beam_width, boost_mult=4.0,
                    companion_max_ls=0.0, inject_mult=1.0, tank_jumps=0,
-                   scoop_max_ls=0.0, reach_by_r=None, fparams=None, fuel_buckets=0):
+                   scoop_max_ls=0.0, reach_by_r=None):
         return {
             "jump_range": jump_range, "boost_range": 4 * jump_range,
             "straight_line_ly": 1000.0, "total_jumps": 1, "neutron_jumps": 1,
