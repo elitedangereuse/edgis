@@ -66,13 +66,38 @@ function shipKey(loadout) {
   if (d && d.ShipID != null) return `id:${d.ShipID}`;
   return `label:${shipLabel(loadout)}`;
 }
+// Give a new ship a label distinct from the ones already shown, so two different
+// builds of the same unnamed ship type (both "Caspian (Mandalay)") don't look
+// identical in the library -- append " (2)", " (3)" ... on a clash.
+function uniqueShipLabel(base, ships, selfIdx) {
+  const shown = (s) => (s.renamed ? s.name : s.auto) || "";
+  const clash = (n) => ships.some((s, j) => j !== selfIdx && shown(s) === n);
+  if (!clash(base)) return base;
+  let k = 2;
+  while (clash(`${base} (${k})`)) k++;
+  return `${base} (${k})`;
+}
 // Upsert a loadout and make it active. A renamed ship keeps its name.
 function rememberShip(loadout, range) {
   const ships = loadShips();
-  const label = shipLabel(loadout), key = shipKey(loadout);
-  let i = ships.findIndex(s => s.loadout === loadout || shipKey(s.loadout) === key);
-  if (i < 0) { ships.push({ name: label, auto: label, loadout, range }); i = ships.length - 1; }
-  else { ships[i] = { ...ships[i], auto: label, loadout, range, name: ships[i].renamed ? ships[i].name : label }; }
+  const key = shipKey(loadout);
+  // Dedup by ship IDENTITY only for a reliable in-game ShipID (the same physical
+  // ship re-imported across refits). EDSY / unnamed exports share a label-only key,
+  // so matching on it would make a SECOND build of the same unnamed ship type
+  // clobber the first (user feedback 2026-11-22: pasting a Caspian Lourd replaced
+  // the saved Caspian Neutron -- both unnamed EDSY exports of the same hull). For
+  // those, dedup ONLY on an exact loadout match, so distinct builds each keep their
+  // own library entry.
+  const byId = key.startsWith("id:");
+  let i = ships.findIndex(s => s.loadout === loadout || (byId && shipKey(s.loadout) === key));
+  const base = shipLabel(loadout);
+  if (i < 0) {
+    const label = uniqueShipLabel(base, ships, -1);
+    ships.push({ name: label, auto: label, loadout, range }); i = ships.length - 1;
+  } else {
+    const label = uniqueShipLabel(base, ships, i);
+    ships[i] = { ...ships[i], auto: label, loadout, range, name: ships[i].renamed ? ships[i].name : label };
+  }
   saveShips(ships); setActiveShip(i);
   return i;
 }
