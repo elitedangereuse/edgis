@@ -1001,10 +1001,10 @@ def _graph_search_fuel(
     # (kiddo vs scipy KD-tree), so a native coarse can seed a different corridor and
     # shift the B2 result +/-1. Keeping the coarse on Python preserves the corridor
     # and the no-regression guarantee; native still speeds the pure-B1 routes.
-    # FLIPPED searches stay on Python: the native kernel still prices the tail
-    # edge as a supercharged hop, which is wrong reversed (see _graph_search's
-    # flip note); lift this gate when the crate mirrors the flip-aware costs.
-    if _B1_NATIVE and native_ok and not flip and _native_route is not None:
+    # FLIPPED searches now run native too: the crate (>= 0.3.0) mirrors the
+    # flip-honest edge costs (entry boosted / tail plain), verified at parity with
+    # the Python flip search (kernel_parity.py + end-to-end Blaa Eork -> Lave).
+    if _B1_NATIVE and native_ok and _native_route is not None:
         try:
             return _native_graph_search_fuel(
                 index,
@@ -1021,6 +1021,7 @@ def _graph_search_fuel(
                 int(tank_jumps),
                 scoop_max_ls,
                 boost_mult,
+                flip,
             )
         except Exception:  # pragma: no cover
             global _native_route_warned
@@ -1298,10 +1299,12 @@ def _native_graph_search_fuel(
     tank_jumps: int,
     scoop_max_ls: float,
     boost_mult: float,
+    flip: bool = False,
 ) -> Optional[list[int]]:
     """Marshal the B1 inputs and run the native fuel A* kernel (fixed reach +
     prefix-min). Same contract as :func:`_graph_search_fuel`: the GLOBAL-id neutron
-    sequence, or ``None`` (timeout / no route). ``cc`` is the sliced coord block."""
+    sequence, or ``None`` (timeout / no route). ``cc`` is the sliced coord block.
+    ``flip`` applies the flip-honest entry/tail edge costs (crate >= 0.3.0)."""
     sls = getattr(index, "scoop_ls", None)
     scoopable = (
         (np.asarray(sls)[cand] <= scoop_max_ls)
@@ -1326,6 +1329,7 @@ def _native_graph_search_fuel(
         float(budget),
         [(int(a), int(b)) for (a, b) in blacklist],
         bz,
+        bool(flip),
     )
 
 

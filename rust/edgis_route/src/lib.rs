@@ -62,6 +62,15 @@ fn search_core(
     // dominate an emptier one). Both find the same min-jumps; prefix-min keeps the
     // (node x fuel) front a small anti-chain, so B1 stays fast on the full corridor.
     prefix_min: bool,
+    // Flip-honest edge costs for a REVERSED (dst->src) search the caller realizes
+    // src->dst. Supercharge is not direction-symmetric: a boost is available when
+    // the FLOWN jump LEAVES a neutron. So flipped, the ENTRY edge (src->neutron m)
+    // is a flown boosted arrival (boosted_jumps) and the TAIL edge (u->dst) is a
+    // flown plain departure from the source (ceil(d/J)) -- the swap of the two
+    // analytic edge costs vs the unflipped search. Boost/gap edges are unchanged.
+    // Mirrors routing._graph_search / _graph_search_fuel's flip note (Blaa Eork ->
+    // Lave 14 -> 9). B2 range never flips (always passes false).
+    flip: bool,
 ) -> (Option<Vec<i64>>, i64, u64) {
     let n = cand.len();
     let j = jump_range;
@@ -217,7 +226,12 @@ fn search_core(
                         continue;
                     }
                     let dm = e.distance.sqrt();
-                    let cost = ((dm / j).ceil() as i64).max(1);
+                    // flipped: flown boosted arrival leaving neutron m; else plain src departure
+                    let cost = if flip {
+                        boosted_jumps(dm, j, boost)
+                    } else {
+                        ((dm / j).ceil() as i64).max(1)
+                    };
                     relax!(m, g + cost, 0, dm, src, 0usize);
                 }
             }
@@ -283,7 +297,13 @@ fn search_core(
                 }
             }
             let tail = if !bl.contains(&(cand[u], -2)) && zone_ok(&cu, &dv3) {
-                Some((boosted_jumps(dd[u], j, boost), dd[u]))
+                // flipped: flown plain departure from the source; else boosted arrival
+                let tc = if flip {
+                    ((dd[u] / j).ceil() as i64).max(1)
+                } else {
+                    boosted_jumps(dd[u], j, boost)
+                };
+                Some((tc, dd[u]))
             } else {
                 None
             };
@@ -369,6 +389,7 @@ fn run<'py>(
     blacklist: Vec<(i64, i64)>,
     badzones: Vec<(f64, f64, f64, f64)>,
     prefix_min: bool,
+    flip: bool,
 ) -> PyResult<(Option<Vec<i64>>, i64, u64)> {
     let cc_o: Array2<f64> = cc.as_array().to_owned();
     let scoop_o: Vec<u8> = scoopable.as_slice()?.to_vec();
@@ -392,6 +413,7 @@ fn run<'py>(
             &bl,
             &badzones,
             prefix_min,
+            flip,
         )
     }))
 }
@@ -418,7 +440,7 @@ fn graph_search_range<'py>(
 ) -> PyResult<Option<Vec<i64>>> {
     let (seq, _g, _p) = run(
         py, cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, reach_by_r,
-        boost_mult, time_budget_s, blacklist, badzones, false,
+        boost_mult, time_budget_s, blacklist, badzones, false, false,
     )?;
     Ok(seq)
 }
@@ -444,7 +466,7 @@ fn graph_search_range_debug<'py>(
 ) -> PyResult<(Option<Vec<i64>>, i64, u64)> {
     run(
         py, cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, reach_by_r,
-        boost_mult, time_budget_s, blacklist, badzones, false,
+        boost_mult, time_budget_s, blacklist, badzones, false, false,
     )
 }
 
@@ -453,6 +475,7 @@ fn graph_search_range_debug<'py>(
 /// levels, with prefix-min dominance. The GLOBAL-id neutron sequence, or None.
 #[allow(clippy::too_many_arguments)]
 #[pyfunction]
+#[pyo3(signature = (cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, tank_jumps, boost_mult, time_budget_s, blacklist, badzones, flip=false))]
 fn graph_search_fuel<'py>(
     py: Python<'py>,
     cc: PyReadonlyArray2<'py, f64>,
@@ -468,11 +491,12 @@ fn graph_search_fuel<'py>(
     time_budget_s: f64,
     blacklist: Vec<(i64, i64)>,
     badzones: Vec<(f64, f64, f64, f64)>,
+    flip: bool,
 ) -> PyResult<Option<Vec<i64>>> {
     let reach_by_r = vec![boost_mult * jump_range; tank_jumps];
     let (seq, _g, _p) = run(
         py, cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, reach_by_r,
-        boost_mult, time_budget_s, blacklist, badzones, true,
+        boost_mult, time_budget_s, blacklist, badzones, true, flip,
     )?;
     Ok(seq)
 }
@@ -480,6 +504,7 @@ fn graph_search_fuel<'py>(
 /// Debug/parity entry point for B1: (sequence, dst_g jump count, pops).
 #[allow(clippy::too_many_arguments)]
 #[pyfunction]
+#[pyo3(signature = (cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, tank_jumps, boost_mult, time_budget_s, blacklist, badzones, flip=false))]
 fn graph_search_fuel_debug<'py>(
     py: Python<'py>,
     cc: PyReadonlyArray2<'py, f64>,
@@ -495,11 +520,12 @@ fn graph_search_fuel_debug<'py>(
     time_budget_s: f64,
     blacklist: Vec<(i64, i64)>,
     badzones: Vec<(f64, f64, f64, f64)>,
+    flip: bool,
 ) -> PyResult<(Option<Vec<i64>>, i64, u64)> {
     let reach_by_r = vec![boost_mult * jump_range; tank_jumps];
     run(
         py, cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, reach_by_r,
-        boost_mult, time_budget_s, blacklist, badzones, true,
+        boost_mult, time_budget_s, blacklist, badzones, true, flip,
     )
 }
 
