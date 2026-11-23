@@ -77,6 +77,13 @@ fn search_core(
     // penalty, no scoop reset) so memory is O(n), not O(n*tank). reach_by_r[0] is
     // the fixed boost reach (boost_mult * J).
     no_fuel: bool,
+    // Weighted A* heuristic multiplier. 1.0 = admissible (optimal). > 1.0 inflates
+    // the heuristic so the A* explores a NARROWER frontier -- used only for the
+    // coarse seed (it just seeds the thin corridor, so a path within ~W x optimal is
+    // fine, and on a dense full corridor the frontier collapse is a huge speedup:
+    // W=1.1 cut 174k pops -> 34k, 41s -> 6.7s, for ~+1 jump the B2 final absorbs).
+    // The fuel-aware final search passes 1.0 to stay optimal.
+    heur_weight: f64,
 ) -> (Option<Vec<i64>>, i64, u64) {
     let n = cand.len();
     let j = jump_range;
@@ -132,7 +139,9 @@ fn search_core(
         })
         .collect();
     let hv: Vec<i64> = if reach_max > 0.0 {
-        dd.iter().map(|&x| (x / reach_max).ceil() as i64).collect()
+        dd.iter()
+            .map(|&x| (x / reach_max * heur_weight).ceil() as i64)
+            .collect()
     } else {
         vec![0; n]
     };
@@ -434,6 +443,7 @@ fn run<'py>(
     prefix_min: bool,
     flip: bool,
     no_fuel: bool,
+    heur_weight: f64,
 ) -> PyResult<(Option<Vec<i64>>, i64, u64)> {
     let cc_o: Array2<f64> = cc.as_array().to_owned();
     let scoop_o: Vec<u8> = scoopable.as_slice()?.to_vec();
@@ -459,6 +469,7 @@ fn run<'py>(
             prefix_min,
             flip,
             no_fuel,
+            heur_weight,
         )
     }))
 }
@@ -485,7 +496,7 @@ fn graph_search_range<'py>(
 ) -> PyResult<Option<Vec<i64>>> {
     let (seq, _g, _p) = run(
         py, cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, reach_by_r,
-        boost_mult, time_budget_s, blacklist, badzones, false, false, false,
+        boost_mult, time_budget_s, blacklist, badzones, false, false, false, 1.0,
     )?;
     Ok(seq)
 }
@@ -511,7 +522,7 @@ fn graph_search_range_debug<'py>(
 ) -> PyResult<(Option<Vec<i64>>, i64, u64)> {
     run(
         py, cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, reach_by_r,
-        boost_mult, time_budget_s, blacklist, badzones, false, false, false,
+        boost_mult, time_budget_s, blacklist, badzones, false, false, false, 1.0,
     )
 }
 
@@ -520,7 +531,7 @@ fn graph_search_range_debug<'py>(
 /// levels, with prefix-min dominance. The GLOBAL-id neutron sequence, or None.
 #[allow(clippy::too_many_arguments)]
 #[pyfunction]
-#[pyo3(signature = (cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, tank_jumps, boost_mult, time_budget_s, blacklist, badzones, flip=false, no_fuel=false))]
+#[pyo3(signature = (cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, tank_jumps, boost_mult, time_budget_s, blacklist, badzones, flip=false, no_fuel=false, heur_weight=1.0))]
 fn graph_search_fuel<'py>(
     py: Python<'py>,
     cc: PyReadonlyArray2<'py, f64>,
@@ -538,11 +549,12 @@ fn graph_search_fuel<'py>(
     badzones: Vec<(f64, f64, f64, f64)>,
     flip: bool,
     no_fuel: bool,
+    heur_weight: f64,
 ) -> PyResult<Option<Vec<i64>>> {
     let reach_by_r = vec![boost_mult * jump_range; tank_jumps];
     let (seq, _g, _p) = run(
         py, cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, reach_by_r,
-        boost_mult, time_budget_s, blacklist, badzones, true, flip, no_fuel,
+        boost_mult, time_budget_s, blacklist, badzones, true, flip, no_fuel, heur_weight,
     )?;
     Ok(seq)
 }
@@ -550,7 +562,7 @@ fn graph_search_fuel<'py>(
 /// Debug/parity entry point for B1: (sequence, dst_g jump count, pops).
 #[allow(clippy::too_many_arguments)]
 #[pyfunction]
-#[pyo3(signature = (cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, tank_jumps, boost_mult, time_budget_s, blacklist, badzones, flip=false, no_fuel=false))]
+#[pyo3(signature = (cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, tank_jumps, boost_mult, time_budget_s, blacklist, badzones, flip=false, no_fuel=false, heur_weight=1.0))]
 fn graph_search_fuel_debug<'py>(
     py: Python<'py>,
     cc: PyReadonlyArray2<'py, f64>,
@@ -568,11 +580,12 @@ fn graph_search_fuel_debug<'py>(
     badzones: Vec<(f64, f64, f64, f64)>,
     flip: bool,
     no_fuel: bool,
+    heur_weight: f64,
 ) -> PyResult<(Option<Vec<i64>>, i64, u64)> {
     let reach_by_r = vec![boost_mult * jump_range; tank_jumps];
     run(
         py, cc, scoopable, cand, sv, dv, jump_range, entry_r, gap_k, reach_by_r,
-        boost_mult, time_budget_s, blacklist, badzones, true, flip, no_fuel,
+        boost_mult, time_budget_s, blacklist, badzones, true, flip, no_fuel, heur_weight,
     )
 }
 
