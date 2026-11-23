@@ -2037,6 +2037,31 @@ _B2_MAX_LY = float(_os.environ.get("EDGIS_B2_MAX_LY") or "100000")
 # realizing their long B1 path would roughly double realization time for nothing.
 _B2_BASELINE_MAX_LY = float(_os.environ.get("EDGIS_B2_BASELINE_MAX_LY") or "8000")
 
+# Local crawl repair: the thin B2 corridor (120 ly) blinds the search to off-axis
+# neutrons, so a rim desert realizes as a long REGULAR crawl (a bridge across a
+# wide gap between two sequence neutrons) where a slightly-off-geodesic neutron
+# chain would boost across in a few hops (Beagle legs 87-95: 9 regular jumps, yet
+# 48 neutrons sit within 500 ly of that segment, only 8 within 250). After a
+# search realizes, re-search a WIDE local bubble across each wide gap, splice any
+# strictly-shorter chain into the sequence, and re-realize -- keeping the result
+# only when it has fewer jumps (min-guard, so it can never regress). The local
+# bubble is a few hundred neutrons (vs the 100k-480k of a global wide corridor,
+# which drowns in Python -- the A1 spike), so it stays tractable.
+_CRAWL_REPAIR = _os.environ.get("EDGIS_CRAWL_REPAIR", "1") != "0"
+# Minimum bridge jumps a gap must cost before it's worth a local re-search.
+_CRAWL_MIN_BRIDGE = int(_os.environ.get("EDGIS_CRAWL_MIN_BRIDGE") or "3")
+# Radius (ly) of the local bubble around a crawl segment -- wide enough to catch
+# the off-axis highway the thin corridor missed.
+_CRAWL_BUBBLE_LY = float(_os.environ.get("EDGIS_CRAWL_BUBBLE_LY") or "500")
+# Most gaps to repair per route (widest first) and the repair time sub-budget.
+_CRAWL_MAX_GAPS = int(_os.environ.get("EDGIS_CRAWL_MAX_GAPS") or "3")
+_CRAWL_TIME_BUDGET = float(_os.environ.get("EDGIS_CRAWL_TIME_BUDGET") or "25")
+# Only run repair on long B2 routes: rim crawls appear past ~this distance, and
+# gating out short routes keeps the local searches + one re-realize from stealing
+# the solve budget on routes that have no deserts (bench: a short route spent 99 s
+# and a baseline realize timed out of its budget -> a +1 jump regression).
+_CRAWL_MIN_ROUTE_LY = float(_os.environ.get("EDGIS_CRAWL_MIN_ROUTE_LY") or "12000")
+
 
 def _thin_corridor(
     index: NeutronIndex, seq_ids: list[int], radius: float
@@ -2050,6 +2075,168 @@ def _thin_corridor(
         for m in index.tree.query_ball_point(coords[gid], radius):
             hit.add(int(m))
     return np.array(sorted(hit), dtype=np.int64)
+
+
+def _repair_gaps(
+    index: NeutronIndex,
+    src: tuple[float, float, float],
+    dst: tuple[float, float, float],
+    jump_range: float,
+    rseq: list[int],
+    seq_r: Optional[list[int]],
+    base_legs: list[dict],
+    gap_k: int,
+    boost_mult: float,
+    scoop_max_ls: float,
+    reach_by_r: Optional[np.ndarray],
+    sls_arr: Optional[np.ndarray],
+    range_search: bool,
+    filt: Callable[[np.ndarray], np.ndarray],
+    fetch_stars_within: FetchStarsWithin,
+    fetch_stars_near_segment: Optional[FetchStarsNearSegment],
+    fetch_stars_toward: Optional[FetchStarsToward],
+    is_locked: Optional[Callable[[str], bool]],
+    inject_mult: float,
+    deadline: float,
+) -> list[dict]:
+    """Shorten rim-desert crawls. For each wide gap between consecutive sequence
+    neutrons (one that realizes as >= ``_CRAWL_MIN_BRIDGE`` regular bridge jumps),
+    re-search a wide LOCAL bubble for the off-axis neutron chain the thin B2
+    corridor missed; splice a chain that crosses the gap in fewer hops and
+    re-realize the whole route. Returns the shortest valid realization found,
+    never longer than ``base_legs`` (min-guard). Detection is O(len(seq)) and the
+    local search fires only on genuine gaps, so no-crawl routes pay ~nothing.
+
+    Scoped to the B2 range search on long routes: rim deserts only appear at that
+    scale, and the wins are there (Beagle, bishan-praae). Running it on every
+    orientation/baseline solve instead stole the budget and regressed a short
+    route, so short + non-range solves skip it entirely."""
+    if not _CRAWL_REPAIR or not range_search or len(rseq) < 2:
+        return base_legs
+    straight_route = float(
+        np.linalg.norm(np.asarray(dst, dtype=np.float64)
+                       - np.asarray(src, dtype=np.float64))
+    )
+    if straight_route < _CRAWL_MIN_ROUTE_LY:
+        return base_legs
+    J = jump_range
+    boost = boost_mult * J
+    coords = index.coords
+
+    def _reach_at(k: int) -> float:
+        # Boost reach off sequence neutron k: the range-grown reach when B2 is
+        # flying (matches the realizer), else the fixed full-tank boost.
+        if range_search and reach_by_r is not None and seq_r is not None:
+            return float(reach_by_r[min(seq_r[k], len(reach_by_r) - 1)])
+        return boost
+
+    gaps: list[tuple[int, int]] = []  # (estimated bridge jumps, seq index k)
+    for k in range(len(rseq) - 1):
+        d = float(np.linalg.norm(coords[rseq[k + 1]] - coords[rseq[k]]))
+        reach = _reach_at(k)
+        if d <= reach + 1e-9:
+            continue
+        est = 1 + int(math.ceil((d - reach) / J))
+        if est >= _CRAWL_MIN_BRIDGE:
+            gaps.append((est, k))
+    if not gaps:
+        return base_legs
+    gaps.sort(reverse=True)  # widest gaps first
+
+    def _resim(seq: list[int]) -> Optional[list[int]]:
+        # Rebuild the B2 per-neutron resource (jumps since last refuel) for a
+        # spliced sequence, mirroring the forward-sim in _solve.
+        if not (range_search and reach_by_r is not None and sls_arr is not None):
+            return None
+        T = len(reach_by_r)
+        out: list[int] = []
+        for i, gid in enumerate(seq):
+            if i == 0:
+                r = 0
+            else:
+                r = out[i - 1] + 1
+                if sls_arr[gid] <= scoop_max_ls or r >= T:
+                    r = 0
+            out.append(r)
+        return out
+
+    # The local search models boost edges at the MAXIMUM range-grown reach (not
+    # the full-tank boost): a desert is crossed with a draining tank, so the
+    # realizable off-axis hops are the long late-cycle ones. Edges the actual
+    # resource state can't afford get bridged by the authoritative re-realize and
+    # the min-guard drops them, so an optimistic reach here only widens the search.
+    reach_cap = (
+        float(reach_by_r.max())
+        if (range_search and reach_by_r is not None)
+        else boost
+    )
+    local_boost_mult = max(boost_mult, reach_cap / J)
+
+    def _local_interior(a: int, b: int) -> list[int]:
+        """Neutron chain strictly between neutrons a and b from a wide bubble."""
+        av = np.asarray(coords[a], dtype=np.float64)
+        bv = np.asarray(coords[b], dtype=np.float64)
+        cand = filt(
+            _corridor_candidates(index, av, bv, _CRAWL_BUBBLE_LY, reach_cap)
+        )
+        if not len(cand):
+            return []
+        seq = _graph_search(
+            index, cand, av, bv, J, reach_cap, gap_k, set(), [], deadline,
+            boost_mult=local_boost_mult,
+        )
+        if not seq:
+            return []
+        s = list(seq)
+        while s and s[0] == a:
+            s.pop(0)
+        while s and s[-1] == b:
+            s.pop()
+        return [g for g in s if g != a and g != b]
+
+    # Splice the widest gaps one at a time, re-realizing and KEEPING each only if
+    # it actually shortens the route (min-guard). Per-gap validation matters:
+    # splicing neutrons shifts the downstream refuel cadence (seq_r), so a combined
+    # all-at-once splice can admit a chain that doesn't realize as planned and
+    # cancels a good one (bench: all-at-once lost the Beagle win a cumulative pass
+    # kept). The B2-long-haul + one-pass gating above bounds this to <= _CRAWL_MAX_
+    # GAPS re-realizes within the repair sub-budget, so it can't starve the solve.
+    cur_rseq = list(rseq)
+    cur_legs = base_legs
+    repair_dl = min(deadline, time.perf_counter() + _CRAWL_TIME_BUDGET)
+    for est, k0 in gaps[:_CRAWL_MAX_GAPS]:
+        if time.perf_counter() > repair_dl:
+            break
+        a, b = rseq[k0], rseq[k0 + 1]
+        try:
+            ka = cur_rseq.index(a)  # may have shifted after an earlier splice
+        except ValueError:
+            continue
+        if ka + 1 >= len(cur_rseq) or cur_rseq[ka + 1] != b:
+            continue
+        interior = _local_interior(a, b)
+        if not interior or len(interior) + 1 >= est:
+            continue
+        trial = cur_rseq[: ka + 1] + interior + cur_rseq[ka + 1 :]
+        legs2, _f = _realize_graph(
+            index,
+            src,
+            dst,
+            J,
+            trial,
+            fetch_stars_within,
+            fetch_stars_near_segment,
+            fetch_stars_toward,
+            is_locked=is_locked,
+            boost_mult=boost_mult,
+            inject_mult=inject_mult,
+            seq_r=_resim(trial),
+            reach_by_r=reach_by_r,
+        )
+        if legs2 is not None and len(legs2) < len(cur_legs):
+            cur_rseq = trial
+            cur_legs = legs2
+    return cur_legs
 
 
 def graph_route(
@@ -2289,6 +2476,31 @@ def graph_route(
                 reach_by_r=(_rbr if range_search else None),
             )
             if legs is not None:
+                # Local crawl repair: re-search wide bubbles across any rim-desert
+                # gaps the thin corridor left as long regular crawls, keeping only
+                # a strictly-shorter re-realization (min-guard).
+                legs = _repair_gaps(
+                    index,
+                    src,
+                    dst,
+                    J,
+                    rseq,
+                    seq_r,
+                    legs,
+                    gap_k,
+                    boost_mult,
+                    float(scoop_max_ls),
+                    _rbr,
+                    _sls_arr,
+                    range_search,
+                    _filter,
+                    fetch_stars_within,
+                    fetch_stars_near_segment,
+                    fetch_stars_toward,
+                    is_locked,
+                    inject_mult,
+                    d,
+                )
                 return _finalize(
                     legs, src, dst, J, boost, straight, 0, start_time
                 )
