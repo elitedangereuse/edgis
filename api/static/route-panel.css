@@ -50,13 +50,12 @@
    [hidden] rule, so hidden buttons (vs Galaxy before a ship is set) still
    showed. Re-assert it. */
 #panel-route button[hidden] { display:none; }
-/* Actions sit on their own row above the table, split into two groups: secondary
-   (compact toggle + Report issue) on the left, the route actions (Export/Copy/Share)
-   on the right. Each group wraps internally so Report issue never strands on its own
-   right-aligned line. */
-#panel-route .summary-actions { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center;
+/* The route actions (Export / Copy / Share / Report issue) sit on their own row
+   above the table, right-aligned, wrapping internally so none strands on its own
+   line. */
+#panel-route .summary-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center;
                    gap:8px 12px; margin:10px 0 4px; }
-#panel-route .sa-left, #panel-route .sa-right { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; }
+#panel-route .sa-right { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; }
 #panel-route #exportBtn, #panel-route #copyRoute, #panel-route #shareRoute, #panel-route #reportIssue { padding:.4rem .7rem; font-size:.8rem; }
 #panel-route #copyRoute svg, #panel-route #exportBtn svg, #panel-route #shareRoute svg, #panel-route #reportIssue svg { width:14px; height:14px; vertical-align:-2px; margin-right:2px; }
 /* Export format picker sits next to the Export button in the actions row. */
@@ -319,17 +318,6 @@
 #panel-route .act-btn { all:unset; cursor:pointer; color:var(--row-act-ink,#f3f4f6); padding:2px 4px; vertical-align:-2px; }
 /* Hover: tint the icon (currentColor) blue, no background change. */
 #panel-route .act-btn:hover, #panel-route .act-btn:focus-visible { color:var(--row-act-hover,#1294d6); background:transparent; }
-
-/* Small toggle switch (compact <-> all jumps). */
-#panel-route .switch { display:inline-flex; align-items:center; gap:7px; cursor:pointer; color:var(--muted);
-          font-size:11px; text-transform:uppercase; letter-spacing:.5px; user-select:none; }
-#panel-route .switch input { position:absolute; opacity:0; pointer-events:none; }
-#panel-route .switch .track { width:30px; height:16px; border-radius:999px; background:rgba(255,255,255,.08);
-                 border:1px solid var(--dim); position:relative; transition:all .15s; }
-#panel-route .switch .track::after { content:""; position:absolute; top:1px; left:1px; width:12px; height:12px;
-                        border-radius:50%; background:var(--muted); transition:all .15s; }
-#panel-route .switch input:checked + .track { background:rgba(18,148,214,.3); border-color:var(--accent); }
-#panel-route .switch input:checked + .track::after { left:15px; background:var(--accent); }
 
 #panel-route .msg { margin-top:16px; padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:var(--panel); }
 #panel-route .msg.err { border-color:#7a2f33; } #panel-route .msg.warn { border-color:#7a5f27; }

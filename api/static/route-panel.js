@@ -591,15 +591,6 @@ function injectBadge(g) {
   const k = injectKey(g);
   return ` <span class="inject-badge" title="FSD synthesis: ${INJECT_NAMES[k]} injection (+${Math.round((Number(k) - 1) * 100)}% range) needed for this jump">${INJECT_ICONS[k]}</span>`;
 }
-// Max grade needed across jumps [i0, i1) (0 = none), for the compact view.
-function injectInRange(r, i0, i1) {
-  let best = 0;
-  for (let i = i0; i < i1 && i < r.jumps.length; i++) {
-    const g = r.jumps[i] && r.jumps[i].inject_grade;
-    if (g && g > best) best = g;
-  }
-  return best;
-}
 // "Synthesis: N injections needed: [icon] 2x Basic ..." built from the legs, so
 // the commander knows what to synthesise and how much before the route.
 function injectSummary(r) {
@@ -763,34 +754,8 @@ function actsCell(name, x, y, z) {
 }
 
 let lastOurs = null, lastQuery = null;
-// Default EXPANDED (every jump shown), opt into compact. The compact view
-// (borrowed from spansh) groups the bridge jumps between neutrons, which trusts
-// the in-game router to fill them -- handy for power users, but newcomers were
-// confused about where to jump after a supercharge. Full view is unambiguous.
-let compactMode = localStorage.getItem("edgis_route_compact") === "1";
 let exportFmt = localStorage.getItem("edgis_route_export_fmt") === "csv" ? "csv" : "json";
 
-// Collapse to the systems you actually plot in-game: neutron supercharge stops
-// + the destination, with the jump count to reach each (the game auto-plots the
-// regular jumps between them).
-function compactRows(r) {
-  const out = []; let jumps = 0, ly = 0, start = 0;
-  r.jumps.forEach((j, i) => {
-    jumps++; ly += j.distance_jumped;
-    const last = i === r.jumps.length - 1;
-    if (j.neutron_star || last) {
-      out.push({ system: j.system ?? (last ? r.destination : "?"), spectral: j.spectral,
-                 primary_spectral: j.primary_spectral,
-                 jumps, ly, left: j.distance_left, neutron: j.neutron_star, dest: last,
-                 inflight_scoop: j.inflight_scoop, scoop_ls: j.scoop_ls, arrival_ls: j.arrival_ls,
-                 // scoop-plan state for the pump marker (planned vs skip)
-                 must_refuel: j.must_refuel, fuel_in_tank: j.fuel_in_tank,
-                 x: j.x, y: j.y, z: j.z, i0: start, i1: i });  // i0..i1 = this leg group
-      jumps = 0; ly = 0; start = i + 1;
-    }
-  });
-  return out;
-}
 // A deep link that reproduces the plotted route (tool + from/to/range/
 // supercharge/cargo). Uses the query that was actually plotted (lastQuery), not
 // the live fields. The SLEF loadout is deliberately NOT shared (stored in the
@@ -810,7 +775,6 @@ function shareUrl() {
 }
 function routeSystems() {
   if (!lastOurs) return [];
-  if (compactMode) return compactRows(lastOurs).map(w => w.dest ? lastOurs.destination : w.system).filter(Boolean);
   return lastOurs.jumps.map((j, i) => j.system ?? (i === lastOurs.jumps.length - 1 ? lastOurs.destination : null)).filter(Boolean);
 }
 
@@ -1198,9 +1162,8 @@ async function importCurrentShip() {
 function fuelVerdict(f, r) {
   const tank = `tank ≈ ${f.tank_jumps} jumps`;
   const added = f.scoop_stops ? ` · ${f.scoop_stops} scoop stop${f.scoop_stops === 1 ? "" : "s"} added` : "";
-  // Name the SYSTEM at the risk leg, not a jump number: compact mode renumbers
-  // rows (waypoint order, not jump index), so "jump 137" has no matching row
-  // there. A system name is unambiguous in both views.
+  // Name the SYSTEM at the risk leg, not a jump number: a system name is
+  // unambiguous and survives re-ordering / re-plots.
   const sysAt = (i) => {
     const js = (r && r.jumps) || [];
     const name = (i != null && js[i] && js[i].system)
@@ -1244,14 +1207,6 @@ function fuelRisks(r) {
     "Out of fuel here: no scoopable star within reach to refuel. Risk of stranding.");
   return m;
 }
-function riskInRange(riskMap, i0, i1) {
-  let found = null;  // a collapsed segment may hold several; surface the worst
-  if (riskMap.size) for (const [idx, info] of riskMap) {
-    if (idx < i0 || idx > i1) continue;
-    if (!found || info.kind === "strand") found = info;
-  }
-  return found;
-}
 function riskBadge(info) {
   return info
     ? ` <span class="risk risk-${info.kind}" title="${escapeHtml(info.label)}" aria-label="fuel warning">${warnIconSvg}</span>`
@@ -1261,7 +1216,7 @@ function riskBadge(info) {
 // Convert our route to spansh's neutron-plotter job JSON so it imports into
 // tools that read spansh routes. system_jumps = source first (jumps 0), then
 // each neutron supercharge stop + the destination; `jumps` = hops to reach it
-// (same grouping as the compact view); total_jumps excludes the source. Mirrors
+// (grouped by supercharge stop); total_jumps excludes the source. Mirrors
 // spansh's exact shape: the job wrapper (created_at/job/parameters/state/
 // status/updated_at), string-typed range/efficiency/supercharge_multiplier,
 // and full-precision distances -- distance_jumped is the straight-line distance
@@ -1363,9 +1318,8 @@ function downloadRoute(fmt) {
 
 // Per-row "done" progress tracking (manual, like spansh). Keyed by system name
 // within the plotted route (from|to|range|supercharge) and persisted in
-// localStorage, so ticks survive reloads and the compact/full toggle (a neutron
-// waypoint ticked in one mode stays ticked in the other). A future step is
-// auto-ticking from live game state via the EDMC plugin / FDev cAPI (see memory).
+// localStorage, so ticks survive reloads. A future step is auto-ticking from
+// live game state via the EDMC plugin / FDev cAPI (see memory).
 const DONE_LS = "edgis_route_done";
 let doneSet = new Set();
 function routeDoneKey() {
@@ -1392,15 +1346,12 @@ function doneBox(sys) {
     + `${doneSet.has(sys) ? " checked" : ""} title="Mark this system done" /></td>`;
 }
 
-// The departure system as row #0 (like spansh): jumps/LY from source are 0,
-// "left" is the straight-line distance to the destination. Compact has three
-// numeric columns (jumps/LY/left), full has two (jumped/left).
-function sourceRow(r, compact, hasFuel) {
+// The departure system as row #0 (like spansh): jumped from source is 0, "left"
+// is the straight-line distance to the destination.
+function sourceRow(r, hasFuel) {
   const sc = r.source_coords || {};
   const left = fmt(r.straight_line_ly, 0);
-  const nums = compact
-    ? `<td class="num">0</td><td class="num">0</td><td class="num">${left}</td>`
-    : `<td class="num">0</td><td class="num">${left}</td>`;
+  const nums = `<td class="num">0</td><td class="num">${left}</td>`;
   // Departure fuel = first leg's tank level before its burn.
   const j0 = (r.jumps || [])[0];
   const start = j0 && j0.fuel_in_tank != null
@@ -1420,9 +1371,9 @@ function sourceRow(r, compact, hasFuel) {
 
 function renderRoute(r) {
   // Keep the spansh comparison lines that belong to this plot: all of them on a
-  // re-render of the SAME route (compact toggle), and on a fresh result the ones
-  // started while it was plotting ("vs spansh" is usable meanwhile). The nodes
-  // are moved, not re-created, so a running progress bar doesn't restart.
+  // re-render of the SAME route, and on a fresh result the ones started while it
+  // was plotting ("vs spansh" is usable meanwhile). The nodes are moved, not
+  // re-created, so a running progress bar doesn't restart.
   const oldHost = document.getElementById("cmpOut");
   const keepCmp = oldHost ? [...oldHost.children].filter(
     (e) => r === lastOurs || e.dataset.plot === String(plotSeq)) : [];
@@ -1451,44 +1402,23 @@ function renderRoute(r) {
   };
   // "Don't scoop here, wait for X" tooltips name the next planned refuel.
   const nextRef = nextRefuelNames(r.jumps);
-  if (compactMode) {
-    const wps = compactRows(r);
-    header = `<th class="chk-head" title="Done"></th><th class="num">#</th><th>system</th><th>star</th><th class="num">jumps</th><th class="num">LY</th><th class="num">left</th>${fuelHead}<th class="acts-head">actions</th>`;
-    rows = wps.map((w, i) => {
-      const risk = riskInRange(riskMap, w.i0, w.i1);
-      const cname = w.dest ? r.destination : w.system;
-      return `<tr class="${risk ? "risk-row " : ""}${w.dest ? "dst-row " : ""}${doneSet.has(cname) ? "done" : ""}">
-      ${doneBox(cname)}
-      <td class="num">${i + 1}</td>
-      <td class="sys ${w.neutron ? "boost" : ""}">${copyBtn(cname)}${sysName(w.system)}${injectBadge(injectInRange(r, w.i0, w.i1))}${riskBadge(risk)}</td>
-      <td>${epWrap(w.dest ? toMarker : "", spectralCell({ spectral: w.spectral, primary_spectral: w.primary_spectral, neutron_star: w.neutron, inflight_scoop: w.inflight_scoop, scoop_ls: w.scoop_ls, arrival_ls: w.arrival_ls, must_refuel: w.must_refuel, fuel_in_tank: w.fuel_in_tank, next_refuel: nextRef[w.i1] }))}</td>
-      <td class="num">${fmt(w.jumps)}</td>
-      <td class="num">${fmt(w.ly, 0)}</td>
-      <td class="num">${fmt(w.left, 0)}</td>
-      ${fuelCell(r.jumps[w.i1])}
-      ${actsCell(w.dest ? r.destination : w.system, w.x, w.y, w.z)}
-    </tr>`;
-    }).join("");
-    rows = sourceRow(r, true, hasFuel) + rows;
-  } else {
-    header = `<th class="chk-head" title="Done"></th><th class="num">#</th><th>system</th><th>star</th><th class="num">jumped</th><th class="num">left</th>${fuelHead}<th class="acts-head">actions</th>`;
-    rows = r.jumps.map((j, i) => {
-      const last = i === r.jumps.length - 1;
-      const name = j.system ?? (last ? r.destination : "?");
-      const risk = riskMap.get(i);
-      return `<tr class="${risk ? "risk-row " : ""}${last ? "dst-row " : ""}${doneSet.has(name) ? "done" : ""}">
-      ${doneBox(name)}
-      <td class="num">${i + 1}</td>
-      <td class="sys ${j.neutron_star ? "boost" : ""}">${copyBtn(j.system ?? r.destination)}${sysName(name)}${injectBadge(j.inject_grade)}${riskBadge(risk)}</td>
-      <td>${epWrap(last ? toMarker : "", spectralCell({ ...j, next_refuel: nextRef[i] }))}</td>
-      <td class="num">${fmt(j.distance_jumped, 1)}</td>
-      <td class="num">${fmt(j.distance_left, 0)}</td>
-      ${fuelCell(j)}
-      ${actsCell(j.system ?? (last ? r.destination : null), j.x, j.y, j.z)}
-    </tr>`;
-    }).join("");
-    rows = sourceRow(r, false, hasFuel) + rows;
-  }
+  header = `<th class="chk-head" title="Done"></th><th class="num">#</th><th>system</th><th>star</th><th class="num">jumped</th><th class="num">left</th>${fuelHead}<th class="acts-head">actions</th>`;
+  rows = r.jumps.map((j, i) => {
+    const last = i === r.jumps.length - 1;
+    const name = j.system ?? (last ? r.destination : "?");
+    const risk = riskMap.get(i);
+    return `<tr class="${risk ? "risk-row " : ""}${last ? "dst-row " : ""}${doneSet.has(name) ? "done" : ""}">
+    ${doneBox(name)}
+    <td class="num">${i + 1}</td>
+    <td class="sys ${j.neutron_star ? "boost" : ""}">${copyBtn(j.system ?? r.destination)}${sysName(name)}${injectBadge(j.inject_grade)}${riskBadge(risk)}</td>
+    <td>${epWrap(last ? toMarker : "", spectralCell({ ...j, next_refuel: nextRef[i] }))}</td>
+    <td class="num">${fmt(j.distance_jumped, 1)}</td>
+    <td class="num">${fmt(j.distance_left, 0)}</td>
+    ${fuelCell(j)}
+    ${actsCell(j.system ?? (last ? r.destination : null), j.x, j.y, j.z)}
+  </tr>`;
+  }).join("");
+  rows = sourceRow(r, hasFuel) + rows;
   $("out").innerHTML = `
     <div class="statgrid">
       <div class="statrow" data-cmp>${statCells({
@@ -1499,12 +1429,6 @@ function renderRoute(r) {
     ${r.fuel ? `<div class="fuelbar">${fuelVerdict(r.fuel, r)}</div>` : ""}
     ${injectSummary(r)}
     <div class="summary-actions">
-      <div class="sa-left">
-        <label class="switch" title="Compact: only the waypoints you plot in-game. Off: every jump.">
-          <input type="checkbox" id="compactToggle" ${compactMode ? "checked" : ""} />
-          <span class="track"></span><span>compact</span>
-        </label>
-      </div>
       <div class="sa-right">
         <span class="export-group">
           <select id="exportFmt" title="Export format" aria-label="Export format">
@@ -1775,7 +1699,7 @@ async function plot(isRetry = false) {
   }
 }
 
-// Delegated clicks: per-row copy, row actions, copy-all, and the compact toggle.
+// Delegated clicks: per-row copy, row actions, copy-all, export/share/report.
 $("out").addEventListener("click", (e) => {
   const cb = e.target.closest("[data-copy]");   // copy button or the system name itself
   if (cb) { copyText(cb.dataset.copy, cb); return; }
@@ -1798,13 +1722,13 @@ $("out").addEventListener("click", (e) => {
   const qCancel = e.target.closest("#qCancel");
   if (qCancel) { clearQueueRetry(); _queueAttempts = 0; $("out").innerHTML = `<div class="msg">Plotting cancelled.</div>`; $("go").disabled = false; }
 });
-// The compact switch and export-format picker both change on input.
+// Per-row "done" checkboxes and the export-format picker change on input.
 $("out").addEventListener("change", (e) => {
   const box = e.target.closest(".done-box");
   if (box) {
     // Cumulative progress: ticking a row marks everything above it done too (you
     // flew past them); unticking a row clears it and everything below. Operates
-    // on the displayed rows in order, so it's correct in compact and full modes.
+    // on the displayed rows in order.
     const applyDone = (b, state) => {
       b.checked = state;
       if (state) doneSet.add(b.dataset.sys); else doneSet.delete(b.dataset.sys);
@@ -1815,13 +1739,6 @@ $("out").addEventListener("change", (e) => {
     if (box.checked) { for (let k = 0; k <= idx; k++) applyDone(boxes[k], true); }
     else { for (let k = idx; k < boxes.length; k++) applyDone(boxes[k], false); }
     saveDone();
-    return;
-  }
-  const toggle = e.target.closest("#compactToggle");
-  if (toggle && lastOurs) {
-    compactMode = toggle.checked;
-    localStorage.setItem("edgis_route_compact", compactMode ? "1" : "0");
-    renderRoute(lastOurs);
     return;
   }
   const fmt = e.target.closest("#exportFmt");
