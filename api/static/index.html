@@ -955,6 +955,9 @@
        const shouldShowTable = Boolean(globalThis.tableVisible && kind !== 'system-lookup');
        if (shouldShowTable) {
          resultTable.style.display = 'block';
+         // The body-detail card shows its whole content (no 60vh scroll cap); the
+         // cap stays for long result TABLES. See the matching rule in milkyway.css.
+         resultTable.classList.toggle('body-detail-view', kind === 'body-detail');
          resultTable.innerHTML = jsonToTable(json, kind);
        } else {
          resultTable.style.display = 'none';

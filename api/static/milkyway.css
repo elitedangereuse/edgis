@@ -68,6 +68,13 @@ a:hover {
     scrollbar-width: thin;
     scrollbar-color: #3b505966 #1a1a1a;
 }
+/* The body-detail card is a single card (parents + materials): show it whole, no
+   scroll. The 60vh cap above is for long result TABLES, not this. Mirrors the
+   plotter's "#panel-route .result-table { max-height:none }" fix. */
+#resultTable.body-detail-view {
+    max-height: none;
+    overflow-y: visible;
+}
 
 #resultPre::-webkit-scrollbar, #resultTable::-webkit-scrollbar, .result-table::-webkit-scrollbar {
     width: 6px;
