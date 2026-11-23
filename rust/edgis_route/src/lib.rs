@@ -83,6 +83,15 @@ fn search_core(
     let boost = boost_mult * j;
     let t: usize = reach_by_r.len();
     let reach_max = reach_by_r.iter().cloned().fold(0.0_f64, f64::max);
+    // Does the boost reach grow with the fuel resource (B2), or is it fixed (B1 /
+    // plain)? When fixed, EVERY neighbour within reach_max is a valid cost-1 boost,
+    // so the per-node boost edges need no distance order -- skipping the sort is the
+    // difference between the dense full-corridor coarse taking ~85 s and ~seconds
+    // (it was sorting tens of thousands of neighbours per node for nothing). Only
+    // B2 needs the sorted prefix, to cut neighbours at the resource-dependent reach.
+    let reach_varies = reach_by_r
+        .iter()
+        .any(|&x| (x - reach_by_r[0]).abs() > 1e-9);
     let sv3 = [sv[0], sv[1], sv[2]];
     let dv3 = [dv[0], dv[1], dv[2]];
     let straight = {
@@ -247,17 +256,32 @@ fn search_core(
         // Build / fetch memoized edges for u.
         if edges[u].is_none() {
             let cu = coord[u];
-            let mut nn = tree.within::<SquaredEuclidean>(&cu, reach_max * reach_max);
-            nn.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap());
             let mut ms = Vec::new();
             let mut dm = Vec::new();
             let mut sc = Vec::new();
-            for e in nn {
-                let m = e.item as usize;
-                if m != u {
-                    ms.push(m as u32);
-                    dm.push(e.distance.sqrt());
-                    sc.push(scoop[m]);
+            if reach_varies {
+                // B2: keep neighbours distance-sorted so relax can take the prefix
+                // within reach_by_r[r] (range growth).
+                let mut nn = tree.within::<SquaredEuclidean>(&cu, reach_max * reach_max);
+                nn.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap());
+                for e in nn {
+                    let m = e.item as usize;
+                    if m != u {
+                        ms.push(m as u32);
+                        dm.push(e.distance.sqrt());
+                        sc.push(scoop[m]);
+                    }
+                }
+            } else {
+                // B1 / plain: fixed reach, every neighbour is a valid cost-1 boost;
+                // no order needed, so skip the sort (within_unsorted is O(k)).
+                for e in tree.within_unsorted::<SquaredEuclidean>(&cu, reach_max * reach_max) {
+                    let m = e.item as usize;
+                    if m != u {
+                        ms.push(m as u32);
+                        dm.push(e.distance.sqrt());
+                        sc.push(scoop[m]);
+                    }
                 }
             }
             // gap edges: only when no forward boost neighbour exists.
@@ -332,8 +356,13 @@ fn search_core(
             } else {
                 (reach_by_r[r], 1i64, false)
             };
-            // sorted dm: prefix within reach.
-            let k = e.dm.partition_point(|&x| x <= reach);
+            // B2: sorted dm -> prefix within the (grown) reach. B1/plain: dm is
+            // unsorted but reach is fixed at reach_max, so every neighbour qualifies.
+            let k = if reach_varies {
+                e.dm.partition_point(|&x| x <= reach)
+            } else {
+                e.ms.len()
+            };
             let cg = g + step;
             for i in 0..k {
                 let m = e.ms[i] as usize;
