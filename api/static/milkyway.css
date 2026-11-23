@@ -76,6 +76,47 @@ a:hover {
     overflow-y: visible;
 }
 
+/* Mobile result list (the .responsive-table card view, tailwind.css). The stock
+   card uses flex space-between, which pushes values to the far edge, cramps long
+   system names, and wraps the labels ("Na me"). Make each card readable instead:
+   the NAME is the card's identity (full width, prominent); every other field is an
+   aligned label-column + value that wraps cleanly. Drop the inner 60vh scroll too,
+   so a phone scrolls the page rather than a tiny nested box. */
+@media (max-width: 40rem) {
+    #resultPre, #resultTable, .result-table {
+        max-height: none;
+        overflow-y: visible;
+    }
+    #resultTable .responsive-table td {
+        display: grid;
+        grid-template-columns: 6.5rem 1fr;
+        align-items: baseline;
+        justify-items: start;
+        gap: 0.2rem 0.75rem;
+        padding: 0.35rem 0;
+        overflow-wrap: anywhere;
+    }
+    #resultTable .responsive-table td::before {
+        white-space: nowrap;
+        text-transform: uppercase;
+        font-size: 0.66rem;
+        letter-spacing: 0.04em;
+        opacity: 0.85;
+    }
+    /* Name = the row's identity: full width, larger, above its label. */
+    #resultTable .responsive-table td[data-label="Name"] {
+        grid-template-columns: 1fr;
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--accent-white, #e6edf3);
+        padding-bottom: 0.5rem;
+    }
+    /* Actions icons align to the right of the value column. */
+    #resultTable .responsive-table td.table-actions-cell {
+        justify-items: end;
+    }
+}
+
 #resultPre::-webkit-scrollbar, #resultTable::-webkit-scrollbar, .result-table::-webkit-scrollbar {
     width: 6px;
 }
