@@ -795,6 +795,7 @@
      const PERMALINK_PARAMS = {
        lookup: 'lookup',
        bodies: 'bodies',
+       body: 'body',
        neighbors: 'neighbors',
        predict: 'predict',
        neutron: 'neutron',
@@ -1565,6 +1566,13 @@
        const body = encodeURIComponent(String(bodyId));
        let path = `/bodies?name_or_id=${sys}&body_id=${body}`;
        callApi(path, 'body-detail');
+       // Point the URL at this specific body so it can be shared/reloaded. Keep the
+       // readable system (bodyDetailBackValue, usually the name) in `bodies` and add
+       // the body id; the backend resolves name + body_id to the one body.
+       updatePermalinkParams({
+         [PERMALINK_PARAMS.bodies]: bodyDetailBackValue,
+         [PERMALINK_PARAMS.body]: String(bodyId),
+       });
      }
 
      function backToBodiesList(){
@@ -1575,6 +1583,8 @@
          targetTab: null,
          skipPermalinkUpdate: true,
        });
+       // Back to the whole-system list: drop the body id so the URL matches the view.
+       updatePermalinkParams({ [PERMALINK_PARAMS.bodies]: bodyDetailBackValue });
      }
      globalThis.backToBodiesList = backToBodiesList;
 
@@ -1745,7 +1755,15 @@
        const bodiesValue = params.get(PERMALINK_PARAMS.bodies);
        if (bodiesValue && bodiesInput) {
          bodiesInput.value = bodiesValue;
-         submitBodies({ skipPermalinkUpdate: true });
+         const bodyValue = params.get(PERMALINK_PARAMS.body);
+         if (bodyValue) {
+           // Deep link to one body's detail card (system name + body id). The Back
+           // button returns to this system's full body list.
+           bodyDetailBackValue = bodiesValue;
+           fetchBodyDetails(bodiesValue, bodyValue);
+         } else {
+           submitBodies({ skipPermalinkUpdate: true });
+         }
          return;
        }
 
