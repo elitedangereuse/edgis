@@ -1,3 +1,12 @@
+/* Enforce the EDGIS wordmark font (.uc-branding references Orbitron but it was
+   never loaded, so it fell back per-platform). Self-hosted variable woff2. */
+@font-face {
+    font-family: 'Orbitron';
+    src: url('/static/assets/fonts/orbitron.woff2') format('woff2');
+    font-weight: 400 900;
+    font-style: normal;
+    font-display: swap;
+}
 :root { --bg:#000; --panel:#121212; --ink:#e6e9ff; --muted:#9aa3c7; --star:#f6c453; --planet:#6fa8dc; }
 body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--ink); }
 header { border-bottom: 1px solid rgba(255,255,255,.08); }
