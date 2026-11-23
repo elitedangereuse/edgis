@@ -1216,7 +1216,13 @@ function fuelVerdict(f, r) {
     return `<span class="bad">⚠ Fuel: tight</span> `
       + `<span class="tiny">${f.max_dry_jumps} jumps between scoopable stars, ${tank}${added} · min fuel ${fmt(f.min_fuel, 1)} t.</span>`;
   }
-  return `<span class="good">✓ Fuel-safe</span> `
+  // Stats describe the DISPLAYED refuel plan (ledger_stats): when it advises no
+  // scooping at all, say so instead of a "dry run" that spans the whole route.
+  if (!f.refuels) {
+    return `<span class="good">✓</span> `
+      + `<span class="tiny">no scooping needed (${tank})${added} · min fuel ${fmt(f.min_fuel, 1)} t.</span>`;
+  }
+  return `<span class="good">✓</span> `
     + `<span class="tiny">longest dry run ${f.max_dry_jumps} jumps (${tank})${added} · min fuel ${fmt(f.min_fuel, 1)} t.</span>`;
 }
 

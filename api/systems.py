@@ -3997,14 +3997,19 @@ def _enforce_fuel_sync(
         )
         result["total_distance_ly"] = flown
         result["efficiency"] = (straight / flown) if flown else 0.0
-        fuel = fsd.fuel_report(new_legs, params, boost_mult=boost_mult)
+        # ACCURATE stranding/min-fuel: the enforcer planned its diverts against
+        # the game-accurate tank (in-path refuel waiver), so the final verdict
+        # must judge the same model -- the conservative max-burn sim false-flags
+        # routes the real tank completes (cutter Colonia->Sol: -7.3 t
+        # conservative vs +2.85 t accurate, 2026-11-23).
+        fuel = fsd.fuel_report(new_legs, params, boost_mult=boost_mult,
+                               accurate=True)
         fuel["scoop_stops"] = info["scoop_stops"]
         fuel["enforced"] = True
-        # Post-enforcement the route keeps an exact one-jump reserve, so the
-        # authoritative verdict is "didn't actually strand, no jump is
-        # over-range, AND every needed scoop was insertable" -- not
-        # fuel_report's conservative max_dry<cap proxy (which a fully-used tank
-        # can trip even when safe).
+        # Post-enforcement the route keeps a divert reserve, so the authoritative
+        # verdict is "didn't actually strand, no jump is over-range, AND every
+        # needed scoop was insertable" -- not fuel_report's conservative
+        # max_dry<cap proxy (which a fully-used tank can trip even when safe).
         fuel["safe"] = (
             (not fuel["stranded"])
             and (not fuel["over_range"])
@@ -4012,6 +4017,10 @@ def _enforce_fuel_sync(
         )
         result["fuel"] = fuel
         fsd.annotate_leg_fuel(new_legs, params, boost_mult=boost_mult)
+        # The verdict's dry-run/min-fuel/refuels must describe the DISPLAYED
+        # (lazy) refuel plan, not simulate_fuel's brim-at-every-scoopable model
+        # (the two disagree whenever the lazy plan skips scoopables).
+        result["fuel"].update(fsd.ledger_stats(new_legs))
     else:
         # Report-only (no source coords to anchor scoop-stop detours against).
         # Use the annotated copies so in-system refuels show in the report + UI.
@@ -4019,6 +4028,7 @@ def _enforce_fuel_sync(
         result["fuel"] = fsd.fuel_report(legs, params, boost_mult=boost_mult)
         result["fuel"]["enforced"] = False
         fsd.annotate_leg_fuel(legs, params, boost_mult=boost_mult)
+        result["fuel"].update(fsd.ledger_stats(legs))
     return result
 
 

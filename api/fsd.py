@@ -345,7 +345,7 @@ def is_refuel_landing(leg: dict) -> bool:
 
 
 def simulate_fuel(jumps, params: "FuelParams", start_fuel: Optional[float] = None,
-                  boost_mult: float = 4.0):
+                  boost_mult: float = 4.0, accurate: bool = False):
     """Simulate the tank along a realized route to find fuel stranding.
 
     Starts full (or ``start_fuel``), burns ``fuel_cost`` per jump, and refuels to
@@ -362,6 +362,13 @@ def simulate_fuel(jumps, params: "FuelParams", start_fuel: Optional[float] = Non
     with fuel to spare -- a separate failure from running dry, and one a scoop
     detour makes worse (more fuel = more mass = less range)."""
     fuel = params.tank_size if start_fuel is None else float(start_fuel)
+    # The over-range check ALWAYS walks the conservative max-drain tracker,
+    # even in accurate mode: the B2 plan allows its long late hops because the
+    # max-drained (light) ship reaches them; judging reach at the accurate
+    # (fuller, heavier, shorter-ranged) tank false-flags exactly those hops
+    # and the caller's fuel-safety guard then re-solves B1 (the 2026-11-21
+    # revert, re-hit 2026-11-23: 7 bench regressions, sol-colonia 57->88).
+    fuel_cons = fuel
     stranded_at = None
     over_range_at = None
     fuel_after = []
@@ -373,30 +380,37 @@ def simulate_fuel(jumps, params: "FuelParams", start_fuel: Optional[float] = Non
         if d <= 1e-9:
             fuel_after.append(fuel)
             continue
-        reach = params.jump_range(fuel) * (
+        reach = params.jump_range(fuel_cons) * (
             boost_mult if j.get("type") == "boost" else 1.0
         )
         if d > reach + 1e-6 and over_range_at is None:
             over_range_at = i  # unreachable at this fuel level (too heavy)
-        # CONSERVATIVE burn (boosted legs billed the full cap, like
+        # Default: CONSERVATIVE burn (boosted legs billed the full cap, like
         # tank_capacity_jumps/reach_profile assume): the B2 range-growth plan
         # relies on the tank DRAINING at max rate (drained tank = light ship =
         # long reach), so simulating the true partial-throw burns here makes
         # the tank read fuller/heavier than planned and flags B2's long late
         # hops over-range -- the guard then discards good routes (bench: 6
-        # regressions + 2 timeouts). Until the planner's resource model tracks
-        # tonnes, safety verdicts stay on the max-burn model; the game-accurate
-        # partial-throw cost (fuel_cost with boost_mult) is used for the
-        # DISPLAYED ledger in annotate_leg_fuel.
-        cost = min(params.fuel_cost(d, fuel), params.max_fuel_per_jump)
+        # regressions + 2 timeouts). The B2-unsafe guard therefore stays on
+        # the max-burn model. ``accurate=True`` switches to the game-accurate
+        # partial-throw burn (the ledger/enforcer-divert model) for callers
+        # that want to measure the REAL tank (tests, diagnostics).
+        cost_cons = min(params.fuel_cost(d, fuel_cons), params.max_fuel_per_jump)
+        if accurate:
+            mult = boost_mult if j.get("type") == "boost" else 1.0
+            cost = min(params.fuel_cost(d, fuel, mult), params.max_fuel_per_jump)
+        else:
+            cost = cost_cons
         if cost > fuel + 1e-9:
             stranded_at = i
             fuel_after.append(fuel - cost)
             break
         fuel -= cost
+        fuel_cons -= cost_cons
         fuel_after.append(fuel)
         if is_refuel_landing(j):
             fuel = params.tank_size
+            fuel_cons = params.tank_size
             refuels += 1
             dry = 0
         else:
@@ -444,6 +458,32 @@ def _nearest_scoopable(fetch_scoopable_near, pos, radius, is_locked):
     return best
 
 
+# Fraction of max_fuel_per_jump kept as the HARD floor when a planned in-path
+# refuel waives the full one-jump reserve (quarter-jump, the margin class
+# spansh's own routes run). The full reserve still gates whenever no refuel
+# landing lies ahead in the plan.
+_RESERVE_FLOOR_FRAC = 0.25
+
+
+def _reaches_refuel(legs, start_i, fuel, params, maxf, boost_mult, floor):
+    """From AFTER leg ``start_i`` holding ``fuel``, True iff the route reaches its
+    next refuel landing with the tank at or above ``floor`` after every jump
+    (game-accurate burns). False when it would dip under the floor first, or when
+    no refuel landing lies ahead at all."""
+    f = fuel
+    for k in range(start_i + 1, len(legs)):
+        d = float(legs[k].get("distance_jumped", 0.0) or 0.0)
+        if d <= 1e-9:
+            continue
+        mult = boost_mult if legs[k].get("type") == "boost" else 1.0
+        f -= min(params.fuel_cost(d, f, mult), maxf)
+        if f < floor - 1e-9:
+            return False
+        if is_refuel_landing(legs[k]):
+            return True
+    return False
+
+
 def enforce_fuel_safety(
     legs,
     src,
@@ -480,7 +520,23 @@ def enforce_fuel_safety(
         "pos": (float(src[0]), float(src[1]), float(src[2])),
         "name": src_name, "id64": None, "spectral": None, "neutron": False,
     }
+    # TWO fuel trackers, one per concern:
+    # - ``fuel`` (conservative, max-burn capped, boosted legs billed the raw
+    #   distance): drives the OVER-RANGE check only. The B2 range-growth plan
+    #   relies on the tank draining at max rate (drained = light = long reach),
+    #   so that check must walk the same drain assumption or it flags B2's long
+    #   late hops over-range and the guard discards good routes (see
+    #   simulate_fuel's note; an earlier all-accurate attempt was reverted).
+    # - ``facc`` (game-accurate partial-throw burns, the same model as the
+    #   displayed ledger in annotate_leg_fuel): drives the DIVERT decisions
+    #   (affordability + reserve margin). The old conservative margin billed a
+    #   partial boosted hop the full max burn and inserted scoop diverts the
+    #   accurate ledger then proved pointless (a 4 t-tank Sidewinder got a
+    #   2-jump out-and-back the display showed refuelling nothing, 2026-11-22).
+    #   Divert only when the REAL tank needs it; the reserve stays a full
+    #   conservative jump, so the anti-stranding guarantee is unchanged.
     fuel = tank
+    facc = tank
     scoop_stops = 0
     unsafe_at = None
 
@@ -491,26 +547,43 @@ def enforce_fuel_safety(
             "reason": "tank too small",
         }
 
-    for leg in legs:
+    floor = _RESERVE_FLOOR_FRAC * maxf
+    for li, leg in enumerate(legs):
         d = float(leg.get("distance_jumped", 0.0) or 0.0)
         # A refuel landing = scoopable primary OR a neutron with a scoopable
         # companion in supercruise range (in-highway refuel, no divert jump).
         landing_scoop = is_refuel_landing(leg)
         if d > 1e-9:
-            reach_now = params.jump_range(fuel) * (
-                boost_mult if leg.get("type") == "boost" else 1.0
-            )
-            # Conservative max-burn on boosted legs, matching simulate_fuel
-            # (see the note there): enforcement margins must agree with the
-            # planner's drain assumption, not the game-accurate partial burn.
+            mult = boost_mult if leg.get("type") == "boost" else 1.0
+            reach_now = params.jump_range(fuel) * mult
+            # Conservative max-burn (boosted legs billed the raw distance),
+            # matching simulate_fuel: the over-range check below must agree
+            # with the planner's drain assumption.
             cost = min(params.fuel_cost(d, fuel), maxf)
-            breaks_margin = (not landing_scoop) and (fuel - cost) < reserve - 1e-9
+            # Game-accurate burn (same model as the displayed ledger): what
+            # the tank will REALLY hold after this jump.
+            cost_acc = min(params.fuel_cost(d, facc, mult), maxf)
+            after = facc - cost_acc
+            breaks_margin = (not landing_scoop) and after < reserve - 1e-9
+            if breaks_margin and after >= floor - 1e-9 and _reaches_refuel(
+                legs, li, after, params, maxf, boost_mult, floor
+            ):
+                # IN-PATH refuel waiver: the plan provably reaches its next
+                # refuel landing holding at least the quarter-jump floor the
+                # whole way, so a divert-and-return (2 jumps) buys nothing --
+                # trust the planned in-path scoop instead of the full one-jump
+                # reserve. The strict reserve still fires when no refuel
+                # landing lies ahead (genuinely scoopless space).
+                breaks_margin = False
             if d > reach_now + 1e-6 and unsafe_at is None:
                 # Over-range: unmakeable at this (heavy) fuel level; a scoop
                 # detour only adds mass and shortens range, so it can't fix it.
                 unsafe_at = len(out)
-            elif (cost > fuel + 1e-9 or breaks_margin) and unsafe_at is None:
-                reach = params.jump_range(fuel)
+            elif (cost_acc > facc + 1e-9 or breaks_margin) and unsafe_at is None:
+                # The divert must be flyable at the REAL (accurate) fuel level:
+                # facc >= fuel, so the heavier real tank jumps shorter -- using
+                # the accurate range here can only pick closer (safer) stars.
+                reach = params.jump_range(facc)
                 s = _nearest_scoopable(
                     fetch_scoopable_near, cur["pos"], reach, is_locked
                 )
@@ -519,8 +592,8 @@ def enforce_fuel_safety(
                 )
                 d1 = None if s_pos is None else math.dist(cur["pos"], s_pos)
                 if s_pos is not None and min(
-                    params.fuel_cost(d1, fuel), maxf
-                ) <= fuel + 1e-9:
+                    params.fuel_cost(d1, facc), maxf
+                ) <= facc + 1e-9:
                     # cur -> scoopable S (refuel), then S -> cur (resume).
                     out.append(_mk_leg(
                         "regular", s[3], s_pos, d1, False,
@@ -529,6 +602,7 @@ def enforce_fuel_safety(
                         id64=(s[5] if len(s) > 5 else None),
                     ))
                     fuel = tank
+                    facc = tank
                     scoop_stops += 1
                     d2 = math.dist(s_pos, cur["pos"])
                     out.append(_mk_leg(
@@ -537,10 +611,13 @@ def enforce_fuel_safety(
                         id64=cur["id64"], spectral=cur["spectral"],
                     ))
                     fuel -= min(params.fuel_cost(d2, fuel), maxf)
+                    facc -= min(params.fuel_cost(d2, facc), maxf)
                     cost = min(params.fuel_cost(d, fuel), maxf)
+                    cost_acc = min(params.fuel_cost(d, facc, mult), maxf)
                 else:
                     unsafe_at = len(out)  # no scoopable star in range
             fuel -= cost
+            facc -= cost_acc
         out.append(dict(leg))
         cur = {
             "pos": (float(leg["x"]), float(leg["y"]), float(leg["z"])),
@@ -549,6 +626,7 @@ def enforce_fuel_safety(
         }
         if landing_scoop:
             fuel = tank
+            facc = tank
 
     return out, {
         "scoop_stops": scoop_stops,
@@ -601,8 +679,15 @@ def tank_range(params: "FuelParams", boost_mult: float = 1.0) -> float:
 
 
 def fuel_report(jumps, params: "FuelParams", start_fuel: Optional[float] = None,
-                boost_mult: float = 4.0):
+                boost_mult: float = 4.0, accurate: bool = False):
     """Summarize a realized route's fuel safety for a given ship.
+
+    ``accurate=True`` judges stranding/min-fuel on the game-accurate partial-throw
+    burn -- the model enforce_fuel_safety plans its diverts against, so the final
+    verdict for an ENFORCED route agrees with the enforcer (the default
+    conservative max-burn sim false-flags routes the real tank completes: a cutter
+    route the enforcer made safe read stranded at -7.3 t conservatively, +2.85 t
+    accurately, 2026-11-23).
 
     Builds on ``simulate_fuel`` (exact per-jump burn) and adds a verdict:
     ``safe`` is True only when the route never strands, has no jump that is
@@ -612,7 +697,7 @@ def fuel_report(jumps, params: "FuelParams", start_fuel: Optional[float] = None,
     star (the default-on fuel-safe margin). Returns the simulation fields plus
     ``tank_jumps``, ``stranded``, ``over_range``, and ``safe``; ``fuel_after``
     is dropped (per-leg detail the UI does not need)."""
-    sim = simulate_fuel(jumps, params, start_fuel, boost_mult)
+    sim = simulate_fuel(jumps, params, start_fuel, boost_mult, accurate=accurate)
     cap = tank_capacity_jumps(params)
     stranded = sim["stranded_at"] is not None
     over_range = sim["over_range_at"] is not None
@@ -635,13 +720,19 @@ def fuel_report(jumps, params: "FuelParams", start_fuel: Optional[float] = None,
 
 
 def _scoop_needed(legs, i: int, fuel: float, params: "FuelParams",
-                  maxf: float, landing, boost_mult: float = 4.0) -> bool:
+                  maxf: float, landing, boost_mult: float = 4.0,
+                  reserve: float = 0.0) -> bool:
     """From a scoopable landing ``i`` holding ``fuel`` (after that leg's burn),
     decide whether the commander actually has to top up here. The answer is no
     when the current fuel reaches the NEXT scoopable landing (or the route's end)
     without the tank running dry -- in that case scooping here only wastes time
     and leaves a heavier, shorter-ranged ship. Returns True only when skipping the
-    scoop would strand before the next chance to refuel."""
+    scoop would strand -- or, with ``reserve`` > 0, dip below that reserve before
+    a non-scoopable landing -- before the next chance to refuel. The reserve is
+    the SAME one-jump margin enforce_fuel_safety diverts to protect, so the
+    displayed refuel plan and the enforcer agree on where a top-up is required
+    (the old reserve-blind plan could show an enforcer-inserted divert as
+    refuelling nothing)."""
     f = fuel
     for k in range(i + 1, len(legs)):
         d = float(legs[k].get("distance_jumped", 0.0) or 0.0)
@@ -651,6 +742,8 @@ def _scoop_needed(legs, i: int, fuel: float, params: "FuelParams",
         cost = min(params.fuel_cost(d, f, mult), maxf)
         if cost > f + 1e-9:
             return True              # would run dry before the next refuel
+        if (not landing[k]) and (f - cost) < reserve - 1e-9:
+            return True              # would break the divert reserve en route
         f -= cost
         if landing[k]:
             return False             # reached the next scoopable with fuel to spare
@@ -682,13 +775,59 @@ def annotate_leg_fuel(legs, params: "FuelParams", start_fuel: Optional[float] = 
         refueled = False
         # Top up only when this scoopable landing is actually needed to carry on
         # (the source, d == 0, is already full).
-        if d > 1e-9 and landing[i] and _scoop_needed(legs, i, fuel, params, maxf,
-                                                     landing, boost_mult):
+        if d > 1e-9 and landing[i] and _scoop_needed(
+            legs, i, fuel, params, maxf, landing, boost_mult,
+            # The same quarter-jump floor the enforcer's in-path waiver
+            # guarantees: top up here iff skipping would dip below it before
+            # the next refuel chance, so the displayed plan and the enforced
+            # margins agree.
+            reserve=_RESERVE_FLOOR_FRAC * maxf,
+        ):
             fuel = params.tank_size
             refueled = True
         leg["fuel_used"] = round(used, 6)
         leg["fuel_in_tank"] = round(fuel, 6)
         leg["must_refuel"] = bool(refueled)
+
+
+def ledger_stats(legs) -> dict:
+    """Dry-run / min-fuel stats of the DISPLAYED refuel plan annotate_leg_fuel
+    wrote (lazy scooping, game-accurate burns), for the UI verdict line.
+
+    fuel_report's numbers come from the eager simulate_fuel model (brim at every
+    scoopable), so on a route whose displayed plan advises NO scooping it would
+    still report a short "longest dry run" and a high min fuel -- describing a
+    plan nobody is advised to fly (user-reported 2026-11-23: verdict said
+    "dry run 13 jumps - min fuel 100.3 t" over a ledger showing one 31-jump dry
+    run down to 21.3 t). These stats are measured on the annotated legs
+    themselves, so the verdict always matches the plan on screen. ``min_fuel``
+    is the lowest ARRIVAL fuel (before any refill at that landing)."""
+    refuels = 0
+    dry = 0
+    max_dry = 0
+    min_fuel = None
+    prev_tank = None
+    for leg in legs:
+        d = float(leg.get("distance_jumped", 0.0) or 0.0)
+        tank_after = leg.get("fuel_in_tank")
+        if d <= 1e-9:
+            prev_tank = tank_after if tank_after is not None else prev_tank
+            continue
+        used = float(leg.get("fuel_used", 0.0) or 0.0)
+        if prev_tank is not None:
+            arrival = prev_tank - used
+            min_fuel = arrival if min_fuel is None else min(min_fuel, arrival)
+        if leg.get("must_refuel"):
+            refuels += 1
+            dry = 0
+        else:
+            dry += 1
+            max_dry = max(max_dry, dry)
+        prev_tank = tank_after if tank_after is not None else prev_tank
+    out = {"refuels": refuels, "max_dry_jumps": max_dry}
+    if min_fuel is not None:
+        out["min_fuel"] = round(min_fuel, 2)
+    return out
 
 
 def spansh_params(params: "FuelParams", supercharge: float = 4.0,

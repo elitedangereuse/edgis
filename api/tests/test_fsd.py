@@ -212,8 +212,11 @@ def test_enforce_fuel_safety_breaks_a_stranding_neutron_chain():
     assert info["safe"] is True
     assert info["scoop_stops"] >= 1
     assert len(new_legs) > len(legs)  # detours inserted
-    # The enforced route no longer strands, per an independent simulation.
-    assert fsd.simulate_fuel(new_legs, p)["stranded_at"] is None
+    # The enforced route no longer strands, per an independent simulation with
+    # the game-accurate burn (the model the enforcer's divert margin uses; the
+    # default conservative max-burn sim is a stricter ruler kept for the
+    # B2-unsafe guard and can "strand" routes the real tank completes).
+    assert fsd.simulate_fuel(new_legs, p, accurate=True)["stranded_at"] is None
     # Detour stars are scoopable K stars inserted as normal jumps.
     assert any(j["system"] == "ScoopK" and j["type"] == "regular" for j in new_legs)
 
@@ -446,3 +449,62 @@ def test_detect_supercharge_caspian_variants():
     assert fsd.detect_supercharge(cobra) == 4.0        # size8 rule is NX-only
     assert fsd.detect_supercharge("not json") == 4.0
     assert fsd.detect_supercharge(None) == 4.0
+
+
+# --- in-path refuel waiver (2026-11-23: accurate divert margin + floor policy) ---
+
+SIDEWINDER_SLEF = (
+    pathlib.Path(__file__).parent / "benchmarks" / "loadouts"
+    / "sidewinder_bobofloraline.slef"
+).read_text()
+
+
+def _sw_leg(name, x, dist, typ="boost", neut=True, spectral="N", scoop_comp=False):
+    leg = {"type": typ, "system": name, "id64": None, "spectral": spectral,
+           "x": x, "y": 0.0, "z": 0.0, "neutron_star": neut,
+           "distance_jumped": dist, "distance_left": 0.0}
+    if scoop_comp:
+        leg["inflight_scoop"] = True
+    return leg
+
+
+def _sw_enforce(legs):
+    p = fsd.parse_loadout(SIDEWINDER_SLEF)  # 4 t tank, range 48.61: worst case
+
+    def fetch(pos, radius):
+        return [(pos[0] + 2.0, 1.0, 0.0, "DivertK",
+                 "K (Yellow-Orange) Star", None)]
+
+    return fsd.enforce_fuel_safety(
+        legs, (0.0, 0.0, 0.0), (940.0, 0.0, 0.0), p, fetch, boost_mult=4.0)
+
+
+def test_enforcer_waives_reserve_for_reachable_in_path_refuel():
+    # Margin dips below the one-jump reserve but the planned in-path scoop is
+    # reachable holding the quarter-jump floor -> no divert-and-return (the
+    # 2-jump out-and-back a 4 t Sidewinder got on every cycle, 2026-11-22).
+    legs = [_sw_leg("A", 31, 31.3, typ="regular"), _sw_leg("B", 222, 191.1),
+            _sw_leg("C", 411, 189.4), _sw_leg("D", 598, 186.4),
+            _sw_leg("E", 755, 157.0, scoop_comp=True), _sw_leg("F", 940, 185.0)]
+    out, info = _sw_enforce(legs)
+    assert info["scoop_stops"] == 0 and len(out) == len(legs)
+
+
+def test_enforcer_keeps_divert_when_floor_would_break():
+    # Same shape but the refuel arrival would be ~0.12 t (< quarter-jump floor):
+    # the divert is genuinely needed and stays.
+    legs = [_sw_leg("A", 31, 31.3, typ="regular"), _sw_leg("B", 222, 191.1),
+            _sw_leg("C", 411, 189.4), _sw_leg("D", 598, 186.4),
+            _sw_leg("E", 787, 189.2, scoop_comp=True), _sw_leg("F", 940, 155.8)]
+    out, info = _sw_enforce(legs)
+    assert info["scoop_stops"] == 1 and len(out) == len(legs) + 2
+
+
+def test_enforcer_keeps_strict_reserve_in_scoopless_space():
+    # No refuel landing anywhere ahead: the full one-jump reserve still gates
+    # (divert now while a scoopable is in range) -- the anti-stranding guarantee.
+    legs = [_sw_leg("A", 31, 31.3, typ="regular"), _sw_leg("B", 222, 191.1),
+            _sw_leg("C", 411, 189.4), _sw_leg("D", 598, 186.4),
+            _sw_leg("E", 787, 189.2), _sw_leg("F", 940, 155.8)]
+    out, info = _sw_enforce(legs)
+    assert info["scoop_stops"] >= 1
