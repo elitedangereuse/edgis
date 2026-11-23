@@ -25,7 +25,6 @@ and unit-testable:
 from __future__ import annotations
 
 import hashlib
-import heapq
 import math
 import time
 from dataclasses import dataclass
@@ -34,28 +33,33 @@ from typing import Callable, Iterable, Optional
 import numpy as np
 from scipy.spatial import cKDTree
 
-# Optional native (Rust/PyO3) range-growth A* kernel. When present it replaces the
-# pure-Python _graph_search_range hot loop (same min-jumps result, ~3x faster on
-# the full Colonia corridor); absent, the Python path runs unchanged. Disable with
-# EDGIS_NATIVE_ROUTE=0.
+# Native (Rust/PyO3) A* kernel. ONE search_core runs every mode -- plain
+# (no_fuel), B1 fuel (fixed reach), B2 range growth, each flip-honest -- and is the
+# ONLY search implementation: the Python hot loops were removed once the port was
+# parity-verified and prod-proven, so there is no silent fallback to mask a native
+# regression or confuse a benchmark (the port made native == Python exact via a
+# deterministic (dist,idx) gap order). The kernel is mandatory; a search called
+# without it raises (see _require_native). EDGIS_NATIVE_ROUTE=0 disables the import
+# for an environment that no longer routes.
 import os as _os
 
 _native_route = None
 if _os.environ.get("EDGIS_NATIVE_ROUTE", "1") != "0":
     try:
         import edgis_route as _native_route  # type: ignore
-    except Exception:  # pragma: no cover - absence is the normal fallback
+    except Exception:  # pragma: no cover
         _native_route = None
-_native_route_warned = False
 
-# B1 (_graph_search_fuel) runs on the native graph_search_fuel kernel (fixed reach
-# + prefix-min dominance). Parity-verified: identical min-jumps vs the Python B1
-# (13-route prod A/B, 0 regressions), 5-7x faster on pure-B1 (>30 kly) routes.
-# SCOPED to the final search only (native_ok): the two-phase B2 seeds its corridor
-# from a B1 COARSE path, and native's different tie-break could shift that seed, so
-# the coarse stays on Python. On by default (gated by the .so, like B2); set
-# EDGIS_B1_NATIVE=0 to disable without removing the .so.
-_B1_NATIVE = _os.environ.get("EDGIS_B1_NATIVE", "1") != "0"
+
+def _require_native() -> None:
+    """Fail loudly rather than silently degrade: the native kernel is the only
+    search path now that the Python fallback is gone."""
+    if _native_route is None:
+        raise RuntimeError(
+            "native edgis_route kernel unavailable: it is required for routing "
+            "(the Python search fallback was removed). Build/install the "
+            "edgis_route wheel."
+        )
 
 NeutronRow = tuple[float, float, float, int, str]
 StarRow = tuple  # (x, y, z, name[, mainstar])
@@ -665,7 +669,6 @@ FetchStarsToward = Callable[
     Iterable[StarRow],
 ]
 
-_GAP_RADII_J = (8.0, 16.0, 32.0)  # gap-edge search radii, in jump-range units
 _ZONE_RADIUS_CAP = 1200.0  # never ban more than this around a failed bridge
 # Search toward the DENSER endpoint when it is at least this many times denser
 # (local neutron count): the A* heuristic ceil(d/boost) is wildly optimistic when
@@ -766,6 +769,7 @@ def _graph_search(
     deadline: float,
     boost_mult: float = 4.0,
     flip: bool = False,
+    heur_weight: float = 1.0,
 ) -> Optional[list[int]]:
     """Min-jumps A* over the corridor neutrons. Boost edges (<=``boost_mult``*J)
     cost 1; gap edges (fired only where no boost neighbor makes forward
@@ -784,179 +788,21 @@ def _graph_search(
     2026-11-21: 14 jumps vs spansh's 9, first neutron 56 ly away ignored).
     Symmetrically the search's entry edges ARE flown boosted arrivals (leaving
     neutron m into the flown destination), so flipped they cost the analytic
-    supercharged bridge instead of an unboosted one."""
+    supercharged bridge instead of an unboosted one.
 
-    J = jump_range
-    boost = boost_mult * J
-    straight = float(np.linalg.norm(dv - sv))
+    Native-only: the no_fuel search_core mode. An empty corridor returns ``[]``
+    (a direct, neutron-free bridge the realizer handles), not ``None``.
+    ``heur_weight`` > 1 runs weighted A* (used for the coarse seed)."""
+    _require_native()
     n = len(cand)
-    cc = index.coords[cand] if n else np.zeros((0, 3))
-    # Native plain kernel (no_fuel search_core, crate >= 0.3.1): same min-jumps,
-    # ~5-7x faster. Falls through to the Python loop below on any marshalling error.
-    if _B1_NATIVE and n and _native_route is not None:
-        try:
-            return _native_graph_search_plain(
-                index, cand, cc, sv, dv, J, entry_r, gap_k,
-                blacklist, badzones, deadline, boost_mult, flip,
-            )
-        except Exception:  # pragma: no cover
-            global _native_route_warned
-            if not _native_route_warned:
-                import logging
-
-                logging.getLogger(__name__).warning(
-                    "native plain kernel failed; using Python fallback",
-                    exc_info=True,
-                )
-                _native_route_warned = True
-    lt = cKDTree(cc) if n else None
-    dd_dst = np.linalg.norm(cc - dv, axis=1) if n else np.zeros(0)
-    hv = (
-        np.ceil(dd_dst / boost).astype(np.int64)
-        if n
-        else np.zeros(0, np.int64)
+    if not n:
+        return []
+    cc = index.coords[cand]
+    return _native_graph_search_plain(
+        index, cand, cc, sv, dv, jump_range, entry_r, gap_k,
+        blacklist, badzones, deadline, boost_mult, flip,
+        heur_weight=heur_weight,
     )
-
-    def zone_ok(pa, pb) -> bool:
-        if not badzones:
-            return True
-        mid = (pa + pb) / 2.0
-        return all(float(np.linalg.norm(mid - c)) >= r for c, r in badzones)
-
-    SRC, DST = n, n + 1
-    BIG = np.iinfo(np.int64).max // 4
-    g = np.full(n + 2, BIG, dtype=np.int64)
-    gd = np.full(n + 2, np.inf)
-    par = np.full(n + 2, -9, dtype=np.int64)
-    closed = np.zeros(n + 2, dtype=bool)
-    g[SRC] = 0
-    gd[SRC] = 0.0
-    pq: list[tuple[int, int, float, int]] = [
-        (int(math.ceil(straight / boost)), 0, 0.0, SRC)
-    ]
-
-    def relax(v: int, nj: int, nd: float, u: int) -> None:
-        if nj < g[v]:
-            g[v] = nj
-            gd[v] = nd
-            par[v] = u
-            h = 0 if v == DST else int(hv[v])
-            heapq.heappush(pq, (nj + h, -nj, nd, v))
-
-    found = False
-    while pq:
-        _, njneg, _, u = heapq.heappop(pq)
-        if closed[u]:
-            continue
-        closed[u] = True
-        gg = int(g[u])
-        if u == DST:
-            found = True
-            break
-        if time.perf_counter() > deadline:
-            return None
-        if u == SRC:
-            if (-1, -2) not in blacklist and zone_ok(sv, dv):
-                relax(DST, gg + int(math.ceil(straight / J)), straight, u)
-            if lt is not None:
-                ms = np.asarray(
-                    lt.query_ball_point(sv, entry_r), dtype=np.int64
-                )
-                ms = np.asarray(
-                    [
-                        m
-                        for m in ms
-                        if (-1, int(cand[m])) not in blacklist
-                        and zone_ok(sv, cc[m])
-                    ],
-                    dtype=np.int64,
-                )
-                if len(ms):
-                    dms = np.linalg.norm(cc[ms] - sv, axis=1)
-                    if flip:  # flown: boosted arrival leaving neutron m
-                        costs = np.asarray(
-                            [_boosted_jumps(float(dm), J, boost_mult)
-                             for dm in dms], dtype=np.int64)
-                    else:     # flown: plain departure from the source
-                        costs = np.maximum(np.ceil(dms / J), 1).astype(np.int64)
-                    for m, dm, c in zip(ms, dms, costs):
-                        relax(int(m), gg + int(c), float(dm), u)
-            continue
-        cu = cc[u]
-        if (int(cand[u]), -2) not in blacklist and zone_ok(cu, dv):
-            tail_cost = (
-                max(int(math.ceil(float(dd_dst[u]) / J)), 1)  # flown: plain src
-                if flip
-                else _boosted_jumps(float(dd_dst[u]), J, boost_mult)
-            )
-            relax(
-                DST,
-                gg + tail_cost,
-                gd[u] + float(dd_dst[u]),
-                u,
-            )
-        ms = np.asarray(lt.query_ball_point(cu, boost), dtype=np.int64)
-        ms = ms[~closed[ms]]
-        forward = False
-        if len(ms):
-            dms = np.linalg.norm(cc[ms] - cu, axis=1)
-            forward = bool(np.any(dd_dst[ms] < dd_dst[u] - 1e-6))
-            keep = (gg + 1) < g[ms]
-            for m, dm in zip(ms[keep], dms[keep]):
-                relax(int(m), gg + 1, gd[u] + float(dm), u)
-        if not forward:
-            # Local dead end toward the target: bridge the void analytically.
-            for mult in _GAP_RADII_J:
-                near = np.asarray(
-                    lt.query_ball_point(cu, mult * J), dtype=np.int64
-                )
-                near = near[(dd_dst[near] < dd_dst[u] - 1e-6) & ~closed[near]]
-                if not len(near):
-                    continue
-                dms = np.linalg.norm(cc[near] - cu, axis=1)
-                order = np.lexsort((near, dms))[:gap_k]
-                relaxed = 0
-                for i in order:
-                    m = int(near[i])
-                    if (int(cand[u]), int(cand[m])) in blacklist:
-                        continue
-                    if not zone_ok(cu, cc[m]):
-                        continue
-                    relax(
-                        m,
-                        gg + _boosted_jumps(float(dms[i]), J, boost_mult),
-                        gd[u] + float(dms[i]),
-                        u,
-                    )
-                    relaxed += 1
-                if relaxed:
-                    break
-    if not found:
-        return None
-    seq: list[int] = []
-    node = int(par[DST])
-    while node >= 0 and node != SRC:
-        seq.append(int(cand[node]))
-        node = int(par[node])
-    seq.reverse()
-    return seq
-
-
-class _FuelLabel:
-    """A heap entry for the fuel-aware search: the node, cumulative jumps ``g``,
-    refuel resource ``r`` (boosted jumps since the last refuel), distance ``d``
-    (heap tiebreak + reconstruction), and the parent label for the path."""
-
-    __slots__ = ("node", "g", "r", "d", "par")
-
-    def __init__(
-        self, node: int, g: int, r: int, d: float, par: "Optional[_FuelLabel]"
-    ) -> None:
-        self.node = node
-        self.g = g
-        self.r = r
-        self.d = d
-        self.par = par
 
 
 def _graph_search_fuel(
@@ -973,7 +819,6 @@ def _graph_search_fuel(
     tank_jumps: int,
     scoop_max_ls: float,
     boost_mult: float = 4.0,
-    native_ok: bool = True,
     flip: bool = False,
 ) -> Optional[list[int]]:
     """Fuel-aware variant of :func:`_graph_search`. Min-**jumps** over the
@@ -999,259 +844,19 @@ def _graph_search_fuel(
     compare -- a naive per-label Python scan was ~10x the ship-agnostic search.
 
     Returns the neutron sequence as GLOBAL index ids (same contract as
-    :func:`_graph_search`), or ``None`` on timeout / no route -- the caller then
-    falls back to the ship-agnostic search, so the fuel layer never regresses the
-    geometry below the proven min-jumps route.
+    :func:`_graph_search`), or ``None`` on timeout / no route.
     """
 
-    J = jump_range
-    boost = boost_mult * J
-    straight = float(np.linalg.norm(dv - sv))
+    _require_native()
     n = len(cand)
-    cc = index.coords[cand] if n else np.zeros((0, 3))
-
-    # Native kernel: B1 runs on graph_search_fuel (fixed reach + prefix-min
-    # dominance, matching this function's min-jumps and small front). Identical
-    # jump count, ~native speed. On any marshalling error we warn once and fall
-    # through to the Python loop below.
-    # Native B1 only for the FINAL search (native_ok). The two-phase B2 seeds its
-    # thin corridor from a B1 COARSE path; the native kernel tie-breaks differently
-    # (kiddo vs scipy KD-tree), so a native coarse can seed a different corridor and
-    # shift the B2 result +/-1. Keeping the coarse on Python preserves the corridor
-    # and the no-regression guarantee; native still speeds the pure-B1 routes.
-    # FLIPPED searches now run native too: the crate (>= 0.3.0) mirrors the
-    # flip-honest edge costs (entry boosted / tail plain), verified at parity with
-    # the Python flip search (kernel_parity.py + end-to-end Blaa Eork -> Lave).
-    if _B1_NATIVE and native_ok and _native_route is not None:
-        try:
-            return _native_graph_search_fuel(
-                index,
-                cand,
-                cc,
-                sv,
-                dv,
-                J,
-                entry_r,
-                gap_k,
-                blacklist,
-                badzones,
-                deadline,
-                int(tank_jumps),
-                scoop_max_ls,
-                boost_mult,
-                flip,
-            )
-        except Exception:  # pragma: no cover
-            global _native_route_warned
-            if not _native_route_warned:
-                import logging
-
-                logging.getLogger(__name__).warning(
-                    "native B1 (fuel) kernel failed; using Python fallback",
-                    exc_info=True,
-                )
-                _native_route_warned = True
-
-    lt = cKDTree(cc) if n else None
-    dd_dst = np.linalg.norm(cc - dv, axis=1) if n else np.zeros(0)
-    hv = (
-        np.ceil(dd_dst / boost).astype(np.int64)
-        if n
-        else np.zeros(0, np.int64)
+    if not n:
+        return []
+    cc = index.coords[cand]
+    return _native_graph_search_fuel(
+        index, cand, cc, sv, dv, jump_range, entry_r, gap_k,
+        blacklist, badzones, deadline, int(tank_jumps), scoop_max_ls,
+        boost_mult, flip,
     )
-    # Scoopable flag per corridor candidate: landing here is a free refuel.
-    sls = getattr(index, "scoop_ls", None)
-    scoopable = (
-        (np.asarray(sls)[cand] <= scoop_max_ls)
-        if (sls is not None and n)
-        else np.zeros(n, dtype=bool)
-    )
-    T = int(tank_jumps)
-
-    def zone_ok(pa, pb) -> bool:
-        if not badzones:
-            return True
-        mid = (pa + pb) / 2.0
-        return all(float(np.linalg.norm(mid - c)) >= r for c, r in badzones)
-
-    SRC, DST = n, n + 1
-    BIG = np.iinfo(np.int64).max // 4
-    # best_g[node, r] = fewest jumps known to reach ``node`` with resource ``r``.
-    # This array IS the dominance structure: a candidate (node, g, r) is dominated
-    # iff some r' <= r already reaches node in <= g jumps, i.e. the prefix-minimum
-    # best_g[node, 0..r] <= g. Checking/relaxing a whole neighbour batch is then a
-    # vectorised prefix-min + compare (no per-label Python front scan, which was
-    # the hot spot). Columns are capped at r == T. SRC/DST use column 0.
-    best_g = np.full((n + 2, T + 1), BIG, dtype=np.int64)
-
-    # A corridor neutron's outgoing edges (boost neighbours, void-bridge gap edges,
-    # the tail to DST) are label-independent -- only the fuel bookkeeping on a boost
-    # hop varies -- and a node is popped once per non-dominated label, so memoise
-    # the (expensive) kd-tree queries per node.
-    edge_cache: dict[int, tuple] = {}
-
-    def node_edges(u: int) -> tuple:
-        hit = edge_cache.get(u)
-        if hit is not None:
-            return hit
-        cu = cc[u]
-        ms = np.asarray(lt.query_ball_point(cu, boost), dtype=np.int64)
-        if len(ms):
-            ms = ms[ms != u]
-        if len(ms):
-            dm = np.linalg.norm(cc[ms] - cu, axis=1)
-            scoop = scoopable[ms]
-            forward = bool(np.any(dd_dst[ms] < dd_dst[u] - 1e-6))
-        else:
-            dm = np.zeros(0)
-            scoop = np.zeros(0, dtype=bool)
-            forward = False
-        gap_edges: list[tuple[int, int, float]] = []
-        if not forward:
-            # Local dead end toward the target: bridge the void analytically
-            # (a scoop-safe bridge, so arrive refuelled).
-            for mult in _GAP_RADII_J:
-                near = np.asarray(
-                    lt.query_ball_point(cu, mult * J), dtype=np.int64
-                )
-                near = near[dd_dst[near] < dd_dst[u] - 1e-6]
-                if not len(near):
-                    continue
-                dms = np.linalg.norm(cc[near] - cu, axis=1)
-                got = False
-                for i in np.lexsort((near, dms))[:gap_k]:
-                    m = int(near[i])
-                    if (int(cand[u]), int(cand[m])) in blacklist:
-                        continue
-                    if not zone_ok(cu, cc[m]):
-                        continue
-                    gap_edges.append(
-                        (
-                            m,
-                            _boosted_jumps(float(dms[i]), J, boost_mult),
-                            float(dms[i]),
-                        )
-                    )
-                    got = True
-                if got:
-                    break
-        tail: Optional[tuple[int, float]] = None
-        if (int(cand[u]), -2) not in blacklist and zone_ok(cu, dv):
-            tail = (
-                # Flipped, the tail is flown FROM the plain source: unboosted
-                # (see _graph_search's flip note).
-                max(int(math.ceil(float(dd_dst[u]) / J)), 1)
-                if flip
-                else _boosted_jumps(float(dd_dst[u]), J, boost_mult),
-                float(dd_dst[u]),
-            )
-        hit = (ms, dm, scoop, gap_edges, tail)
-        edge_cache[u] = hit
-        return hit
-
-    seq_counter = 0
-    pq: list[tuple[int, int, float, int, _FuelLabel]] = []
-
-    def push(
-        node: int, g: int, r: int, d: float, par: Optional[_FuelLabel]
-    ) -> None:
-        nonlocal seq_counter
-        h = 0 if node >= n else int(hv[node])
-        heapq.heappush(
-            pq, (g + h, -g, d, seq_counter, _FuelLabel(node, g, r, d, par))
-        )
-        seq_counter += 1
-
-    def relax(
-        m: int, cg: int, cr: int, cd: float, par: Optional[_FuelLabel]
-    ) -> None:
-        """Scalar relax for the analytic edges (entry / gap / tail / direct), all
-        of which arrive refuelled (cr == 0) or terminal. Pushes iff ``cg`` beats
-        every resource level up to ``cr`` at ``m``."""
-        if int(best_g[m, : cr + 1].min()) <= cg:
-            return  # dominated by an equal-or-better label already at m
-        best_g[m, cr] = cg
-        push(m, cg, cr, cd, par)
-
-    best_g[SRC, 0] = 0
-    push(SRC, 0, 0, 0.0, None)
-
-    dst_lab: Optional[_FuelLabel] = None
-    while pq:
-        _, _, _, _, lab = heapq.heappop(pq)
-        u = lab.node
-        if u == DST:
-            dst_lab = lab  # first DST pop is min-jumps (h(DST) == 0)
-            break
-        if u < n:
-            # Skip a label the array has since superseded: a smaller g reached its
-            # own (u, r) cell, or a lower-r label now dominates it.
-            if best_g[u, lab.r] < lab.g:
-                continue
-            if lab.r and int(best_g[u, : lab.r].min()) <= lab.g:
-                continue
-        if time.perf_counter() > deadline:
-            return None
-        gg = lab.g
-        if u == SRC:
-            if (-1, -2) not in blacklist and zone_ok(sv, dv):
-                relax(DST, gg + int(math.ceil(straight / J)), 0, straight, lab)
-            if lt is not None:
-                ms = np.asarray(
-                    lt.query_ball_point(sv, entry_r), dtype=np.int64
-                )
-                for m in ms:
-                    m = int(m)
-                    if (-1, int(cand[m])) in blacklist or not zone_ok(
-                        sv, cc[m]
-                    ):
-                        continue
-                    dm = float(np.linalg.norm(cc[m] - sv))
-                    # Entry is a scoop-safe bridge: arrive refuelled. Flipped,
-                    # it is the flown boosted ARRIVAL (leaving neutron m into
-                    # the flown destination), so cost the supercharged bridge.
-                    ec = (_boosted_jumps(dm, J, boost_mult) if flip
-                          else max(int(math.ceil(dm / J)), 1))
-                    relax(m, gg + ec, 0, dm, lab)
-            continue
-        r = lab.r
-        ms, dm, scoop, gap_edges, tail = node_edges(u)
-        if tail is not None:
-            # Tail: a supercharged bridge straight to the destination (terminal).
-            tcost, tdist = tail
-            relax(DST, gg + tcost, 0, lab.d + tdist, lab)
-        if len(ms):
-            # Vectorised boost-hop relax over all neighbours at once. A dry tank
-            # (r == T) folds the forced +2 scoop detour into the edge (cost 3);
-            # otherwise cost 1. Landing on a scoopable neutron refuels (nr = 0).
-            if r >= T:
-                cg = gg + 3
-                nr = np.where(scoop, 0, 1)
-            else:
-                cg = gg + 1
-                nr = np.where(scoop, 0, r + 1)
-            pmin = np.minimum.accumulate(best_g[ms], axis=1)
-            keep = (
-                pmin[np.arange(len(ms)), nr] > cg
-            )  # non-dominated candidates
-            if keep.any():
-                km = ms[keep]
-                knr = nr[keep]
-                kd = lab.d + dm[keep]
-                best_g[km, knr] = cg
-                for mm, rr, dd in zip(km, knr, kd):
-                    push(int(mm), cg, int(rr), float(dd), lab)
-        for m, cost, gdm in gap_edges:
-            relax(m, gg + cost, 0, lab.d + gdm, lab)
-    if dst_lab is None:
-        return None
-    seq: list[int] = []
-    cur = dst_lab.par
-    while cur is not None and cur.node != SRC:
-        seq.append(int(cand[cur.node]))
-        cur = cur.par
-    seq.reverse()
-    return seq
 
 
 def _native_graph_search_range(
@@ -1365,11 +970,12 @@ def _native_graph_search_plain(
     deadline: float,
     boost_mult: float,
     flip: bool = False,
+    heur_weight: float = 1.0,
 ) -> Optional[list[int]]:
     """Native plain ship-agnostic min-jumps: the no_fuel search_core mode (crate
     >= 0.3.1), a single resource slot. Same contract as :func:`_graph_search`.
     ``scoopable`` is unused in no_fuel mode -> a zero dummy; tank_jumps=1 so
-    reach_by_r = [boost_mult*J]."""
+    reach_by_r = [boost_mult*J]. ``heur_weight`` > 1 runs weighted A* (coarse seed)."""
     budget = max(0.0, float(deadline) - time.perf_counter())
     bz = [
         (float(c[0]), float(c[1]), float(c[2]), float(r)) for c, r in badzones
@@ -1390,6 +996,7 @@ def _native_graph_search_plain(
         bz,
         bool(flip),
         True,
+        float(heur_weight),
     )
 
 
@@ -1426,229 +1033,21 @@ def _graph_search_range(
     so keep the min-jumps label per (node, r). best_g[node, r] holds it; relax iff
     cg < best_g[m, r]. Heuristic uses the MAX reach to stay admissible.
 
-    Returns the neutron sequence as GLOBAL ids (the caller forward-simulates the
-    per-node resource for the realizer, which is flip-safe), or ``None`` (timeout /
-    no route); the caller then falls back to the ship-agnostic search.
+    Returns the neutron sequence as GLOBAL ids (the caller forward-simulates
+    the per-node resource for the realizer, which is flip-safe), or ``None``
+    (timeout / no route).
     """
 
-    J = jump_range
-    reach_by_r = np.asarray(reach_by_r, dtype=np.float64)
-    T = len(reach_by_r)
-    reach_max = float(reach_by_r.max())
-    straight = float(np.linalg.norm(dv - sv))
+    _require_native()
     n = len(cand)
-    cc = index.coords[cand] if n else np.zeros((0, 3))
-
-    # Native kernel: identical min-jumps result, ~3x faster. Pure (no shared state),
-    # so on any marshalling error we warn once and fall through to the Python loop.
-    if _native_route is not None:
-        try:
-            return _native_graph_search_range(
-                index,
-                cand,
-                cc,
-                sv,
-                dv,
-                J,
-                entry_r,
-                gap_k,
-                blacklist,
-                badzones,
-                deadline,
-                reach_by_r,
-                scoop_max_ls,
-                boost_mult,
-            )
-        except Exception:  # pragma: no cover
-            global _native_route_warned
-            if not _native_route_warned:
-                import logging
-
-                logging.getLogger(__name__).warning(
-                    "native edgis_route kernel failed; using Python fallback",
-                    exc_info=True,
-                )
-                _native_route_warned = True
-
-    lt = cKDTree(cc) if n else None
-    dd_dst = np.linalg.norm(cc - dv, axis=1) if n else np.zeros(0)
-    hv = (
-        np.ceil(dd_dst / reach_max).astype(np.int64)
-        if n
-        else np.zeros(0, np.int64)
+    if not n:
+        return []
+    cc = index.coords[cand]
+    return _native_graph_search_range(
+        index, cand, cc, sv, dv, jump_range, entry_r, gap_k,
+        blacklist, badzones, deadline, np.asarray(reach_by_r, dtype=np.float64),
+        scoop_max_ls, boost_mult,
     )
-    sls = getattr(index, "scoop_ls", None)
-    scoopable = (
-        (np.asarray(sls)[cand] <= scoop_max_ls)
-        if (sls is not None and n)
-        else np.zeros(n, dtype=bool)
-    )
-
-    def zone_ok(pa, pb) -> bool:
-        if not badzones:
-            return True
-        mid = (pa + pb) / 2.0
-        return all(float(np.linalg.norm(mid - c)) >= r for c, r in badzones)
-
-    SRC, DST = n, n + 1
-    BIG = np.iinfo(np.int64).max // 4
-    best_g = np.full((n + 2, T + 1), BIG, dtype=np.int64)
-    par: dict[tuple[int, int], tuple[int, int]] = {}
-
-    # Boost neighbours within the MAX reach, kept sorted by distance so a label at
-    # resource r uses the prefix within reach_by_r[r]. Memoised per node.
-    edge_cache: dict[int, tuple] = {}
-
-    def node_edges(u: int) -> tuple:
-        hit = edge_cache.get(u)
-        if hit is not None:
-            return hit
-        cu = cc[u]
-        ms = np.asarray(lt.query_ball_point(cu, reach_max), dtype=np.int64)
-        if len(ms):
-            ms = ms[ms != u]
-        if len(ms):
-            dm = np.linalg.norm(cc[ms] - cu, axis=1)
-            o = np.argsort(dm)
-            ms = ms[o]
-            dm = dm[o]
-            scoop = scoopable[ms]
-        else:
-            dm = np.zeros(0)
-            scoop = np.zeros(0, dtype=bool)
-        gap_edges: list[tuple[int, int, float]] = []
-        # Gap edges fire where no forward boost neighbour exists even at reach_max;
-        # a scoop-safe analytic bridge at full-tank J (arrives refuelled).
-        forward = bool(len(ms) and np.any(dd_dst[ms] < dd_dst[u] - 1e-6))
-        if not forward:
-            for mult in _GAP_RADII_J:
-                near = np.asarray(
-                    lt.query_ball_point(cu, mult * J), dtype=np.int64
-                )
-                near = near[dd_dst[near] < dd_dst[u] - 1e-6]
-                if not len(near):
-                    continue
-                dms = np.linalg.norm(cc[near] - cu, axis=1)
-                got = False
-                for i in np.lexsort((near, dms))[:gap_k]:
-                    m = int(near[i])
-                    if (int(cand[u]), int(cand[m])) in blacklist:
-                        continue
-                    if not zone_ok(cu, cc[m]):
-                        continue
-                    gap_edges.append(
-                        (
-                            m,
-                            _boosted_jumps(float(dms[i]), J, boost_mult),
-                            float(dms[i]),
-                        )
-                    )
-                    got = True
-                if got:
-                    break
-        tail: Optional[tuple[int, float]] = None
-        if (int(cand[u]), -2) not in blacklist and zone_ok(cu, dv):
-            tail = (
-                _boosted_jumps(float(dd_dst[u]), J, boost_mult),
-                float(dd_dst[u]),
-            )
-        hit = (ms, dm, scoop, gap_edges, tail)
-        edge_cache[u] = hit
-        return hit
-
-    order = 0
-    pq: list[tuple[int, int, float, int, int, int]] = []
-
-    def push(node: int, g: int, r: int, d: float) -> None:
-        nonlocal order
-        h = 0 if node >= n else int(hv[node])
-        heapq.heappush(pq, (g + h, g, d, order, node, r))
-        order += 1
-
-    def relax(
-        m: int, cg: int, cr: int, cd: float, pnode: int, pr: int
-    ) -> None:
-        if best_g[m, cr] <= cg:
-            return  # same (node, r) already reached in no more jumps
-        best_g[m, cr] = cg
-        par[(m, cr)] = (pnode, pr)
-        push(m, cg, cr, cd)
-
-    best_g[SRC, 0] = 0
-    push(SRC, 0, 0, 0.0)
-    dst_r: Optional[int] = None
-    while pq:
-        _, g, cd, _, u, r = heapq.heappop(pq)
-        if u == DST:
-            dst_r = r
-            break
-        if u < n and best_g[u, r] < g:
-            continue  # a smaller g reached this (node, r) after it was queued
-        if time.perf_counter() > deadline:
-            return None
-        gg = g
-        if u == SRC:
-            if (-1, -2) not in blacklist and zone_ok(sv, dv):
-                relax(
-                    DST, gg + int(math.ceil(straight / J)), 0, straight, SRC, 0
-                )
-            if lt is not None:
-                ms = np.asarray(
-                    lt.query_ball_point(sv, entry_r), dtype=np.int64
-                )
-                for m in ms:
-                    m = int(m)
-                    if (-1, int(cand[m])) in blacklist or not zone_ok(
-                        sv, cc[m]
-                    ):
-                        continue
-                    dm = float(np.linalg.norm(cc[m] - sv))
-                    relax(
-                        m, gg + max(int(math.ceil(dm / J)), 1), 0, dm, SRC, 0
-                    )
-            continue
-        ms, dm, scoop, gap_edges, tail = node_edges(u)
-        if tail is not None:
-            tcost, tdist = tail
-            relax(DST, gg + tcost, 0, cd + tdist, u, r)
-        if len(ms):
-            # Boost hops usable at this resource: reach grows with r. r == T is a
-            # dry tank -> +2 detour (cost 3) then a full-tank hop (reach_by_r[0]).
-            if r >= T:
-                reach = reach_by_r[0]
-                step = 3
-            else:
-                reach = reach_by_r[r]
-                step = 1
-            k = int(np.searchsorted(dm, reach, side="right"))
-            if k:
-                mm = ms[:k]
-                sc = scoop[:k]
-                if r >= T:
-                    nr = np.where(sc, 0, 1)
-                else:
-                    nr = np.where(sc, 0, r + 1)
-                cg = gg + step
-                keep = cg < best_g[mm, nr]
-                for i in np.nonzero(keep)[0]:
-                    m = int(mm[i])
-                    rn = int(nr[i])
-                    best_g[m, rn] = cg
-                    par[(m, rn)] = (u, r)
-                    push(m, cg, rn, cd + float(dm[i]))
-        for m, cost, gdm in gap_edges:
-            relax(m, gg + cost, 0, cd + gdm, u, r)
-    if dst_r is None:
-        return None
-    seq: list[int] = []
-    node = (DST, dst_r)
-    while node in par:
-        pnode, pr = par[node]
-        if node[0] < n:
-            seq.append(int(cand[node[0]]))
-        node = (pnode, pr)
-    seq.reverse()
-    return seq
 
 
 def _bridge_greedy(
@@ -2036,6 +1435,14 @@ _B2_MAX_LY = float(_os.environ.get("EDGIS_B2_MAX_LY") or "100000")
 # 76 Sigma Ceti->V2079: B2 18 vs B1 14); longer routes reliably favour B2 and
 # realizing their long B1 path would roughly double realization time for nothing.
 _B2_BASELINE_MAX_LY = float(_os.environ.get("EDGIS_B2_BASELINE_MAX_LY") or "8000")
+
+# Weighted-A* multiplier for the B2 COARSE seed. The coarse only seeds the thin
+# corridor, so a path within ~W x optimal is fine; inflating the heuristic collapses
+# the frontier on dense full corridors (174k pops -> 34k, coarse 41s -> ~7s) for ~+1
+# jump the fuel-aware final search over the thin corridor absorbs (fuel bench: net
+# -1 jump, 0 regressions vs baselines). 1.0 = admissible/optimal (slow on dense).
+# Tunable; a thorough per-ship/per-terrain sweep is the follow-up to pick the value.
+_COARSE_WEIGHT = float(_os.environ.get("EDGIS_COARSE_WEIGHT") or "1.1")
 
 # Local crawl repair: the thin B2 corridor (120 ly) blinds the search to off-axis
 # neutrons, so a rim desert realizes as a long REGULAR crawl (a bridge across a
@@ -2555,7 +1962,21 @@ def graph_route(
                 time.perf_counter()
                 + 0.35 * max(0.0, deadline - time.perf_counter()),
             )
-        coarse = _graph_search_fuel(
+        # The coarse only SEEDS the thin corridor; the real fuel-aware search runs on
+        # it afterward. So the coarse is a PLAIN, WEIGHTED min-jumps search, not a full
+        # fuel-aware B1:
+        #   - PLAIN (no fuel resource dimension) drops the (n x tank_jumps) best/par
+        #     arrays to (n x 1) -- ~60x less memory on a dense full corridor (the
+        #     ~200MB that tripped the native-only 429 shed) -- and skips the prefix-min
+        #     dominance scan, for the same geometric spine.
+        #   - WEIGHTED (_COARSE_WEIGHT) inflates the heuristic so the A* explores a
+        #     narrow frontier: the admissible (W=1) search expands ~40% of a dense
+        #     corridor (174k pops, 41s) for a seed; W=1.1 collapses it to ~34k pops /
+        #     ~7s. The ~+1 jump this can cost the seed is absorbed by the fuel-aware
+        #     final search over the thin corridor (fuel bench: net -1, 0 regressions).
+        # Together these make the native coarse FASTER than the old scipy coarse with
+        # no memory blowup -- the two-phase no longer needs a Python coarse.
+        coarse = _graph_search(
             index,
             cand,
             (dv if flip else sv),
@@ -2566,18 +1987,9 @@ def graph_route(
             set(),
             [],
             coarse_dl,
-            int(tank_jumps),
-            float(scoop_max_ls),
             boost_mult=boost_mult,
-            # Keep the B2 corridor seed on Python for the routes that had a B2
-            # baseline to preserve (<=30 kly; native tie-breaks can shift the
-            # corridor +/-1 -- see the _graph_search_fuel native note). The
-            # newly-ungated LONG routes (>30 kly, e.g. Beagle) have no baseline
-            # and a Python B1 coarse there is the 5-7x-slow case the native
-            # kernel was built for, so let them use it. flip is off >30 kly
-            # (_ORIENT_MAX_LY), so the native old-cost tail is correct there.
-            native_ok=(straight > 30000.0),
             flip=coarse_honest,
+            heur_weight=_COARSE_WEIGHT,
         )
         if coarse:
             b1seq = list(reversed(coarse)) if flip else coarse
