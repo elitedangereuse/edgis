@@ -1442,12 +1442,25 @@ _SCOOP_MAX_ROUTE_LY = float(_os.environ.get("EDGIS_SCOOP_MAX_ROUTE_LY") or "3000
 # i == index row i); the loader enforces the row-count match and disables itself
 # on any mismatch so a stale graph can never produce garbage routes.
 _SPARSE_GRAPH_PATH = _os.environ.get("EDGIS_SPARSE_GRAPH") or ""
+# Precomputed not-permit-locked node mask (uint8, 1 = usable). Built offline by
+# feeders/build_permit_mask.py next to the graph; derived from the graph path's
+# directory unless overridden. Folded into the search's `allowed` mask so the
+# fullgraph engine never routes through permit zones (29k/5.1M nodes are locked;
+# the ~1000 ly off-axis optima clip them where the corridor never reached).
+_PERMIT_MASK_PATH = _os.environ.get("EDGIS_PERMIT_MASK") or (
+    _os.path.join(_os.path.dirname(_SPARSE_GRAPH_PATH), "neutron_permit_mask.npy")
+    if _SPARSE_GRAPH_PATH
+    else ""
+)
 _sparse_graph_cache: object = None
 
 
 def _load_sparse_graph(index) -> Optional[tuple]:
-    """Lazy-load the sparse CSR graph (indptr, idx, dist_dly). None = disabled
-    or failed (sticky: one warning, then permanently off for the process)."""
+    """Lazy-load the sparse CSR graph + permit mask: (indptr, idx, dist_dly,
+    permit_ok_or_None). None = disabled or failed (sticky: one warning, then
+    permanently off for the process). The permit mask is OPTIONAL: missing/stale
+    just means the in-search permit exclusion is skipped and the cheap post-check
+    in _fullgraph_solve (fall through to the permit-aware pipeline) covers it."""
     global _sparse_graph_cache
     if not _SPARSE_GRAPH_PATH:
         return None
@@ -1465,10 +1478,22 @@ def _load_sparse_graph(index) -> Optional[tuple]:
                 f"sparse graph rows {len(indptr) - 1} != index rows "
                 f"{len(index.coords)} (rebuild from this snapshot)"
             )
+        permit_ok = None
+        if _PERMIT_MASK_PATH and _os.path.exists(_PERMIT_MASK_PATH):
+            pm = np.load(_PERMIT_MASK_PATH)
+            if len(pm) == len(index.coords):
+                permit_ok = np.ascontiguousarray(pm.astype(np.uint8))
+            else:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "permit mask rows %d != index %d; skipping (post-check covers)",
+                    len(pm), len(index.coords),
+                )
         # Hold the arrays for the process lifetime: the native kernel caches its
         # own copy keyed by the indptr data pointer, so a stable Python-side
         # reference means one copy, ever.
-        _sparse_graph_cache = (indptr, g["idx"], g["dist_dly"])
+        _sparse_graph_cache = (indptr, g["idx"], g["dist_dly"], permit_ok)
     except Exception:
         import logging
 
@@ -1718,45 +1743,6 @@ def _repair_gaps(
 # tank is CONSERVATIVE (more refuel-eager than real), never unsafe.
 _FGX_TANK_CAP = 4
 
-# Not-locked node mask for the fullgraph search, built ONCE per process in a
-# background thread (~5M is_locked calls are far too slow per-request). Until
-# ready the permit post-check in _fullgraph_solve covers correctness (a locked
-# backbone falls through to the permit-aware production pipeline).
-_fgx_permit_state: dict = {"mask": None, "building": False}
-
-
-def _fgx_permit_mask(index, is_locked):
-    st = _fgx_permit_state
-    if st["mask"] is not None or is_locked is None:
-        return st["mask"]
-    if not st["building"]:
-        st["building"] = True
-        import threading
-
-        def _build():
-            import logging
-
-            try:
-                nm, idl, cc = index.names, index.id64, index.coords
-                mask = np.ones(len(cc), dtype=np.uint8)
-                for i in range(len(cc)):
-                    if is_locked(nm[i], id64=idl[i], coords=cc[i]):
-                        mask[i] = 0
-                st["mask"] = mask
-                logging.getLogger(__name__).info(
-                    "FGX permit mask ready: %d locked nodes",
-                    int((mask == 0).sum()),
-                )
-            except Exception:
-                logging.getLogger(__name__).warning(
-                    "FGX permit mask build failed", exc_info=True
-                )
-                st["building"] = False  # allow a later retry
-        threading.Thread(
-            target=_build, daemon=True, name="fgx-permit-mask"
-        ).start()
-    return None
-
 
 def _fullgraph_solve(
     index: NeutronIndex,
@@ -1806,7 +1792,7 @@ def _fullgraph_solve(
     g = _load_sparse_graph(index)
     if g is None or _native_route is None:
         return _miss("graph or native kernel unavailable")
-    indptr, idx, dly = g
+    indptr, idx, dly, permit_ok = g
     boost = boost_mult * J
     sv = np.asarray(src, dtype=np.float64)
     dv = np.asarray(dst, dtype=np.float64)
@@ -1842,9 +1828,8 @@ def _fullgraph_solve(
         allowed = np.ascontiguousarray(
             (np.asarray(als) <= float(companion_max_ls)).astype(np.uint8)
         )
-    pmask = _fgx_permit_mask(index, is_locked)
-    if pmask is not None:
-        allowed = pmask if allowed is None else (allowed & pmask)
+    if permit_ok is not None and is_locked is not None:
+        allowed = permit_ok if allowed is None else (allowed & permit_ok)
     # Fuel mode (Phase 2): the search threads scoopable landings itself instead
     # of leaving the enforcer to bolt on +2 out-and-back diverts (fuel-naive
     # Phase 1 cost cutter Colonia->Sol 317 jumps vs the corridor's 194).
