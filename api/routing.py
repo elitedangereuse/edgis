@@ -1726,6 +1726,7 @@ def _fullgraph_solve(
     fetch_stars_toward,
     is_locked,
     inject_mult: float,
+    companion_max_ls: float,
     filter_fn,
 ) -> Optional[dict]:
     """Experimental full-galaxy engine (cookie contraction=true): native A* over
@@ -1734,14 +1735,29 @@ def _fullgraph_solve(
     the geodesic on Colonia->Sol) are first-class here. Min-jumps only for now:
     the fuel layer still reports/enforces on the realized legs.
 
+    Companion gating happens IN the search (the ``allowed`` node mask): the
+    graph carries every neutron incl. ~1.1M companions, so a post-hoc check
+    would kill nearly every route when the request's supercruise cap excludes
+    them. Permits stay a post-check (rare, and a locked backbone just falls
+    through to the production pipeline, which handles permits).
+
     Returns a finalized result dict, or None to fall through to the production
     pipeline: graph missing/mismatched, boarding candidates all filtered,
-    permit/companion violation on the backbone, unrealizable edge, or timeout.
-    Falling through is always safe -- this engine can only ever ADD a better
-    route, never replace the proven one with a failure."""
+    permit violation on the backbone, unrealizable edge, or timeout. Falling
+    through is always safe -- this engine can only ever ADD a better route,
+    never replace the proven one with a failure. EDGIS_FGX_DBG=1 logs every
+    fall-through reason (they are silent by design otherwise)."""
+
+    def _miss(reason: str) -> None:
+        if _os.environ.get("EDGIS_FGX_DBG") == "1":
+            import logging
+
+            logging.getLogger(__name__).warning("FGX miss: %s", reason)
+        return None
+
     g = _load_sparse_graph(index)
     if g is None or _native_route is None:
-        return None
+        return _miss("graph or native kernel unavailable")
     indptr, idx, dly = g
     boost = boost_mult * J
     sv = np.asarray(src, dtype=np.float64)
@@ -1765,14 +1781,23 @@ def _fullgraph_solve(
         for i, d in zip(di[dm], dd[dm])
     ]
     if not srcs or not dsts:
-        return None
+        return _miss("no boarding candidates after filtering")
     budget = min(deadline - time.perf_counter(), 30.0)
     if budget <= 1.0:
-        return None
+        return _miss("no time budget left")
+    # Companion mask for the search itself (vectorized; permits are handled by
+    # the post-check below). None when every node is usable.
+    allowed = None
+    als = getattr(index, "arrival_ls", None)
+    if als is not None and len(als):
+        allowed = np.ascontiguousarray(
+            (np.asarray(als) <= float(companion_max_ls)).astype(np.uint8)
+        )
     try:
         seq, _cost, _pops = _native_route.csr_search(
             indptr, idx, dly, index.coords, srcs, dsts,
             float(J), float(boost_mult), float(budget),
+            allowed=allowed,
         )
     except Exception:
         import logging
@@ -1782,10 +1807,10 @@ def _fullgraph_solve(
         )
         return None
     if not seq:
-        return None
+        return _miss("csr_search found no route in budget")
     arr = np.asarray(seq, dtype=np.int64)
     if len(filter_fn(arr)) != len(arr):
-        return None  # a backbone node is permit-locked or companion-gated
+        return _miss("backbone hits a permit-locked node")
     legs, fail = _realize_graph(
         index,
         src,
@@ -1800,7 +1825,7 @@ def _fullgraph_solve(
         inject_mult=inject_mult,
     )
     if legs is None:
-        return None
+        return _miss(f"unrealizable edge {fail[0]} (seg {fail[2]:.0f} ly)")
     res = _finalize(legs, src, dst, J, boost, straight, 0, start_time)
     res["engine"] = "fullgraph-exp"
     return res
@@ -1934,6 +1959,7 @@ def graph_route(
             fetch_stars_toward,
             is_locked,
             inject_mult,
+            companion_max_ls,
             _filter,
         )
         if res is not None:

@@ -614,6 +614,7 @@ static CSR_CACHE: std::sync::OnceLock<std::sync::Mutex<Option<(usize, usize, std
 /// Returns (backbone node sequence, total jump cost incl. entry+exit, pops), or
 /// (None, -1, pops) on timeout / no route.
 #[pyfunction]
+#[pyo3(signature = (indptr, idx, dist_dly, coords, srcs, dsts, jump_range, boost_mult, time_budget_s, allowed=None))]
 fn csr_search<'py>(
     py: Python<'py>,
     indptr: PyReadonlyArray1<'py, i64>,
@@ -625,7 +626,15 @@ fn csr_search<'py>(
     jump_range: f64,
     boost_mult: f64,
     time_budget_s: f64,
+    // Per-request node usability (0 = never board/route through this node;
+    // e.g. companion neutrons beyond the request's supercruise cap). The graph
+    // cache is topology-only, so this stays a per-call argument.
+    allowed: Option<PyReadonlyArray1<'py, u8>>,
 ) -> PyResult<(Option<Vec<usize>>, f64, u64)> {
+    let allowed_o: Option<Vec<u8>> = match &allowed {
+        Some(a) => Some(a.as_slice()?.to_vec()),
+        None => None,
+    };
     let key = (indptr.as_slice()?.as_ptr() as usize, indptr.len()?);
     let cache = CSR_CACHE.get_or_init(|| std::sync::Mutex::new(None));
     let graph = {
@@ -651,10 +660,19 @@ fn csr_search<'py>(
         }
     };
     Ok(py.allow_threads(move || {
-        csr_search_core(&graph, &srcs, &dsts, jump_range, boost_mult, time_budget_s)
+        csr_search_core(
+            &graph,
+            &srcs,
+            &dsts,
+            jump_range,
+            boost_mult,
+            time_budget_s,
+            allowed_o.as_deref(),
+        )
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn csr_search_core(
     g: &CsrGraph,
     srcs: &[(usize, f64)],
@@ -662,6 +680,7 @@ fn csr_search_core(
     jump_range: f64,
     boost_mult: f64,
     time_budget_s: f64,
+    allowed: Option<&[u8]>,
 ) -> (Option<Vec<usize>>, f64, u64) {
     let n = g.indptr.len() - 1;
     let boost = boost_mult * jump_range;
@@ -719,6 +738,11 @@ fn csr_search_core(
         let (lo, hi) = (g.indptr[u] as usize, g.indptr[u + 1] as usize);
         for e in lo..hi {
             let v = g.idx[e] as usize;
+            if let Some(mask) = allowed {
+                if mask[v] == 0 {
+                    continue;
+                }
+            }
             let d = g.dist_dly[e] as f64 / 10.0;
             let w = boosted_jumps(d, jump_range, boost) as f64;
             let ng = gu + w;
