@@ -12,6 +12,15 @@ Why farthest-per-band: the nearest-K variant measurably loses routes (cutter
 Colonia->Sol full-graph optimal 161 vs 126 with farthest-first selection on the
 SAME edge budget; spansh 131, corridor engine 154-172). Selection beats budget.
 
+Why the extra SCOOPABLE picks per band: distance-only selection leaves the
+fuel-aware search starved of refuel landings (scoopables are ~4.7% of the index;
+distance-selected edges land on one just 4.5% of the time and 18.5% of nodes
+had NO scoopable out-edge), forcing dry hops on small tanks. Keeping the nearest
+and farthest scoopable neighbours per band gives the fuel labels the candidates
+they exist to choose. Scoopability is baked at SCOOP_BAKE_LS (the common request
+default): baking only ENRICHES candidates -- the per-request scoop mask still
+decides what counts as a refuel at query time.
+
 The output is the SYMMETRIZED CSR (kNN selection is asymmetric, jump physics is
 not): fmt=3, indptr int64, idx int32, dist_dly uint16 (ly*10, max 6553.5 ly).
 
@@ -32,12 +41,23 @@ from scipy.spatial import cKDTree
 
 BANDS = [(0.0, 60.0), (60.0, 120.0), (120.0, 216.0), (216.0, 350.0), (350.0, 500.0)]
 
+# Scoopability bake threshold (Ls): the common request default for the
+# in-highway companion-scoop reach. Only used to ENRICH edge selection.
+SCOOP_BAKE_LS = 1000.0
 
-def build(index_path, out_path, k_far=6, k_near=2, kq=2048, chunk=50000, workers=4):
+
+def build(index_path, out_path, k_far=6, k_near=2, k_scoop=2, kq=2048,
+          chunk=50000, workers=4):
     d = np.load(index_path, allow_pickle=True)
     xyz = np.ascontiguousarray(d["coords"], dtype=np.float64)
     n = len(xyz)
-    print(f"nodes {n:,}", flush=True)
+    scoop_ls = d["scoop"] if "scoop" in d.files else None
+    sc_ok = (
+        np.isfinite(scoop_ls) & (scoop_ls <= SCOOP_BAKE_LS)
+        if scoop_ls is not None
+        else np.zeros(n, dtype=bool)
+    )
+    print(f"nodes {n:,}  scoopable {100 * sc_ok.mean():.1f}%", flush=True)
     tree = cKDTree(xyz)
     idx_parts, dist_parts = [], []
     counts = np.zeros(n, dtype=np.int64)
@@ -56,8 +76,19 @@ def build(index_path, out_path, k_far=6, k_near=2, kq=2048, chunk=50000, workers
                 if not bm.any():
                     continue
                 bi, bd = irow[bm], drow[bm]  # tree.query returns sorted by distance
-                sel = np.r_[bi[:k_near], bi[-k_far:]]
-                seld = np.r_[bd[:k_near], bd[-k_far:]]
+                sel = [bi[:k_near], bi[-k_far:]]
+                seld = [bd[:k_near], bd[-k_far:]]
+                # Refuel candidates: the nearest + farthest SCOOPABLE neighbours
+                # in the band, so the fuel-aware search always has a landing to
+                # thread (distance-only selection starved it, see header).
+                if k_scoop > 0:
+                    sm = sc_ok[bi]
+                    if sm.any():
+                        sbi, sbd = bi[sm], bd[sm]
+                        sel += [sbi[:k_scoop], sbi[-k_scoop:]]
+                        seld += [sbd[:k_scoop], sbd[-k_scoop:]]
+                sel = np.concatenate(sel)
+                seld = np.concatenate(seld)
                 u, ui = np.unique(sel, return_index=True)
                 keep_i.append(u)
                 keep_d.append(seld[ui])
@@ -95,7 +126,9 @@ if __name__ == "__main__":
     ap.add_argument("--out", required=True, help="output graph npz path")
     ap.add_argument("--k-far", type=int, default=6)
     ap.add_argument("--k-near", type=int, default=2)
+    ap.add_argument("--k-scoop", type=int, default=2)
     ap.add_argument("--kq", type=int, default=2048)
     ap.add_argument("--workers", type=int, default=4)
     a = ap.parse_args()
-    build(a.index, a.out, a.k_far, a.k_near, a.kq, workers=a.workers)
+    build(a.index, a.out, a.k_far, a.k_near, a.k_scoop, a.kq,
+          workers=a.workers)
