@@ -1,3 +1,17 @@
+/* Enforce the EDGIS wordmark font on every platform. The system-map stack is
+   Orbitron / Aldrich / Bank Gothic / Exo 2 / system-ui, none bundled, so it fell
+   back per-platform (ugly elsewhere). Aldrich is the free (OFL) member of that
+   look (squared / techy, like Bank Gothic) -- self-host it and lead with it so
+   everyone gets the same wordmark; Bank Gothic stays as a fallback for those who
+   have it. */
+@font-face {
+    font-family: 'Aldrich';
+    src: url('/static/assets/fonts/aldrich.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
 #backgroundCanvas{
     top: 0;
     left: 0;
@@ -283,6 +297,12 @@ a:hover {
     font: inherit;
     padding: 0;
     cursor: pointer;
+}
+
+/* The "EDGIS" wordmark: enforced Aldrich, matching the system map. */
+.hero-title span {
+    font-family: 'Aldrich', 'Bank Gothic', 'Exo 2', system-ui, sans-serif;
+    letter-spacing: 0.08em;
 }
 
 .hero-title svg {
