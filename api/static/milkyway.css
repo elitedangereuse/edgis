@@ -1,14 +1,3 @@
-/* Enforce the EDGIS wordmark font on every platform: 'Euro Caps' (the ED-style
-   font) is bundled, so self-host it here too (the main page did not load it) and
-   apply it to the logo. Without this it fell back per-platform (ugly elsewhere). */
-@font-face {
-    font-family: 'Euro Caps';
-    src: url('/static/assets/EUROCAPS.TTF') format('truetype');
-    font-weight: normal;
-    font-style: normal;
-    font-display: swap;
-}
-
 #backgroundCanvas{
     top: 0;
     left: 0;
@@ -294,12 +283,6 @@ a:hover {
     font: inherit;
     padding: 0;
     cursor: pointer;
-}
-
-/* The "EDGIS" wordmark: enforced Euro Caps, matching the system map. */
-.hero-title span {
-    font-family: 'Euro Caps', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
-    letter-spacing: 0.06em;
 }
 
 .hero-title svg {
