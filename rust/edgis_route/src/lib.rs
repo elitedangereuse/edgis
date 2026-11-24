@@ -603,6 +603,104 @@ struct CsrGraph {
     coords: Vec<[f64; 3]>,
 }
 
+/// Borrowed view the search cores run over: backed either by the in-RAM copy
+/// (legacy array path) or by mmap'd .npy sidecars (one page-cache copy shared
+/// by every worker on the box -- the in-RAM copies were ~3.7 GB PER PROCESS
+/// and stacked up to an out-of-memory incident on the shared DB host).
+struct GraphView<'a> {
+    indptr: &'a [i64],
+    idx: &'a [i32],
+    dist_dly: &'a [u16],
+    coords: &'a [[f64; 3]],
+}
+
+impl CsrGraph {
+    fn view(&self) -> GraphView<'_> {
+        GraphView {
+            indptr: &self.indptr,
+            idx: &self.idx,
+            dist_dly: &self.dist_dly,
+            coords: &self.coords,
+        }
+    }
+}
+
+/// A single mmap'd .npy array. Minimal parser: we only read files our own
+/// feeder wrote (little-endian, C-order), but magic/dtype/alignment are checked
+/// so a wrong or corrupt file fails loudly instead of misreading.
+struct NpyMmap {
+    map: memmap2::Mmap,
+    data_off: usize,
+    len: usize,
+}
+
+fn npy_open(path: &str, descr: &str, itemsize: usize) -> Result<NpyMmap, String> {
+    let f = std::fs::File::open(path).map_err(|e| format!("{path}: {e}"))?;
+    let map = unsafe { memmap2::Mmap::map(&f) }.map_err(|e| format!("{path}: {e}"))?;
+    if map.len() < 12 || &map[0..6] != b"\x93NUMPY" {
+        return Err(format!("{path}: not an npy file"));
+    }
+    let (hlen, hoff) = match map[6] {
+        1 => (u16::from_le_bytes([map[8], map[9]]) as usize, 10usize),
+        2 | 3 => (
+            u32::from_le_bytes([map[8], map[9], map[10], map[11]]) as usize,
+            12usize,
+        ),
+        v => return Err(format!("{path}: unsupported npy version {v}")),
+    };
+    let header = std::str::from_utf8(&map[hoff..hoff + hlen])
+        .map_err(|_| format!("{path}: bad npy header"))?;
+    if !header.contains(descr) {
+        return Err(format!("{path}: expected dtype {descr}, header: {header}"));
+    }
+    if header.contains("'fortran_order': True") {
+        return Err(format!("{path}: fortran order unsupported"));
+    }
+    let data_off = hoff + hlen;
+    if data_off % itemsize != 0 {
+        return Err(format!("{path}: data offset {data_off} misaligned"));
+    }
+    let len = (map.len() - data_off) / itemsize;
+    Ok(NpyMmap { map, data_off, len })
+}
+
+impl NpyMmap {
+    /// Safety: caller guarantees T matches the checked dtype/itemsize.
+    unsafe fn slice<T>(&self) -> &[T] {
+        std::slice::from_raw_parts(
+            self.map[self.data_off..].as_ptr() as *const T,
+            self.len,
+        )
+    }
+}
+
+struct MmapStore {
+    indptr: NpyMmap,
+    idx: NpyMmap,
+    dist: NpyMmap,
+    coords: NpyMmap,
+}
+
+impl MmapStore {
+    fn view(&self) -> GraphView<'_> {
+        unsafe {
+            GraphView {
+                indptr: self.indptr.slice::<i64>(),
+                idx: self.idx.slice::<i32>(),
+                dist_dly: self.dist.slice::<u16>(),
+                coords: std::slice::from_raw_parts(
+                    self.coords.map[self.coords.data_off..].as_ptr() as *const [f64; 3],
+                    self.coords.len / 3,
+                ),
+            }
+        }
+    }
+}
+
+static MMAP_CACHE: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<MmapStore>>>,
+> = std::sync::OnceLock::new();
+
 static CSR_CACHE: std::sync::OnceLock<std::sync::Mutex<Option<(usize, usize, std::sync::Arc<CsrGraph>)>>> =
     std::sync::OnceLock::new();
 
@@ -675,9 +773,10 @@ fn csr_search<'py>(
         }
     };
     Ok(py.allow_threads(move || {
+        let view = graph.view();
         match (&scoop_o, tank_jumps) {
             (Some(sc), t) if t >= 1 => csr_search_fuel_core(
-                &graph,
+                &view,
                 &srcs,
                 &dsts,
                 jump_range,
@@ -688,7 +787,88 @@ fn csr_search<'py>(
                 t,
             ),
             _ => csr_search_core(
-                &graph,
+                &view,
+                &srcs,
+                &dsts,
+                jump_range,
+                boost_mult,
+                time_budget_s,
+                allowed_o.as_deref(),
+            ),
+        }
+    }))
+}
+
+/// Mmap-backed variant: the graph lives in .npy sidecars written by
+/// feeders/build_sparse_neutron_graph.py and is mapped read-only, so every
+/// worker on the box shares ONE page-cache copy (the array variant's in-RAM
+/// copies were ~3.7 GB per process and exhausted the shared DB host). Mapped
+/// once per process, keyed by the joined paths.
+#[pyfunction]
+#[pyo3(signature = (indptr_path, idx_path, dist_path, coords_path, srcs, dsts, jump_range, boost_mult, time_budget_s, allowed=None, scoop=None, tank_jumps=0))]
+#[allow(clippy::too_many_arguments)]
+fn csr_search_mmap<'py>(
+    py: Python<'py>,
+    indptr_path: String,
+    idx_path: String,
+    dist_path: String,
+    coords_path: String,
+    srcs: Vec<(usize, f64)>,
+    dsts: Vec<(usize, f64)>,
+    jump_range: f64,
+    boost_mult: f64,
+    time_budget_s: f64,
+    allowed: Option<PyReadonlyArray1<'py, u8>>,
+    scoop: Option<PyReadonlyArray1<'py, u8>>,
+    tank_jumps: usize,
+) -> PyResult<(Option<Vec<usize>>, f64, u64)> {
+    let allowed_o: Option<Vec<u8>> = match &allowed {
+        Some(a) => Some(a.as_slice()?.to_vec()),
+        None => None,
+    };
+    let scoop_o: Option<Vec<u8>> = match &scoop {
+        Some(s) => Some(s.as_slice()?.to_vec()),
+        None => None,
+    };
+    let key = format!("{indptr_path}|{idx_path}|{dist_path}|{coords_path}");
+    let cache = MMAP_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    let store = {
+        let mut guard = cache.lock().unwrap();
+        match guard.get(&key) {
+            Some(s) => s.clone(),
+            None => {
+                let open = || -> Result<MmapStore, String> {
+                    Ok(MmapStore {
+                        indptr: npy_open(&indptr_path, "<i8", 8)?,
+                        idx: npy_open(&idx_path, "<i4", 4)?,
+                        dist: npy_open(&dist_path, "<u2", 2)?,
+                        coords: npy_open(&coords_path, "<f8", 8)?,
+                    })
+                };
+                let s = std::sync::Arc::new(
+                    open().map_err(pyo3::exceptions::PyValueError::new_err)?,
+                );
+                guard.insert(key, s.clone());
+                s
+            }
+        }
+    };
+    Ok(py.allow_threads(move || {
+        let view = store.view();
+        match (&scoop_o, tank_jumps) {
+            (Some(sc), t) if t >= 1 => csr_search_fuel_core(
+                &view,
+                &srcs,
+                &dsts,
+                jump_range,
+                boost_mult,
+                time_budget_s,
+                allowed_o.as_deref(),
+                sc,
+                t,
+            ),
+            _ => csr_search_core(
+                &view,
                 &srcs,
                 &dsts,
                 jump_range,
@@ -708,7 +888,7 @@ fn csr_search<'py>(
 /// corridor's 194 for exactly that reason).
 #[allow(clippy::too_many_arguments)]
 fn csr_search_fuel_core(
-    g: &CsrGraph,
+    g: &GraphView,
     srcs: &[(usize, f64)],
     dsts: &[(usize, f64)],
     jump_range: f64,
@@ -845,7 +1025,7 @@ fn csr_search_fuel_core(
 
 #[allow(clippy::too_many_arguments)]
 fn csr_search_core(
-    g: &CsrGraph,
+    g: &GraphView,
     srcs: &[(usize, f64)],
     dsts: &[(usize, f64)],
     jump_range: f64,
@@ -966,6 +1146,7 @@ fn edgis_route(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(graph_search_fuel, m)?)?;
     m.add_function(wrap_pyfunction!(graph_search_fuel_debug, m)?)?;
     m.add_function(wrap_pyfunction!(csr_search, m)?)?;
+    m.add_function(wrap_pyfunction!(csr_search_mmap, m)?)?;
     m.add_function(wrap_pyfunction!(debug_within, m)?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())

@@ -1456,11 +1456,16 @@ _sparse_graph_cache: object = None
 
 
 def _load_sparse_graph(index) -> Optional[tuple]:
-    """Lazy-load the sparse CSR graph + permit mask: (indptr, idx, dist_dly,
-    permit_ok_or_None). None = disabled or failed (sticky: one warning, then
-    permanently off for the process). The permit mask is OPTIONAL: missing/stale
-    just means the in-search permit exclusion is skipped and the cheap post-check
-    in _fullgraph_solve (fall through to the permit-aware pipeline) covers it."""
+    """Resolve the sparse graph's mmap sidecars + permit mask:
+    ((indptr_path, idx_path, dist_path, coords_path), permit_ok_or_None).
+    None = disabled or failed (sticky: one warning, then permanently off for the
+    process). The kernel mmaps the sidecars read-only, so every worker on the
+    box shares ONE page-cache copy -- the earlier in-RAM copies were ~3.7 GB
+    PER PROCESS and exhausted the shared DB host. Row alignment is verified
+    against the loaded index via the indptr sidecar header's element count.
+    The permit mask is OPTIONAL: missing/stale just means the in-search permit
+    exclusion is skipped and the post-check (fall through to the permit-aware
+    pipeline) covers it."""
     global _sparse_graph_cache
     if not _SPARSE_GRAPH_PATH:
         return None
@@ -1469,15 +1474,27 @@ def _load_sparse_graph(index) -> Optional[tuple]:
     if _sparse_graph_cache is not None:
         return _sparse_graph_cache
     try:
-        g = np.load(_SPARSE_GRAPH_PATH)
-        if int(g["fmt"]) != 3:
-            raise ValueError(f"unsupported sparse graph fmt {int(g['fmt'])}")
-        indptr = g["indptr"]
+        base = (
+            _SPARSE_GRAPH_PATH[:-4]
+            if _SPARSE_GRAPH_PATH.endswith(".npz")
+            else _SPARSE_GRAPH_PATH
+        )
+        paths = tuple(base + s for s in
+                      (".indptr.npy", ".idx.npy", ".dist.npy", ".coords.npy"))
+        missing = [p for p in paths if not _os.path.exists(p)]
+        if missing:
+            raise ValueError(
+                f"mmap sidecars missing: {missing} "
+                "(run feeders/build_sparse_neutron_graph.py to regenerate)"
+            )
+        # Cheap row check without loading data: mmap just the indptr sidecar.
+        indptr = np.load(paths[0], mmap_mode="r")
         if len(indptr) - 1 != len(index.coords):
             raise ValueError(
                 f"sparse graph rows {len(indptr) - 1} != index rows "
                 f"{len(index.coords)} (rebuild from this snapshot)"
             )
+        del indptr
         permit_ok = None
         if _PERMIT_MASK_PATH and _os.path.exists(_PERMIT_MASK_PATH):
             pm = np.load(_PERMIT_MASK_PATH)
@@ -1490,10 +1507,7 @@ def _load_sparse_graph(index) -> Optional[tuple]:
                     "permit mask rows %d != index %d; skipping (post-check covers)",
                     len(pm), len(index.coords),
                 )
-        # Hold the arrays for the process lifetime: the native kernel caches its
-        # own copy keyed by the indptr data pointer, so a stable Python-side
-        # reference means one copy, ever.
-        _sparse_graph_cache = (indptr, g["idx"], g["dist_dly"], permit_ok)
+        _sparse_graph_cache = (paths, permit_ok)
     except Exception:
         import logging
 
@@ -1792,7 +1806,7 @@ def _fullgraph_solve(
     g = _load_sparse_graph(index)
     if g is None or _native_route is None:
         return _miss("graph or native kernel unavailable")
-    indptr, idx, dly, permit_ok = g
+    graph_paths, permit_ok = g
     boost = boost_mult * J
     sv = np.asarray(src, dtype=np.float64)
     dv = np.asarray(dst, dtype=np.float64)
@@ -1844,8 +1858,8 @@ def _fullgraph_solve(
     else:
         t = 0
     try:
-        seq, _cost, _pops = _native_route.csr_search(
-            indptr, idx, dly, index.coords, srcs, dsts,
+        seq, _cost, _pops = _native_route.csr_search_mmap(
+            *graph_paths, srcs, dsts,
             float(J), float(boost_mult), float(budget),
             allowed=allowed, scoop=scoop_arr, tank_jumps=t,
         )

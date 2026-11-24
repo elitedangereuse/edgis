@@ -118,6 +118,15 @@ def build(index_path, out_path, k_far=6, k_near=2, k_scoop=2, kq=2048,
              idx=g.indices.astype(np.int32),
              dist_dly=np.round(g.data).astype(np.uint16))
     print(f"wrote {out_path}  {os.path.getsize(out_path) / 1e9:.2f} GB", flush=True)
+    # Raw .npy sidecars for the kernel's mmap path: npz members cannot be
+    # mmap'd, and in-RAM copies cost ~GBs PER WORKER (an OOM incident on the
+    # shared DB host). One page-cache copy serves every process on the box.
+    base = out_path[:-4] if out_path.endswith(".npz") else out_path
+    np.save(base + ".indptr.npy", g.indptr.astype(np.int64))
+    np.save(base + ".idx.npy", g.indices.astype(np.int32))
+    np.save(base + ".dist.npy", np.round(g.data).astype(np.uint16))
+    np.save(base + ".coords.npy", xyz)
+    print(f"wrote mmap sidecars {base}.{{indptr,idx,dist,coords}}.npy", flush=True)
 
 
 if __name__ == "__main__":
