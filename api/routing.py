@@ -1414,6 +1414,27 @@ def _realize_graph(
 # the candidate set drowns the flown search.
 _B2_THIN_CORRIDOR_LY = float(_os.environ.get("EDGIS_B2_THIN_CORRIDOR_LY") or "120")
 
+# SCOOPABLE-ONLY widening of the B2 thin corridor (ly). Scoopable-companion
+# neutrons are rare (~4.6% of the index), so the 120 ly tube regularly has
+# scoopless stretches far longer than a small tank's refuel cadence (measured
+# cutter Sol->Colonia: longest scoopless stretch ~2050 ly vs the ~430 ly a
+# 2-jump tank needs) -- the fuel search then CANNOT thread in-path refuels and
+# the enforcer falls back to out-and-back scoop diverts (+2 jumps each; 23 of
+# them = the whole +46 gap to spansh on that route, whose scoopable landings sit
+# a median 222 ly off our tube). Widening the corridor for SCOOPABLE neutrons
+# only restores threading coverage (500 ly: 98% of the route has one in reach,
+# longest gap ~400 ly) while adding few candidates (the 4.6% density keeps the
+# union tractable). 0 disables.
+_SCOOP_CORRIDOR_LY = float(_os.environ.get("EDGIS_SCOOP_CORRIDOR_LY") or "500")
+# Route-length band the scoopable widening engages in. Below the floor the route
+# is too short to have scoopless stretches worth threading (widening only adds
+# candidates + time: Riedquat->Asterope 22->23 at 82 s). Above the ceiling is the
+# rim regime -- the B2 corridor already doubles there, and the extra off-axis
+# scoopable candidates drown / misdirect the flown search (Sol->Beagle 226->255).
+# Between the two is where in-path refuel on tank-limited ships pays off.
+_SCOOP_MIN_ROUTE_LY = float(_os.environ.get("EDGIS_SCOOP_MIN_ROUTE_LY") or "5000")
+_SCOOP_MAX_ROUTE_LY = float(_os.environ.get("EDGIS_SCOOP_MAX_ROUTE_LY") or "30000")
+
 # Max wall-clock the B2 flown search may consume before giving up and realizing the
 # B1 coarse path instead. Keeps default-on B2 from spending a long/rim route's whole
 # time budget on a flown search that won't finish.
@@ -2041,7 +2062,28 @@ def graph_route(
                 _B2_THIN_CORRIDOR_LY if straight <= 30000.0
                 else 2.0 * _B2_THIN_CORRIDOR_LY
             )
-            tc = _filter(_thin_corridor(index, b1seq, b2_corridor))
+            tc_ids = _thin_corridor(index, b1seq, b2_corridor)
+            # IN-PATH REFUEL candidates: union a WIDER, scoopable-only corridor so
+            # the flown fuel search can thread refuel landings even where the thin
+            # tube is scoopless (see _SCOOP_CORRIDOR_LY). The search's dry-hop cost
+            # (+2 divert folded in) already prefers threading when it saves jumps;
+            # it just never had the candidates before.
+            n_wide = 0
+            if (_SCOOP_CORRIDOR_LY > b2_corridor and _sls_arr is not None
+                    and _SCOOP_MIN_ROUTE_LY < straight <= _SCOOP_MAX_ROUTE_LY):
+                wide = _thin_corridor(index, b1seq, _SCOOP_CORRIDOR_LY)
+                wide = wide[_sls_arr[wide] <= float(scoop_max_ls)]
+                n_wide = len(wide)
+                if len(wide):
+                    tc_ids = np.union1d(tc_ids, wide)
+            tc = _filter(tc_ids)
+            if _os.environ.get("EDGIS_B2_DBG") == "1":
+                import logging
+                logging.getLogger(__name__).warning(
+                    "B2DBG coarse=%d tc=%d (wide-scoopable +%d) t=%.1fs",
+                    len(b1seq), len(tc), n_wide,
+                    time.perf_counter() - start_time,
+                )
             if len(tc) and time.perf_counter() < deadline:
                 # Bound the flown search so a slow one (long/dense route) can't
                 # eat the whole deadline and starve the fallback below.
@@ -2054,6 +2096,14 @@ def graph_route(
                 b2_dl = min(deadline, time.perf_counter() + b2_budget)
                 b2_res = _solve(False, cand_set=tc, range_search=True, dl=b2_dl)
 
+            if _os.environ.get("EDGIS_B2_DBG") == "1":
+                import logging
+                logging.getLogger(__name__).warning(
+                    "B2DBG b2=%s b1=%s t=%.1fs",
+                    None if b2_res is None else b2_res.get("total_jumps"),
+                    None if b1_res is None else b1_res.get("total_jumps"),
+                    time.perf_counter() - start_time,
+                )
             # Keep the fewer-jumps realized route (B2 only when it actually wins).
             cands = [r for r in (b1_res, b2_res) if r is not None]
             if cands:
