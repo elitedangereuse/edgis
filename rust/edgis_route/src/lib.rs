@@ -589,6 +589,159 @@ fn graph_search_fuel_debug<'py>(
     )
 }
 
+/// Full-galaxy sparse CSR graph for the experimental fullgraph engine: the
+/// distance-stratified sparsifier built by feeders/build_sparse_neutron_graph.py
+/// (symmetrized; node i == row i of the neutron index). Cached per process after
+/// the first call: the arrays must be COPIED out of numpy to release the GIL for
+/// the search (same reason `run` copies), and at ~1.4 GB that copy must happen
+/// once, not per query. Keyed by the indptr data pointer + length so a reloaded
+/// (new) graph replaces the cache.
+struct CsrGraph {
+    indptr: Vec<i64>,
+    idx: Vec<i32>,
+    dist_dly: Vec<u16>,
+    coords: Vec<[f64; 3]>,
+}
+
+static CSR_CACHE: std::sync::OnceLock<std::sync::Mutex<Option<(usize, usize, std::sync::Arc<CsrGraph>)>>> =
+    std::sync::OnceLock::new();
+
+/// Multi-source / multi-target A* over the sparse CSR graph. Unit cost per
+/// boosted hop; edges longer than the boosted reach cost an optimistic regular
+/// chain (same `boosted_jumps` model as the corridor engine's gap edges).
+/// `srcs`/`dsts` carry per-candidate entry/exit jump costs (source attachment is
+/// an unboosted chain; exit leaves a neutron, so the caller prices it boosted).
+/// Returns (backbone node sequence, total jump cost incl. entry+exit, pops), or
+/// (None, -1, pops) on timeout / no route.
+#[pyfunction]
+fn csr_search<'py>(
+    py: Python<'py>,
+    indptr: PyReadonlyArray1<'py, i64>,
+    idx: PyReadonlyArray1<'py, i32>,
+    dist_dly: PyReadonlyArray1<'py, u16>,
+    coords: PyReadonlyArray2<'py, f64>,
+    srcs: Vec<(usize, f64)>,
+    dsts: Vec<(usize, f64)>,
+    jump_range: f64,
+    boost_mult: f64,
+    time_budget_s: f64,
+) -> PyResult<(Option<Vec<usize>>, f64, u64)> {
+    let key = (indptr.as_slice()?.as_ptr() as usize, indptr.len()?);
+    let cache = CSR_CACHE.get_or_init(|| std::sync::Mutex::new(None));
+    let graph = {
+        let mut guard = cache.lock().unwrap();
+        match guard.as_ref() {
+            Some((p, l, g)) if (*p, *l) == key => g.clone(),
+            _ => {
+                let cc = coords.as_array();
+                let n = cc.shape()[0];
+                let mut co = Vec::with_capacity(n);
+                for i in 0..n {
+                    co.push([cc[[i, 0]], cc[[i, 1]], cc[[i, 2]]]);
+                }
+                let g = std::sync::Arc::new(CsrGraph {
+                    indptr: indptr.as_slice()?.to_vec(),
+                    idx: idx.as_slice()?.to_vec(),
+                    dist_dly: dist_dly.as_slice()?.to_vec(),
+                    coords: co,
+                });
+                *guard = Some((key.0, key.1, g.clone()));
+                g
+            }
+        }
+    };
+    Ok(py.allow_threads(move || {
+        csr_search_core(&graph, &srcs, &dsts, jump_range, boost_mult, time_budget_s)
+    }))
+}
+
+fn csr_search_core(
+    g: &CsrGraph,
+    srcs: &[(usize, f64)],
+    dsts: &[(usize, f64)],
+    jump_range: f64,
+    boost_mult: f64,
+    time_budget_s: f64,
+) -> (Option<Vec<usize>>, f64, u64) {
+    let n = g.indptr.len() - 1;
+    let boost = boost_mult * jump_range;
+    let start = Instant::now();
+    let mut best_g: Vec<f32> = vec![f32::INFINITY; n];
+    let mut parent: Vec<i32> = vec![-1; n];
+    // Admissible heuristic: straight-line to the nearest exit candidate over the
+    // boosted reach (no hop progresses more than `boost`; chain edges cost at
+    // least ceil(progress / boost)). Exit cost >= 0 is ignored (stays admissible).
+    let h = |u: usize| -> f64 {
+        let p = g.coords[u];
+        dsts.iter()
+            .map(|&(d, _)| {
+                let q = g.coords[d];
+                let dx = p[0] - q[0];
+                let dy = p[1] - q[1];
+                let dz = p[2] - q[2];
+                OrderedFloat((dx * dx + dy * dy + dz * dz).sqrt() / boost)
+            })
+            .min()
+            .map(|x| x.0)
+            .unwrap_or(0.0)
+    };
+    let mut heap: BinaryHeap<Reverse<(OrderedFloat<f64>, u32)>> = BinaryHeap::new();
+    for &(s, c) in srcs {
+        if (c as f32) < best_g[s] {
+            best_g[s] = c as f32;
+            heap.push(Reverse((OrderedFloat(c + h(s)), s as u32)));
+        }
+    }
+    let exit_of: std::collections::HashMap<usize, f64> = dsts.iter().cloned().collect();
+    let mut best_goal = f64::INFINITY;
+    let mut best_dst: i64 = -1;
+    let mut pops: u64 = 0;
+    while let Some(Reverse((OrderedFloat(f), u32u))) = heap.pop() {
+        let u = u32u as usize;
+        pops += 1;
+        if f >= best_goal {
+            break; // every remaining label is at least the settled goal
+        }
+        if pops % 65536 == 0 && start.elapsed().as_secs_f64() > time_budget_s {
+            return (None, -1.0, pops);
+        }
+        let gu = best_g[u] as f64;
+        if f - h(u) > gu + 1e-6 {
+            continue; // stale heap entry
+        }
+        if let Some(&ex) = exit_of.get(&u) {
+            let total = gu + ex;
+            if total < best_goal {
+                best_goal = total;
+                best_dst = u as i64;
+            }
+        }
+        let (lo, hi) = (g.indptr[u] as usize, g.indptr[u + 1] as usize);
+        for e in lo..hi {
+            let v = g.idx[e] as usize;
+            let d = g.dist_dly[e] as f64 / 10.0;
+            let w = boosted_jumps(d, jump_range, boost) as f64;
+            let ng = gu + w;
+            if (ng as f32) < best_g[v] {
+                best_g[v] = ng as f32;
+                parent[v] = u as i32;
+                heap.push(Reverse((OrderedFloat(ng + h(v)), v as u32)));
+            }
+        }
+    }
+    if best_dst < 0 {
+        return (None, -1.0, pops);
+    }
+    let mut seq = vec![best_dst as usize];
+    let mut cur = best_dst as usize;
+    while parent[cur] >= 0 {
+        cur = parent[cur] as usize;
+        seq.push(cur);
+    }
+    seq.reverse();
+    (Some(seq), best_goal, pops)
+}
+
 /// Debug: kiddo's radius query (item ids + distances) for a point, to compare the
 /// neighbour SET/order against scipy cKDTree and diagnose the native-vs-python gap.
 #[pyfunction]
@@ -617,6 +770,7 @@ fn edgis_route(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(graph_search_range_debug, m)?)?;
     m.add_function(wrap_pyfunction!(graph_search_fuel, m)?)?;
     m.add_function(wrap_pyfunction!(graph_search_fuel_debug, m)?)?;
+    m.add_function(wrap_pyfunction!(csr_search, m)?)?;
     m.add_function(wrap_pyfunction!(debug_within, m)?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())

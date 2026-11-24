@@ -1435,6 +1435,51 @@ _SCOOP_CORRIDOR_LY = float(_os.environ.get("EDGIS_SCOOP_CORRIDOR_LY") or "500")
 _SCOOP_MIN_ROUTE_LY = float(_os.environ.get("EDGIS_SCOOP_MIN_ROUTE_LY") or "5000")
 _SCOOP_MAX_ROUTE_LY = float(_os.environ.get("EDGIS_SCOOP_MAX_ROUTE_LY") or "30000")
 
+# Experimental fullgraph engine (cookie contraction=true): path to the
+# precomputed full-galaxy sparse neutron graph built by
+# feeders/build_sparse_neutron_graph.py. Unset = engine disabled (prod default).
+# The graph MUST be built from the exact snapshot this service loads (graph row
+# i == index row i); the loader enforces the row-count match and disables itself
+# on any mismatch so a stale graph can never produce garbage routes.
+_SPARSE_GRAPH_PATH = _os.environ.get("EDGIS_SPARSE_GRAPH") or ""
+_sparse_graph_cache: object = None
+
+
+def _load_sparse_graph(index) -> Optional[tuple]:
+    """Lazy-load the sparse CSR graph (indptr, idx, dist_dly). None = disabled
+    or failed (sticky: one warning, then permanently off for the process)."""
+    global _sparse_graph_cache
+    if not _SPARSE_GRAPH_PATH:
+        return None
+    if _sparse_graph_cache is False:
+        return None
+    if _sparse_graph_cache is not None:
+        return _sparse_graph_cache
+    try:
+        g = np.load(_SPARSE_GRAPH_PATH)
+        if int(g["fmt"]) != 3:
+            raise ValueError(f"unsupported sparse graph fmt {int(g['fmt'])}")
+        indptr = g["indptr"]
+        if len(indptr) - 1 != len(index.coords):
+            raise ValueError(
+                f"sparse graph rows {len(indptr) - 1} != index rows "
+                f"{len(index.coords)} (rebuild from this snapshot)"
+            )
+        # Hold the arrays for the process lifetime: the native kernel caches its
+        # own copy keyed by the indptr data pointer, so a stable Python-side
+        # reference means one copy, ever.
+        _sparse_graph_cache = (indptr, g["idx"], g["dist_dly"])
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "sparse graph unavailable; fullgraph engine disabled", exc_info=True
+        )
+        _sparse_graph_cache = False
+        return None
+    return _sparse_graph_cache
+
+
 # Max wall-clock the B2 flown search may consume before giving up and realizing the
 # B1 coarse path instead. Keeps default-on B2 from spending a long/rim route's whole
 # time budget on a flown search that won't finish.
@@ -1667,6 +1712,100 @@ def _repair_gaps(
     return cur_legs
 
 
+def _fullgraph_solve(
+    index: NeutronIndex,
+    src: tuple[float, float, float],
+    dst: tuple[float, float, float],
+    J: float,
+    boost_mult: float,
+    deadline: float,
+    start_time: float,
+    straight: float,
+    fetch_stars_within: FetchStarsWithin,
+    fetch_stars_near_segment,
+    fetch_stars_toward,
+    is_locked,
+    inject_mult: float,
+    filter_fn,
+) -> Optional[dict]:
+    """Experimental full-galaxy engine (cookie contraction=true): native A* over
+    the precomputed sparse neutron graph, NO corridor. The off-axis neutrons the
+    corridor cannot reach (optimal low-range paths ride a median ~1150 ly off
+    the geodesic on Colonia->Sol) are first-class here. Min-jumps only for now:
+    the fuel layer still reports/enforces on the realized legs.
+
+    Returns a finalized result dict, or None to fall through to the production
+    pipeline: graph missing/mismatched, boarding candidates all filtered,
+    permit/companion violation on the backbone, unrealizable edge, or timeout.
+    Falling through is always safe -- this engine can only ever ADD a better
+    route, never replace the proven one with a failure."""
+    g = _load_sparse_graph(index)
+    if g is None or _native_route is None:
+        return None
+    indptr, idx, dly = g
+    boost = boost_mult * J
+    sv = np.asarray(src, dtype=np.float64)
+    dv = np.asarray(dst, dtype=np.float64)
+    k = min(8, len(index.coords))
+    sd, si = index.tree.query(sv, k=k)
+    dd, di = index.tree.query(dv, k=k)
+    sd, si = np.atleast_1d(sd), np.atleast_1d(si).astype(np.int64)
+    dd, di = np.atleast_1d(dd), np.atleast_1d(di).astype(np.int64)
+    # Boarding obeys the same companion/permit filter as the corridor engine.
+    # Entry is an unboosted chain from the source system; the exit hop departs a
+    # neutron, so it prices boosted.
+    sm = np.isin(si, filter_fn(si))
+    dm = np.isin(di, filter_fn(di))
+    srcs = [
+        (int(i), 0.0 if d < 1e-6 else float(math.ceil(d / J)))
+        for i, d in zip(si[sm], sd[sm])
+    ]
+    dsts = [
+        (int(i), 0.0 if d < 1e-6 else float(_boosted_jumps(d, J, boost_mult)))
+        for i, d in zip(di[dm], dd[dm])
+    ]
+    if not srcs or not dsts:
+        return None
+    budget = min(deadline - time.perf_counter(), 30.0)
+    if budget <= 1.0:
+        return None
+    try:
+        seq, _cost, _pops = _native_route.csr_search(
+            indptr, idx, dly, index.coords, srcs, dsts,
+            float(J), float(boost_mult), float(budget),
+        )
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "fullgraph csr_search failed; falling through", exc_info=True
+        )
+        return None
+    if not seq:
+        return None
+    arr = np.asarray(seq, dtype=np.int64)
+    if len(filter_fn(arr)) != len(arr):
+        return None  # a backbone node is permit-locked or companion-gated
+    legs, fail = _realize_graph(
+        index,
+        src,
+        dst,
+        J,
+        [int(x) for x in seq],
+        fetch_stars_within,
+        fetch_stars_near_segment,
+        fetch_stars_toward,
+        is_locked=is_locked,
+        boost_mult=boost_mult,
+        inject_mult=inject_mult,
+    )
+    if legs is None:
+        return None
+    res = _finalize(legs, src, dst, J, boost, straight, 0, start_time)
+    res["engine"] = "fullgraph-exp"
+    return res
+
+
 def graph_route(
     index: NeutronIndex,
     src: tuple[float, float, float],
@@ -1687,6 +1826,7 @@ def graph_route(
     tank_jumps: int = 0,
     scoop_max_ls: float = 0.0,
     reach_by_r: Optional[list[float]] = None,
+    fullgraph: bool = False,
 ) -> Optional[dict]:
     """Min-**jumps** route via corridor-bounded neutron-graph A*, realized into
     legs with greedy + capsule-BFS bridging. Edges the realizer proves
@@ -1775,6 +1915,29 @@ def graph_route(
         return c
 
     cand = _filter(cand)
+
+    # Experimental full-galaxy engine (cookie contraction=true): try the sparse
+    # fullgraph A* first; ANY miss falls through to the production pipeline, so
+    # the flag can only improve a route, never lose one.
+    if fullgraph:
+        res = _fullgraph_solve(
+            index,
+            src,
+            dst,
+            J,
+            boost_mult,
+            deadline,
+            start_time,
+            straight,
+            fetch_stars_within,
+            fetch_stars_near_segment,
+            fetch_stars_toward,
+            is_locked,
+            inject_mult,
+            _filter,
+        )
+        if res is not None:
+            return res
 
     def _solve(
         flip: bool,

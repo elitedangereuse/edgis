@@ -3600,6 +3600,7 @@ def _solve_route_sync(
     tank_jumps: int = 0,
     scoop_max_ls: float = 0.0,
     reach_by_r: list | None = None,
+    fullgraph: bool = False,
 ):
     """Solve a route and attach a time breakdown as ``result["_prof"]`` (logged
     to the route trace, never returned): wall and thread CPU time, plus the
@@ -3620,6 +3621,7 @@ def _solve_route_sync(
         tank_jumps,
         scoop_max_ls,
         reach_by_r,
+        fullgraph,
     )
     if result is not None:
         wall = (time.perf_counter() - wall0) * 1000.0
@@ -3652,6 +3654,7 @@ def _solve_route_core(
     tank_jumps: int = 0,
     scoop_max_ls: float = 0.0,
     reach_by_r: list | None = None,
+    fullgraph: bool = False,
 ):
     index = _neutron_index
     if index is None:  # pragma: no cover - guarded by caller
@@ -3783,6 +3786,7 @@ def _solve_route_core(
                     tank_jumps=tank_jumps,
                     scoop_max_ls=scoop_max_ls,
                     reach_by_r=reach_by_r,
+                    fullgraph=fullgraph,
                 )
             except _DbBudgetExceeded:
                 # The graph is thrashing the DB (pathological realization);
@@ -3792,7 +3796,8 @@ def _solve_route_core(
                 )
                 break
             if result is not None:
-                result["engine"] = "graph"
+                # The experimental fullgraph engine tags itself; don't clobber it.
+                result.setdefault("engine", "graph")
                 return result
         # Beam fallback. Tagged so the trace can tell us whether beam is ever the
         # winning path in prod -- if it never is, the whole beam engine
@@ -4408,6 +4413,7 @@ async def _solve_route_cached(
     scoop_max_ls: float = 0.0,
     reach_by_r: list | None = None,
     trace: bool = True,
+    fullgraph: bool = False,
 ) -> dict:
     """Resolve + solve a route with the Redis cache and in-flight coalescing.
     Shared by GET and POST /route. The fuel REPORT always runs on top of the
@@ -4453,6 +4459,9 @@ async def _solve_route_cached(
             if (reach_by_r and max(reach_by_r) > min(reach_by_r) + 1e-9)
             else ""
         )
+        # Experimental fullgraph engine: its geometry must never collide with
+        # the production engine's cache entries (either direction poisons).
+        + ("|fgx1" if fullgraph else "")
     )
     try:
         cached = await _route_cache.get(cache_key)
@@ -4628,8 +4637,9 @@ async def _solve_route_cached(
                 await _sem_stack.enter_async_context(_route_heavy_semaphore)
             await _sem_stack.enter_async_context(_route_solve_semaphore)
             try:
-                result = await _run_db_task(
-                    _solve_route_sync,
+                # fullgraph is appended ONLY when set, so the default call
+                # keeps its arity (test fakes and the shared path unchanged).
+                _solve_args = [
                     src,
                     dst,
                     jump_range,
@@ -4640,6 +4650,12 @@ async def _solve_route_cached(
                     tank_jumps,
                     scoop_max_ls,
                     reach_by_r,
+                ]
+                if fullgraph:
+                    _solve_args.append(True)
+                result = await _run_db_task(
+                    _solve_route_sync,
+                    *_solve_args,
                 )
             except routing.RouteError as exc:
                 _log_route_trace(
@@ -4846,6 +4862,7 @@ def import_ship(
 @app.post("/route", response_model=RouteResponse)
 async def plot_route_post(
     req: RouteRequest,
+    request: Request,
     access: dict = Depends(entitlements.require_entitlement("route")),
 ):
     """Fuel-aware route plot. Same geometry as GET /route (shared,
@@ -4879,6 +4896,11 @@ async def plot_route_post(
         if (params is not None and req.range_growth)
         else None
     )
+    # Experimental full-galaxy engine, opt-in via cookie contraction=true. Only
+    # effective where the service is configured with a sparse graph
+    # (EDGIS_SPARSE_GRAPH); everywhere else the flag is inert. Any engine miss
+    # falls through to the production pipeline inside graph_route.
+    fullgraph = request.cookies.get("contraction") == "true"
     result = await _solve_route_cached(
         req.from_,
         req.to,
@@ -4893,6 +4915,7 @@ async def plot_route_post(
         scoop_max_ls=req.scoop_max_ls,
         reach_by_r=reach_by_r,
         trace=False,  # the handler emits one end-to-end trace below
+        fullgraph=fullgraph,
     )
     _was_cached = bool(result.get("_cached"))
     if params is not None:
