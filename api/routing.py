@@ -1712,6 +1712,52 @@ def _repair_gaps(
     return cur_legs
 
 
+# Fuel-state cap for the fullgraph search: label arrays are n x (tank_jumps+1),
+# so an unbounded tank would cost ~GBs on big-tank ships that barely bind on
+# fuel anyway (the win lives on 2-4 jump tanks: cutter/type10/courier). A capped
+# tank is CONSERVATIVE (more refuel-eager than real), never unsafe.
+_FGX_TANK_CAP = 4
+
+# Not-locked node mask for the fullgraph search, built ONCE per process in a
+# background thread (~5M is_locked calls are far too slow per-request). Until
+# ready the permit post-check in _fullgraph_solve covers correctness (a locked
+# backbone falls through to the permit-aware production pipeline).
+_fgx_permit_state: dict = {"mask": None, "building": False}
+
+
+def _fgx_permit_mask(index, is_locked):
+    st = _fgx_permit_state
+    if st["mask"] is not None or is_locked is None:
+        return st["mask"]
+    if not st["building"]:
+        st["building"] = True
+        import threading
+
+        def _build():
+            import logging
+
+            try:
+                nm, idl, cc = index.names, index.id64, index.coords
+                mask = np.ones(len(cc), dtype=np.uint8)
+                for i in range(len(cc)):
+                    if is_locked(nm[i], id64=idl[i], coords=cc[i]):
+                        mask[i] = 0
+                st["mask"] = mask
+                logging.getLogger(__name__).info(
+                    "FGX permit mask ready: %d locked nodes",
+                    int((mask == 0).sum()),
+                )
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "FGX permit mask build failed", exc_info=True
+                )
+                st["building"] = False  # allow a later retry
+        threading.Thread(
+            target=_build, daemon=True, name="fgx-permit-mask"
+        ).start()
+    return None
+
+
 def _fullgraph_solve(
     index: NeutronIndex,
     src: tuple[float, float, float],
@@ -1727,6 +1773,8 @@ def _fullgraph_solve(
     is_locked,
     inject_mult: float,
     companion_max_ls: float,
+    tank_jumps: int,
+    scoop_max_ls: float,
     filter_fn,
 ) -> Optional[dict]:
     """Experimental full-galaxy engine (cookie contraction=true): native A* over
@@ -1785,19 +1833,36 @@ def _fullgraph_solve(
     budget = min(deadline - time.perf_counter(), 30.0)
     if budget <= 1.0:
         return _miss("no time budget left")
-    # Companion mask for the search itself (vectorized; permits are handled by
-    # the post-check below). None when every node is usable.
+    # Companion mask for the search itself (vectorized), AND'd with the permit
+    # mask once its background build completes. The permit post-check below
+    # stays as the safety net (and covers the pre-ready window).
     allowed = None
     als = getattr(index, "arrival_ls", None)
     if als is not None and len(als):
         allowed = np.ascontiguousarray(
             (np.asarray(als) <= float(companion_max_ls)).astype(np.uint8)
         )
+    pmask = _fgx_permit_mask(index, is_locked)
+    if pmask is not None:
+        allowed = pmask if allowed is None else (allowed & pmask)
+    # Fuel mode (Phase 2): the search threads scoopable landings itself instead
+    # of leaving the enforcer to bolt on +2 out-and-back diverts (fuel-naive
+    # Phase 1 cost cutter Colonia->Sol 317 jumps vs the corridor's 194).
+    t = int(tank_jumps)
+    scoop_arr = None
+    sls = getattr(index, "scoop_ls", None)
+    if t >= 1 and float(scoop_max_ls) > 0.0 and sls is not None:
+        scoop_arr = np.ascontiguousarray(
+            (np.asarray(sls) <= float(scoop_max_ls)).astype(np.uint8)
+        )
+        t = min(t, _FGX_TANK_CAP)
+    else:
+        t = 0
     try:
         seq, _cost, _pops = _native_route.csr_search(
             indptr, idx, dly, index.coords, srcs, dsts,
             float(J), float(boost_mult), float(budget),
-            allowed=allowed,
+            allowed=allowed, scoop=scoop_arr, tank_jumps=t,
         )
     except Exception:
         import logging
@@ -1960,6 +2025,8 @@ def graph_route(
             is_locked,
             inject_mult,
             companion_max_ls,
+            tank_jumps,
+            scoop_max_ls,
             _filter,
         )
         if res is not None:

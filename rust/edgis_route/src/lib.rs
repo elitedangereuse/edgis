@@ -614,7 +614,8 @@ static CSR_CACHE: std::sync::OnceLock<std::sync::Mutex<Option<(usize, usize, std
 /// Returns (backbone node sequence, total jump cost incl. entry+exit, pops), or
 /// (None, -1, pops) on timeout / no route.
 #[pyfunction]
-#[pyo3(signature = (indptr, idx, dist_dly, coords, srcs, dsts, jump_range, boost_mult, time_budget_s, allowed=None))]
+#[pyo3(signature = (indptr, idx, dist_dly, coords, srcs, dsts, jump_range, boost_mult, time_budget_s, allowed=None, scoop=None, tank_jumps=0))]
+#[allow(clippy::too_many_arguments)]
 fn csr_search<'py>(
     py: Python<'py>,
     indptr: PyReadonlyArray1<'py, i64>,
@@ -627,12 +628,26 @@ fn csr_search<'py>(
     boost_mult: f64,
     time_budget_s: f64,
     // Per-request node usability (0 = never board/route through this node;
-    // e.g. companion neutrons beyond the request's supercruise cap). The graph
-    // cache is topology-only, so this stays a per-call argument.
+    // e.g. companion neutrons beyond the request's supercruise cap, or
+    // permit-locked systems). The graph cache is topology-only, so this stays
+    // a per-call argument.
     allowed: Option<PyReadonlyArray1<'py, u8>>,
+    // Fuel mode (Phase 2): per-node scoopable flag + tank capacity in boosted
+    // jumps. Mirrors the corridor B1 model exactly: resource r = boosted jumps
+    // since the last refuel; a scoopable landing resets r = 0; a hop at r >= T
+    // is dry and costs 3 (the +2 out-and-back divert folded in) landing at
+    // r = 1; chain edges reset r = 0 (a multi-jump regular chain passes
+    // main-sequence stars, like the corridor's gap edges); prefix-min
+    // dominance. tank_jumps == 0 or no scoop array = plain min-jumps.
+    scoop: Option<PyReadonlyArray1<'py, u8>>,
+    tank_jumps: usize,
 ) -> PyResult<(Option<Vec<usize>>, f64, u64)> {
     let allowed_o: Option<Vec<u8>> = match &allowed {
         Some(a) => Some(a.as_slice()?.to_vec()),
+        None => None,
+    };
+    let scoop_o: Option<Vec<u8>> = match &scoop {
+        Some(s) => Some(s.as_slice()?.to_vec()),
         None => None,
     };
     let key = (indptr.as_slice()?.as_ptr() as usize, indptr.len()?);
@@ -660,16 +675,172 @@ fn csr_search<'py>(
         }
     };
     Ok(py.allow_threads(move || {
-        csr_search_core(
-            &graph,
-            &srcs,
-            &dsts,
-            jump_range,
-            boost_mult,
-            time_budget_s,
-            allowed_o.as_deref(),
-        )
+        match (&scoop_o, tank_jumps) {
+            (Some(sc), t) if t >= 1 => csr_search_fuel_core(
+                &graph,
+                &srcs,
+                &dsts,
+                jump_range,
+                boost_mult,
+                time_budget_s,
+                allowed_o.as_deref(),
+                sc,
+                t,
+            ),
+            _ => csr_search_core(
+                &graph,
+                &srcs,
+                &dsts,
+                jump_range,
+                boost_mult,
+                time_budget_s,
+                allowed_o.as_deref(),
+            ),
+        }
     }))
+}
+
+/// Fuel-aware CSR search: state = (node, r), r = boosted jumps since refuel.
+/// Mirrors search_core's B1 semantics (see csr_search docstring) over the
+/// explicit sparse graph, so the backbone THREADS scoopable landings instead of
+/// leaving the fuel layer to bolt on out-and-back diverts afterwards (the
+/// Phase 1 fuel-naive backbone cost cutter Colonia->Sol 317 jumps vs the
+/// corridor's 194 for exactly that reason).
+#[allow(clippy::too_many_arguments)]
+fn csr_search_fuel_core(
+    g: &CsrGraph,
+    srcs: &[(usize, f64)],
+    dsts: &[(usize, f64)],
+    jump_range: f64,
+    boost_mult: f64,
+    time_budget_s: f64,
+    allowed: Option<&[u8]>,
+    scoop: &[u8],
+    tank_jumps: usize,
+) -> (Option<Vec<usize>>, f64, u64) {
+    let n = g.indptr.len() - 1;
+    let boost = boost_mult * jump_range;
+    let t = tank_jumps;
+    let slots = t + 1;
+    let start = Instant::now();
+    let mut best: Vec<f32> = vec![f32::INFINITY; n * slots];
+    let mut par_node: Vec<i32> = vec![-1; n * slots];
+    let mut par_r: Vec<i8> = vec![-1; n * slots];
+    let h = |u: usize| -> f64 {
+        let p = g.coords[u];
+        dsts.iter()
+            .map(|&(d, _)| {
+                let q = g.coords[d];
+                let dx = p[0] - q[0];
+                let dy = p[1] - q[1];
+                let dz = p[2] - q[2];
+                OrderedFloat((dx * dx + dy * dy + dz * dz).sqrt() / boost)
+            })
+            .min()
+            .map(|x| x.0)
+            .unwrap_or(0.0)
+    };
+    let sidx = |node: usize, r: usize| node * slots + r;
+    let mut heap: BinaryHeap<Reverse<(OrderedFloat<f64>, u32, u8)>> = BinaryHeap::new();
+    // Entry boards with a full tank (r = 0), like the corridor's entry edges.
+    for &(s, c) in srcs {
+        if (c as f32) < best[sidx(s, 0)] {
+            best[sidx(s, 0)] = c as f32;
+            heap.push(Reverse((OrderedFloat(c + h(s)), s as u32, 0)));
+        }
+    }
+    let exit_of: std::collections::HashMap<usize, f64> = dsts.iter().cloned().collect();
+    let mut best_goal = f64::INFINITY;
+    let mut best_dst: i64 = -1;
+    let mut best_dst_r: usize = 0;
+    let mut pops: u64 = 0;
+    while let Some(Reverse((OrderedFloat(f), u32u, r8))) = heap.pop() {
+        let u = u32u as usize;
+        let r = r8 as usize;
+        pops += 1;
+        if f >= best_goal {
+            break;
+        }
+        if pops % 65536 == 0 && start.elapsed().as_secs_f64() > time_budget_s {
+            return (None, -1.0, pops);
+        }
+        let gu = best[sidx(u, r)] as f64;
+        if f - h(u) > gu + 1e-6 {
+            continue; // stale
+        }
+        // Prefix-min on pop: a lower resource already reaches u at least as well.
+        if r > 0 {
+            let base = u * slots;
+            let mut pm = f32::INFINITY;
+            for rr in 0..r {
+                if best[base + rr] < pm {
+                    pm = best[base + rr];
+                }
+            }
+            if pm as f64 <= gu {
+                continue;
+            }
+        }
+        if let Some(&ex) = exit_of.get(&u) {
+            // Tail parity with the corridor: the boosted arrival is never
+            // dry-penalized there, so not here either.
+            let total = gu + ex;
+            if total < best_goal {
+                best_goal = total;
+                best_dst = u as i64;
+                best_dst_r = r;
+            }
+        }
+        let (lo, hi) = (g.indptr[u] as usize, g.indptr[u + 1] as usize);
+        for e in lo..hi {
+            let v = g.idx[e] as usize;
+            if let Some(mask) = allowed {
+                if mask[v] == 0 {
+                    continue;
+                }
+            }
+            let d = g.dist_dly[e] as f64 / 10.0;
+            let w = boosted_jumps(d, jump_range, boost);
+            let (step, nr) = if w > 1 {
+                // Chain edge: multi-jump regular crossing, resets like a gap edge.
+                (w as f64, 0usize)
+            } else if r >= t {
+                // Dry boost: +2 divert folded in, land one boosted jump past full.
+                (3.0, if scoop[v] != 0 { 0 } else { 1 })
+            } else {
+                (1.0, if scoop[v] != 0 { 0 } else { r + 1 })
+            };
+            let ng = gu + step;
+            // Prefix-min dominance on relax.
+            let base = v * slots;
+            let mut pm = f32::INFINITY;
+            for rr in 0..=nr {
+                if best[base + rr] < pm {
+                    pm = best[base + rr];
+                }
+            }
+            if (ng as f32) < pm {
+                best[sidx(v, nr)] = ng as f32;
+                par_node[sidx(v, nr)] = u as i32;
+                par_r[sidx(v, nr)] = r as i8;
+                heap.push(Reverse((OrderedFloat(ng + h(v)), v as u32, nr as u8)));
+            }
+        }
+    }
+    if best_dst < 0 {
+        return (None, -1.0, pops);
+    }
+    let mut seq = vec![best_dst as usize];
+    let (mut cur, mut r) = (best_dst as usize, best_dst_r);
+    while par_node[sidx(cur, r)] >= 0 {
+        let pn = par_node[sidx(cur, r)] as usize;
+        let pr = par_r[sidx(cur, r)] as usize;
+        cur = pn;
+        r = pr;
+        seq.push(cur);
+    }
+    seq.reverse();
+    (Some(seq), best_goal, pops)
 }
 
 #[allow(clippy::too_many_arguments)]
