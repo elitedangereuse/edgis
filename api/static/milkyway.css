@@ -1,13 +1,12 @@
-/* Enforce the EDGIS wordmark font on every platform. The system-map stack is
-   Orbitron / Aldrich / Bank Gothic / Exo 2 / system-ui, none bundled, so it fell
-   back per-platform (ugly elsewhere). Aldrich is the free (OFL) member of that
-   look (squared / techy, like Bank Gothic) -- self-host it and lead with it so
-   everyone gets the same wordmark; Bank Gothic stays as a fallback for those who
-   have it. */
+/* Enforce the EDGIS wordmark font on every platform. The system-map stack
+   (Orbitron / Aldrich / Bank Gothic / Exo 2 / system-ui) bundled none of its
+   fonts, so on a typical Linux box it fell through to the generic sans-serif,
+   which fontconfig resolves to Noto Sans -- that bold Noto Sans is the look to
+   keep. Self-host Noto Sans 700 and apply it so everyone gets the same wordmark. */
 @font-face {
-    font-family: 'Aldrich';
-    src: url('/static/assets/fonts/aldrich.woff2') format('woff2');
-    font-weight: normal;
+    font-family: 'Noto Sans';
+    src: url('/static/assets/fonts/noto-sans-700.woff2') format('woff2');
+    font-weight: 700;
     font-style: normal;
     font-display: swap;
 }
@@ -299,10 +298,10 @@ a:hover {
     cursor: pointer;
 }
 
-/* The "EDGIS" wordmark: enforced Aldrich, matching the system map. */
+/* The "EDGIS" wordmark: enforced Noto Sans Bold, matching the system map. */
 .hero-title span {
-    font-family: 'Aldrich', 'Bank Gothic', 'Exo 2', system-ui, sans-serif;
-    letter-spacing: 0.08em;
+    font-family: 'Noto Sans', system-ui, sans-serif;
+    font-weight: 700;
 }
 
 .hero-title svg {

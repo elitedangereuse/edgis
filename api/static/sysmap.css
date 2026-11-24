@@ -1,9 +1,10 @@
-/* Enforce the EDGIS wordmark font (Aldrich, free/OFL, the squared look of the
-   .uc-branding stack) so every viewer sees the same branding, not a fallback. */
+/* Enforce the EDGIS wordmark font so every viewer sees the same branding, not a
+   per-platform fallback. Noto Sans 700 (the bold generic sans this resolves to on
+   Linux) is the look to keep; self-host it. */
 @font-face {
-    font-family: 'Aldrich';
-    src: url('/static/assets/fonts/aldrich.woff2') format('woff2');
-    font-weight: normal;
+    font-family: 'Noto Sans';
+    src: url('/static/assets/fonts/noto-sans-700.woff2') format('woff2');
+    font-weight: 700;
     font-style: normal;
     font-display: swap;
 }
@@ -66,7 +67,7 @@ svg text {
     text-shadow: 3px 3px 3px black;
 }
 svg .uc-branding {
-    font-family: 'Aldrich', 'Bank Gothic', 'Exo 2', system-ui, sans-serif;
+    font-family: 'Noto Sans', system-ui, sans-serif;
     letter-spacing: 0.08em;
 }
 svg .uc-branding__panel {
